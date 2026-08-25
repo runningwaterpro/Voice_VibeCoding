@@ -500,8 +500,7 @@ fn ime_bar_visible(config: &DeviceConfig) -> Option<bool> {
         BOOL(1)
     }
 
-    let ok = unsafe { EnumWindows(Some(enum_proc), LPARAM(&ctx as *const Ctx as isize)) };
-    if !ok.as_bool() {
+    if unsafe { EnumWindows(Some(enum_proc), LPARAM(&ctx as *const Ctx as isize)) }.is_err() {
         log::debug!("XIAOMI IME bar detect: EnumWindows failed");
         return None;
     }
