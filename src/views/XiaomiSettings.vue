@@ -140,6 +140,11 @@ let triggerTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let repairTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let atvvTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let restartTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
+const showToggleCloseTip = ref(false);
+const toggleCloseInfoBtn = ref<HTMLElement | null>(null);
+const toggleCloseTipEl = ref<HTMLElement | null>(null);
+const toggleCloseTipStyle = ref<Record<string, string>>({});
+let toggleCloseTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 右上 / 右下自动落位，并钳制在视口内 */
 function placeInfoTip(
@@ -284,6 +289,40 @@ function toggleTriggerTip() {
   }
 }
 
+async function openToggleCloseTip() {
+  if (toggleCloseTipCloseTimer) {
+    clearTimeout(toggleCloseTipCloseTimer);
+    toggleCloseTipCloseTimer = null;
+  }
+  toggleCloseTipStyle.value = {
+    position: "fixed",
+    top: "0px",
+    left: "0px",
+    visibility: "hidden",
+    zIndex: "2000",
+  };
+  showToggleCloseTip.value = true;
+  await nextTick();
+  requestAnimationFrame(() => {
+    placeInfoTip(toggleCloseInfoBtn.value, toggleCloseTipEl.value, toggleCloseTipStyle);
+  });
+}
+
+function scheduleCloseToggleCloseTip() {
+  if (toggleCloseTipCloseTimer) clearTimeout(toggleCloseTipCloseTimer);
+  toggleCloseTipCloseTimer = setTimeout(() => {
+    showToggleCloseTip.value = false;
+  }, 120);
+}
+
+function toggleToggleCloseTip() {
+  if (showToggleCloseTip.value) {
+    showToggleCloseTip.value = false;
+  } else {
+    void openToggleCloseTip();
+  }
+}
+
 async function openRepairTip() {
   if (repairTipCloseTimer) {
     clearTimeout(repairTipCloseTimer);
@@ -404,6 +443,9 @@ function onViewportChange() {
   }
   if (showRestartTip.value) {
     placeInfoTip(restartInfoBtn.value, restartTipEl.value, restartTipStyle);
+  }
+  if (showToggleCloseTip.value) {
+    placeInfoTip(toggleCloseInfoBtn.value, toggleCloseTipEl.value, toggleCloseTipStyle);
   }
 }
 const host = ref<HostStatus>({
@@ -999,6 +1041,7 @@ onUnmounted(() => {
   if (repairTipCloseTimer) clearTimeout(repairTipCloseTimer);
   if (atvvTipCloseTimer) clearTimeout(atvvTipCloseTimer);
   if (restartTipCloseTimer) clearTimeout(restartTipCloseTimer);
+  if (toggleCloseTipCloseTimer) clearTimeout(toggleCloseTipCloseTimer);
   if (mappingFlashClearTimer) clearTimeout(mappingFlashClearTimer);
   window.removeEventListener("resize", onViewportChange);
   window.removeEventListener("scroll", onViewportChange, true);
@@ -1668,6 +1711,50 @@ function toggleConnection() {
               />
               <span class="switch-slider" aria-hidden="true"></span>
             </label>
+            <button
+              ref="toggleCloseInfoBtn"
+              type="button"
+              class="title-info"
+              :aria-expanded="showToggleCloseTip"
+              aria-label="松开时自动关闭说明"
+              @mouseenter="openToggleCloseTip"
+              @mouseleave="scheduleCloseToggleCloseTip"
+              @focus="openToggleCloseTip"
+              @blur="scheduleCloseToggleCloseTip"
+              @click.stop="toggleToggleCloseTip"
+            >
+              <span class="title-info-icon" aria-hidden="true">i</span>
+            </button>
+            <Teleport to="body">
+              <div
+                v-if="showToggleCloseTip"
+                ref="toggleCloseTipEl"
+                class="floating-info-tip voice-info-tip"
+                role="tooltip"
+                :style="toggleCloseTipStyle"
+                @mouseenter="openToggleCloseTip"
+                @mouseleave="scheduleCloseToggleCloseTip"
+              >
+                <p class="tip-lead">
+                  按住模式松开时，补发一次完整快捷键（Down + 400ms + Up），
+                  确保开关式输入法（如微信新版、千问）切换为关闭状态。
+                </p>
+                <div class="tip-block tip-on">
+                  <div class="tip-badge">适用场景</div>
+                  <ul>
+                    <li>微信输入法「启动语音输入」、千问输入法等开关式快捷键</li>
+                    <li>按住遥控器说话 → 松开后语音条自动关闭，文字上屏</li>
+                  </ul>
+                </div>
+                <div class="tip-block tip-off">
+                  <div class="tip-badge">不需要关闭</div>
+                  <ul>
+                    <li>旧版按住式输入法（松开即关闭）——保持默认关闭即可</li>
+                    <li>纯点击模式用户不受此选项影响</li>
+                  </ul>
+                </div>
+              </div>
+            </Teleport>
           </div>
 
           <div class="voice-toolbar-item">
