@@ -452,8 +452,10 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
 /// 返回 `Some(false)`，行为退化为"需再按一次关闭"，不会错乱输入。
 #[cfg(target_os = "windows")]
 fn ime_bar_visible(config: &DeviceConfig) -> Option<bool> {
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, GetWindowTextW, IsWindowVisible};
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, IsIconic, IsWindowVisible,
+    };
 
     // ponytail: 内置特征来自诊断脚本实测（微信输入法语音条 = Flutter 窗口）；
     // 输入法更新失配时可用 ime_bar_window_class 配置补充（仅类名匹配，无标题约束）
@@ -479,7 +481,20 @@ fn ime_bar_visible(config: &DeviceConfig) -> Option<bool> {
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         // safety: lparam 指向调用方栈上的 Ctx，EnumWindows 同步回调期间存活
         let ctx = unsafe { &*(lparam.0 as *const Ctx) };
+        // ponytail: 微信输入法收起语音条时不销毁窗口——最小化/移出屏幕/零尺寸，
+        // IsWindowVisible 仍为 true，必须叠加位置与尺寸过滤才能识别"真开着"
         if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            return BOOL(1);
+        }
+        if unsafe { IsIconic(hwnd) }.as_bool() {
+            return BOOL(1);
+        }
+        let mut rect = RECT::default();
+        let _ = unsafe { GetWindowRect(hwnd, &mut rect) };
+        if rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0 {
+            return BOOL(1);
+        }
+        if rect.left < -30000 || rect.top < -30000 {
             return BOOL(1);
         }
         let mut cls = [0u16; 256];
