@@ -87,6 +87,9 @@ pub struct DeviceConfig {
     /// HID Tap
     #[serde(default = "default_true")]
     pub hid_report_tap_enabled: bool,
+    /// 松开时补发关闭点按（适配开关式输入法，如微信新版/千问）
+    #[serde(default)]
+    pub ime_voice_toggle_release: bool,
 }
 
 fn default_gain_db() -> f32 {
@@ -116,6 +119,7 @@ impl DeviceConfig {
             tv_action_ready_delay: default_tv_delay(),
             special_key_hook_enabled: true,
             hid_report_tap_enabled: true,
+            ime_voice_toggle_release: false,
         }
     }
 }
@@ -311,6 +315,7 @@ impl ConfigManager {
                 tv_action_ready_delay: 2.0,
                 special_key_hook_enabled: true,
                 hid_report_tap_enabled: true,
+                ime_voice_toggle_release: false,
             },
             "t1" => DeviceConfig {
                 button_aliases: Self::t1_button_aliases(),

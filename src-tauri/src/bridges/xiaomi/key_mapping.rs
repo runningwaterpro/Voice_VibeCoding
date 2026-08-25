@@ -5,7 +5,7 @@
 use crate::bridges::xiaomi::connect;
 use crate::bridges::xiaomi::key_log::{button_label, emit_key_phase};
 use crate::bridges::xiaomi::tv_gate;
-use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction};
+use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction, TriggerMode};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -416,6 +416,13 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
         }
     } else if VOICE_HELD.swap(false, Ordering::SeqCst) {
         key_chord(&vks, true);
+        // ponytail: 开关式输入法忽略 UP，Hold 松开补一次完整点按切换关闭
+        if config.trigger_mode == TriggerMode::Hold && config.ime_voice_toggle_release {
+            std::thread::sleep(Duration::from_millis(50));
+            let hold = if vks.iter().any(|vk| matches!(vk, 0x5B | 0x5C)) { 400 } else { 300 };
+            tap_vks(&vks, hold);
+            log::info!("XIAOMI VOICE SHORTCUT TOGGLE CLOSE vks={vks:?} hold_ms={hold}");
+        }
         log::info!(
             "XIAOMI VOICE SHORTCUT UP mode={:?} vks={vks:?}",
             config.trigger_mode

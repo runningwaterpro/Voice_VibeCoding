@@ -36,6 +36,8 @@ export interface DeviceConfig {
   gain_db?: number;
   /** 是否注入语音快捷键（传声与此项无关） */
   voice_shortcut_enabled?: boolean;
+  /** 松开时补发关闭点按（适配开关式输入法） */
+  ime_voice_toggle_release?: boolean;
 }
 
 export interface GlobalSettings {

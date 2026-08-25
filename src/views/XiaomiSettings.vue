@@ -487,11 +487,13 @@ async function applyWechatVoiceMapping() {
     voice_hotkey: ["leftctrl", "leftwin"],
     voice_shortcut_enabled: true,
     trigger_mode: "Hold",
+    ime_voice_toggle_release: true,
   };
   config.value.button_bindings = bindings;
   config.value.voice_hotkey = next.voice_hotkey;
   config.value.voice_shortcut_enabled = true;
   config.value.trigger_mode = "Hold";
+  config.value.ime_voice_toggle_release = true;
   await configStore.saveConfig(type, next);
   setupApplyHint.value = "已应用：语音键 = 左 Ctrl + 左 Win，触发模式 = 按住";
   prependLog("设置建议：已快速应用微信按住说话映射（左 Ctrl + 左 Win）");
@@ -1654,6 +1656,18 @@ function toggleConnection() {
                 </div>
               </div>
             </Teleport>
+          </div>
+
+          <div v-if="config.trigger_mode === 'Hold'" class="voice-toolbar-item">
+            <span class="voice-toolbar-label">松开时自动关闭</span>
+            <label class="switch" title="开关式输入法松开后补发关闭快捷键">
+              <input
+                type="checkbox"
+                v-model="config.ime_voice_toggle_release"
+                @change="persistVoiceSettings"
+              />
+              <span class="switch-slider" aria-hidden="true"></span>
+            </label>
           </div>
 
           <div class="voice-toolbar-item">
