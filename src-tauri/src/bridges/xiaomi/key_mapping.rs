@@ -5,7 +5,7 @@
 use crate::bridges::xiaomi::connect;
 use crate::bridges::xiaomi::key_log::{button_label, emit_key_phase};
 use crate::bridges::xiaomi::tv_gate;
-use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction, TriggerMode};
+use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -406,21 +406,9 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
     }
     // 点击 / 按住：快捷键都跟遥控按下/抬起走（短按≈点按，长按=按住）
     // 「点击模式」的短按点按由 input_session 在短于阈值抬起时改走 tap；此处处理按下/抬起和弦
-    let toggle_close = config.trigger_mode == TriggerMode::Hold && config.ime_voice_toggle_release;
     if pressed {
         if !VOICE_HELD.swap(true, Ordering::SeqCst) {
-            if toggle_close && ime_bar_visible(&config) == Some(true) {
-                // 检测模式：语音条已开（上次未关/输入法自动重开）→ 不注入，保持会话直接说话
-                log::info!("XIAOMI VOICE SHORTCUT DOWN skipped (bar already open)");
-            } else if toggle_close {
-                // ponytail: 开关式输入法按"干净按下边沿"切换；上一次关闭点按可能仍按住
-                // 和弦吞掉新按下，先补 UP 再 DOWN（WinUHid 可用时走虚拟键盘，等同物理键）
-                voice_chord_up(&vks);
-                std::thread::sleep(Duration::from_millis(30));
-                voice_chord_down(&vks);
-            } else {
-                voice_chord_down(&vks);
-            }
+            voice_chord_down(&vks);
             log::info!(
                 "XIAOMI VOICE SHORTCUT DOWN mode={:?} vks={vks:?}",
                 config.trigger_mode
@@ -428,16 +416,6 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
         }
     } else if VOICE_HELD.swap(false, Ordering::SeqCst) {
         voice_chord_up(&vks);
-        if toggle_close && ime_bar_visible(&config) != Some(false) {
-            // ponytail: 开关式输入法忽略 UP，松开补一次完整点按切换关闭；
-            // 检测为已关则跳过，避免盲发造成状态错位
-            std::thread::sleep(Duration::from_millis(50));
-            let hold = if vks.iter().any(|vk| matches!(vk, 0x5B | 0x5C)) { 400 } else { 300 };
-            tap_vks(&vks, hold);
-            log::info!("XIAOMI VOICE SHORTCUT TOGGLE CLOSE vks={vks:?} hold_ms={hold}");
-        } else if toggle_close {
-            log::info!("XIAOMI VOICE SHORTCUT TOGGLE CLOSE skipped (bar already closed)");
-        }
         log::info!(
             "XIAOMI VOICE SHORTCUT UP mode={:?} vks={vks:?}",
             config.trigger_mode
@@ -457,88 +435,6 @@ fn voice_chord_up(vks: &[u16]) {
     if crate::bridges::xiaomi::hid_injector::release(vks).is_err() {
         key_chord(vks, true);
     }
-}
-
-/// 检测输入法语音条是否可见。
-///
-/// 返回 `None` 表示检测不可用（未启用、无特征、枚举失败），调用方退回盲发模式。
-/// 特征 = 内置已知列表 + 配置 `ime_bar_window_class` 覆盖；输入法更新导致特征失配时
-/// 返回 `Some(false)`，行为退化为"需再按一次关闭"，不会错乱输入。
-#[cfg(target_os = "windows")]
-fn ime_bar_visible(config: &DeviceConfig) -> Option<bool> {
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, IsIconic, IsWindowVisible,
-    };
-
-    // ponytail: 内置特征来自诊断脚本实测（微信输入法语音条 = Flutter 窗口）；
-    // 输入法更新失配时可用 ime_bar_window_class 配置补充（仅类名匹配，无标题约束）
-    const BUILTIN: &[(&str, &str)] = &[("wetype", "语音输入")];
-    let mut signatures: Vec<(String, String)> =
-        BUILTIN.iter().map(|(c, t)| ((*c).to_ascii_lowercase(), (*t).to_string())).collect();
-    if let Some(custom) = config.ime_bar_window_class.as_deref() {
-        let t = custom.trim().to_ascii_lowercase();
-        if !t.is_empty() {
-            signatures.push((t, String::new()));
-        }
-    }
-    if signatures.is_empty() {
-        return None;
-    }
-
-    struct Ctx {
-        signatures: Vec<(String, String)>,
-        found: AtomicBool,
-    }
-    let ctx = Ctx { signatures, found: AtomicBool::new(false) };
-
-    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        // safety: lparam 指向调用方栈上的 Ctx，EnumWindows 同步回调期间存活
-        let ctx = unsafe { &*(lparam.0 as *const Ctx) };
-        // ponytail: 微信输入法收起语音条时不销毁窗口——最小化/移出屏幕/零尺寸，
-        // IsWindowVisible 仍为 true，必须叠加位置与尺寸过滤才能识别"真开着"
-        if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
-            return BOOL(1);
-        }
-        if unsafe { IsIconic(hwnd) }.as_bool() {
-            return BOOL(1);
-        }
-        let mut rect = RECT::default();
-        let _ = unsafe { GetWindowRect(hwnd, &mut rect) };
-        if rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0 {
-            return BOOL(1);
-        }
-        if rect.left < -30000 || rect.top < -30000 {
-            return BOOL(1);
-        }
-        let mut cls = [0u16; 256];
-        let cn = unsafe { GetClassNameW(hwnd, &mut cls) };
-        let class = String::from_utf16_lossy(&cls[..cn as usize]).to_ascii_lowercase();
-        let matched = ctx.signatures.iter().any(|(c, t)| {
-            class.contains(c.as_str()) && (t.is_empty() || {
-                let mut tt = [0u16; 256];
-                let tn = unsafe { GetWindowTextW(hwnd, &mut tt) };
-                let title = String::from_utf16_lossy(&tt[..tn as usize]);
-                title.contains(t.as_str())
-            })
-        });
-        if matched {
-            ctx.found.store(true, Ordering::SeqCst);
-            return BOOL(0); // 找到即停止枚举
-        }
-        BOOL(1)
-    }
-
-    if unsafe { EnumWindows(Some(enum_proc), LPARAM(&ctx as *const Ctx as isize)) }.is_err() {
-        log::debug!("XIAOMI IME bar detect: EnumWindows failed");
-        return None;
-    }
-    Some(ctx.found.load(Ordering::SeqCst))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn ime_bar_visible(_config: &DeviceConfig) -> Option<bool> {
-    None
 }
 
 /// 点击模式：短按判定为「点按一次」完整 tap（若尚未因长按而 DOWN）

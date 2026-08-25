@@ -176,9 +176,6 @@ pub fn run() {
 
             // WebView2 健康守卫：前端每 5s 心跳；检测到渲染进程死亡自动 reload（修长时间运行后白屏）
             {
-                // 播种一次心跳：给前端完整的 STALE_AFTER 窗口完成冷启动加载，
-                // 避免慢启动（杀毒扫描等）被守卫误判为渲染死亡而触发 reload 闪烁
-                webview_guard::ping();
                 let guard_app = app.handle().clone();
                 std::thread::Builder::new()
                     .name("webview-guard".into())

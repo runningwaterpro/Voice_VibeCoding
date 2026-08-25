@@ -140,16 +140,6 @@ let triggerTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let repairTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let atvvTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let restartTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
-const showToggleCloseTip = ref(false);
-const toggleCloseInfoBtn = ref<HTMLElement | null>(null);
-const toggleCloseTipEl = ref<HTMLElement | null>(null);
-const toggleCloseTipStyle = ref<Record<string, string>>({});
-let toggleCloseTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
-const showBarDetectTip = ref(false);
-const barDetectInfoBtn = ref<HTMLElement | null>(null);
-const barDetectTipEl = ref<HTMLElement | null>(null);
-const barDetectTipStyle = ref<Record<string, string>>({});
-let barDetectTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 右上 / 右下自动落位，并钳制在视口内 */
 function placeInfoTip(
@@ -294,74 +284,6 @@ function toggleTriggerTip() {
   }
 }
 
-async function openToggleCloseTip() {
-  if (toggleCloseTipCloseTimer) {
-    clearTimeout(toggleCloseTipCloseTimer);
-    toggleCloseTipCloseTimer = null;
-  }
-  toggleCloseTipStyle.value = {
-    position: "fixed",
-    top: "0px",
-    left: "0px",
-    visibility: "hidden",
-    zIndex: "2000",
-  };
-  showToggleCloseTip.value = true;
-  await nextTick();
-  requestAnimationFrame(() => {
-    placeInfoTip(toggleCloseInfoBtn.value, toggleCloseTipEl.value, toggleCloseTipStyle);
-  });
-}
-
-function scheduleCloseToggleCloseTip() {
-  if (toggleCloseTipCloseTimer) clearTimeout(toggleCloseTipCloseTimer);
-  toggleCloseTipCloseTimer = setTimeout(() => {
-    showToggleCloseTip.value = false;
-  }, 120);
-}
-
-function toggleToggleCloseTip() {
-  if (showToggleCloseTip.value) {
-    showToggleCloseTip.value = false;
-  } else {
-    void openToggleCloseTip();
-  }
-}
-
-async function openBarDetectTip() {
-  if (barDetectTipCloseTimer) {
-    clearTimeout(barDetectTipCloseTimer);
-    barDetectTipCloseTimer = null;
-  }
-  barDetectTipStyle.value = {
-    position: "fixed",
-    top: "0px",
-    left: "0px",
-    visibility: "hidden",
-    zIndex: "2000",
-  };
-  showBarDetectTip.value = true;
-  await nextTick();
-  requestAnimationFrame(() => {
-    placeInfoTip(barDetectInfoBtn.value, barDetectTipEl.value, barDetectTipStyle);
-  });
-}
-
-function scheduleCloseBarDetectTip() {
-  if (barDetectTipCloseTimer) clearTimeout(barDetectTipCloseTimer);
-  barDetectTipCloseTimer = setTimeout(() => {
-    showBarDetectTip.value = false;
-  }, 120);
-}
-
-function toggleBarDetectTip() {
-  if (showBarDetectTip.value) {
-    showBarDetectTip.value = false;
-  } else {
-    void openBarDetectTip();
-  }
-}
-
 async function openRepairTip() {
   if (repairTipCloseTimer) {
     clearTimeout(repairTipCloseTimer);
@@ -483,12 +405,6 @@ function onViewportChange() {
   if (showRestartTip.value) {
     placeInfoTip(restartInfoBtn.value, restartTipEl.value, restartTipStyle);
   }
-  if (showToggleCloseTip.value) {
-    placeInfoTip(toggleCloseInfoBtn.value, toggleCloseTipEl.value, toggleCloseTipStyle);
-  }
-  if (showBarDetectTip.value) {
-    placeInfoTip(barDetectInfoBtn.value, barDetectTipEl.value, barDetectTipStyle);
-  }
 }
 const host = ref<HostStatus>({
   bridge_alive: false,
@@ -571,15 +487,11 @@ async function applyWechatVoiceMapping() {
     voice_hotkey: ["leftctrl", "leftwin"],
     voice_shortcut_enabled: true,
     trigger_mode: "Hold",
-    ime_voice_toggle_release: true,
-    ime_voice_bar_detect: true,
   };
   config.value.button_bindings = bindings;
   config.value.voice_hotkey = next.voice_hotkey;
   config.value.voice_shortcut_enabled = true;
   config.value.trigger_mode = "Hold";
-  config.value.ime_voice_toggle_release = true;
-  config.value.ime_voice_bar_detect = true;
   await configStore.saveConfig(type, next);
   setupApplyHint.value = "已应用：语音键 = 左 Ctrl + 左 Win，触发模式 = 按住";
   prependLog("设置建议：已快速应用微信按住说话映射（左 Ctrl + 左 Win）");
@@ -1085,8 +997,6 @@ onUnmounted(() => {
   if (repairTipCloseTimer) clearTimeout(repairTipCloseTimer);
   if (atvvTipCloseTimer) clearTimeout(atvvTipCloseTimer);
   if (restartTipCloseTimer) clearTimeout(restartTipCloseTimer);
-  if (toggleCloseTipCloseTimer) clearTimeout(toggleCloseTipCloseTimer);
-  if (barDetectTipCloseTimer) clearTimeout(barDetectTipCloseTimer);
   if (mappingFlashClearTimer) clearTimeout(mappingFlashClearTimer);
   window.removeEventListener("resize", onViewportChange);
   window.removeEventListener("scroll", onViewportChange, true);
@@ -1742,125 +1652,6 @@ function toggleConnection() {
                   </ul>
                   <p class="tip-aside">适合「按住说话」类输入法。</p>
                 </div>
-              </div>
-            </Teleport>
-          </div>
-
-          <div v-if="config.trigger_mode === 'Hold'" class="voice-toolbar-item">
-            <span class="voice-toolbar-label">松开时自动关闭</span>
-            <label class="switch" title="开关式输入法松开后补发关闭快捷键">
-              <input
-                type="checkbox"
-                v-model="config.ime_voice_toggle_release"
-                @change="persistVoiceSettings"
-              />
-              <span class="switch-slider" aria-hidden="true"></span>
-            </label>
-            <button
-              ref="toggleCloseInfoBtn"
-              type="button"
-              class="title-info"
-              :aria-expanded="showToggleCloseTip"
-              aria-label="松开时自动关闭说明"
-              @mouseenter="openToggleCloseTip"
-              @mouseleave="scheduleCloseToggleCloseTip"
-              @focus="openToggleCloseTip"
-              @blur="scheduleCloseToggleCloseTip"
-              @click.stop="toggleToggleCloseTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showToggleCloseTip"
-                ref="toggleCloseTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="toggleCloseTipStyle"
-                @mouseenter="openToggleCloseTip"
-                @mouseleave="scheduleCloseToggleCloseTip"
-              >
-                <p class="tip-lead">
-                  按住模式松开时，补发一次完整快捷键（Down + 400ms + Up），
-                  确保开关式输入法（如微信新版、千问）切换为关闭状态。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">适用场景</div>
-                  <ul>
-                    <li>微信输入法「启动语音输入」、千问输入法等开关式快捷键</li>
-                    <li>按住遥控器说话 → 松开后语音条自动关闭，文字上屏</li>
-                  </ul>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">不需要关闭</div>
-                  <ul>
-                    <li>旧版按住式输入法（松开即关闭）——保持默认关闭即可</li>
-                    <li>纯点击模式用户不受此选项影响</li>
-                  </ul>
-                </div>
-              </div>
-            </Teleport>
-          </div>
-
-          <div
-            v-if="config.trigger_mode === 'Hold' && config.ime_voice_toggle_release"
-            class="voice-toolbar-item"
-          >
-            <span class="voice-toolbar-label">语音条状态检测</span>
-            <label class="switch" title="检测语音条实际状态后再注入，防止状态错位">
-              <input
-                type="checkbox"
-                v-model="config.ime_voice_bar_detect"
-                @change="persistVoiceSettings"
-              />
-              <span class="switch-slider" aria-hidden="true"></span>
-            </label>
-            <button
-              ref="barDetectInfoBtn"
-              type="button"
-              class="title-info"
-              :aria-expanded="showBarDetectTip"
-              aria-label="语音条状态检测说明"
-              @mouseenter="openBarDetectTip"
-              @mouseleave="scheduleCloseBarDetectTip"
-              @focus="openBarDetectTip"
-              @blur="scheduleCloseBarDetectTip"
-              @click.stop="toggleBarDetectTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showBarDetectTip"
-                ref="barDetectTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="barDetectTipStyle"
-                @mouseenter="openBarDetectTip"
-                @mouseleave="scheduleCloseBarDetectTip"
-              >
-                <p class="tip-lead">
-                  注入前先检测语音条是否真的开着，按实际状态决定开关动作，
-                  消除"第一次按不出语音条"的状态错位问题。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">开启效果</div>
-                  <ul>
-                    <li>按下必出语音条，松开必关闭</li>
-                    <li>检测失败或输入法更新后自动退回普通模式，不影响使用</li>
-                  </ul>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">关闭效果</div>
-                  <ul>
-                    <li>不检测，直接按固定时序注入</li>
-                    <li>连续听写时偶尔需要多按一次</li>
-                  </ul>
-                </div>
-                <p class="tip-foot">
-                  若输入法更新后检测失效，可在配置文件 xiaomi.json 的
-                  ime_bar_window_class 中补充新的窗口类名特征。
-                </p>
               </div>
             </Teleport>
           </div>
