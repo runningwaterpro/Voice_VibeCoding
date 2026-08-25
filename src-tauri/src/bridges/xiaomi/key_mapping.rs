@@ -414,12 +414,12 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
                 log::info!("XIAOMI VOICE SHORTCUT DOWN skipped (bar already open)");
             } else if toggle_close {
                 // ponytail: 开关式输入法按"干净按下边沿"切换；上一次关闭点按可能仍按住
-                // 和弦吞掉新按下，先补 UP 再 DOWN
-                key_chord(&vks, true);
+                // 和弦吞掉新按下，先补 UP 再 DOWN（WinUHid 可用时走虚拟键盘，等同物理键）
+                voice_chord_up(&vks);
                 std::thread::sleep(Duration::from_millis(30));
-                key_chord(&vks, false);
+                voice_chord_down(&vks);
             } else {
-                key_chord(&vks, false);
+                voice_chord_down(&vks);
             }
             log::info!(
                 "XIAOMI VOICE SHORTCUT DOWN mode={:?} vks={vks:?}",
@@ -427,7 +427,7 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
             );
         }
     } else if VOICE_HELD.swap(false, Ordering::SeqCst) {
-        key_chord(&vks, true);
+        voice_chord_up(&vks);
         if toggle_close && ime_bar_visible(&config) != Some(false) {
             // ponytail: 开关式输入法忽略 UP，松开补一次完整点按切换关闭；
             // 检测为已关则跳过，避免盲发造成状态错位
@@ -442,6 +442,20 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
             "XIAOMI VOICE SHORTCUT UP mode={:?} vks={vks:?}",
             config.trigger_mode
         );
+    }
+}
+
+/// ponytail: WinUHid 可用时按住/松开走虚拟键盘（等同物理键，输入法无法区分），
+/// 不可用时回退 SendInput。这是微信输入法「按住说话」模式的确定性通路。
+fn voice_chord_down(vks: &[u16]) {
+    if crate::bridges::xiaomi::hid_injector::press(vks).is_err() {
+        key_chord(vks, false);
+    }
+}
+
+fn voice_chord_up(vks: &[u16]) {
+    if crate::bridges::xiaomi::hid_injector::release(vks).is_err() {
+        key_chord(vks, true);
     }
 }
 
