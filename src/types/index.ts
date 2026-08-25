@@ -38,6 +38,10 @@ export interface DeviceConfig {
   voice_shortcut_enabled?: boolean;
   /** 松开时补发关闭点按（适配开关式输入法） */
   ime_voice_toggle_release?: boolean;
+  /** 语音条状态检测（精准模式：按下必出条、松开必关闭） */
+  ime_voice_bar_detect?: boolean;
+  /** 语音条窗口类名特征覆盖（输入法更新后可手动补充） */
+  ime_bar_window_class?: string | null;
 }
 
 export interface GlobalSettings {

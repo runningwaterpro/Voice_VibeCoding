@@ -90,6 +90,12 @@ pub struct DeviceConfig {
     /// 松开时补发关闭点按（适配开关式输入法，如微信新版/千问）
     #[serde(default)]
     pub ime_voice_toggle_release: bool,
+    /// 语音条状态检测（精准模式：按下必出条、松开必关闭）
+    #[serde(default)]
+    pub ime_voice_bar_detect: bool,
+    /// 语音条窗口类名特征覆盖（输入法更新后可手动补充，无需升级应用）
+    #[serde(default)]
+    pub ime_bar_window_class: Option<String>,
 }
 
 fn default_gain_db() -> f32 {
@@ -120,6 +126,8 @@ impl DeviceConfig {
             special_key_hook_enabled: true,
             hid_report_tap_enabled: true,
             ime_voice_toggle_release: false,
+            ime_voice_bar_detect: false,
+            ime_bar_window_class: None,
         }
     }
 }
@@ -316,6 +324,8 @@ impl ConfigManager {
                 special_key_hook_enabled: true,
                 hid_report_tap_enabled: true,
                 ime_voice_toggle_release: false,
+                ime_voice_bar_detect: false,
+                ime_bar_window_class: None,
             },
             "t1" => DeviceConfig {
                 button_aliases: Self::t1_button_aliases(),
@@ -505,6 +515,36 @@ mod tests {
             Some(&KeyAction::ComboKey(vec![0xA2, 0x5B])) // Ctrl+左Win
         );
         assert_eq!(b.get("voice"), b.get("mic"));
+    }
+
+    #[test]
+    fn test_ime_fields_backward_compatible() {
+        // 旧版用户配置（无 ime_* 字段）反序列化：新字段取默认值，行为与升级前完全一致
+        let old_json = r#"{
+            "button_aliases": {},
+            "button_bindings": {"mic": {"type": "ComboKey", "value": [162, 91]}},
+            "voice_hotkey": ["leftctrl", "leftwin"],
+            "trigger_mode": "Hold"
+        }"#;
+        let config: DeviceConfig = serde_json::from_str(old_json).unwrap();
+        assert!(!config.ime_voice_toggle_release);
+        assert!(!config.ime_voice_bar_detect);
+        assert_eq!(config.ime_bar_window_class, None);
+
+        // 新字段可正常读写
+        let new_json = r#"{
+            "button_aliases": {},
+            "button_bindings": {},
+            "voice_hotkey": ["leftctrl", "leftwin"],
+            "trigger_mode": "Hold",
+            "ime_voice_toggle_release": true,
+            "ime_voice_bar_detect": true,
+            "ime_bar_window_class": "WeChatIME"
+        }"#;
+        let config: DeviceConfig = serde_json::from_str(new_json).unwrap();
+        assert!(config.ime_voice_toggle_release);
+        assert!(config.ime_voice_bar_detect);
+        assert_eq!(config.ime_bar_window_class.as_deref(), Some("WeChatIME"));
     }
 
     #[test]
