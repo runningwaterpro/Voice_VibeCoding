@@ -20,8 +20,7 @@ fn cleanup_on_exit(app: &tauri::AppHandle) {
 }
 
 /// 自启参数解析：`--minimized`（注册表 Run 键与 Startup 快捷方式均带此参数）。
-/// 语义：自启时最小化到任务栏（保留渲染，避免 hide 造成 WebView2 白屏），
-/// 用户点任务栏/托盘即可恢复。
+/// 语义：自启时与「启动后最小化到托盘」同路径 —— 直接隐藏到托盘，零视觉痕迹。
 ///
 /// ```
 /// use remote_bridge_hub_lib::should_start_minimized;
@@ -35,16 +34,24 @@ pub fn should_start_minimized(args: &[String]) -> bool {
     args.iter().any(|a| a.trim() == "--minimized")
 }
 
+/// 挂起 WebView2 渲染：controller 不渲染 = 窗口无任何视觉输出。
+/// 配合 tauri.conf.json 的 visible:false，从源头杜绝启动闪现（而非"显示了再藏起来"）。
+#[cfg(target_os = "windows")]
+pub fn suspend_webview_rendering(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|w| unsafe { let _ = w.controller().SetIsVisible(false) });
+}
+
+/// 恢复 WebView2 渲染。显示窗口前必须调用，否则内容不绘制（白屏）。
+#[cfg(target_os = "windows")]
+pub fn resume_webview_rendering(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|w| unsafe { let _ = w.controller().SetIsVisible(true) });
+}
+
 fn focus_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        // WebView2 可能处于隐藏状态（启动时 SetIsVisible(false)），先恢复渲染再显示窗口
+        // WebView 可能处于渲染挂起状态（启动即隐藏），先恢复渲染再显示
         #[cfg(target_os = "windows")]
-        {
-            let w = window.clone();
-            let _ = w.with_webview(move |webview| unsafe {
-                webview.controller().SetIsVisible(true);
-            });
-        }
+        resume_webview_rendering(&window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -118,7 +125,7 @@ pub fn run() {
                     }
                 });
 
-                // 启动后最小化到托盘（用户设置）或 --minimized（自启参数）
+                // 启动即隐藏（用户设置 或 自启 --minimized）：挂起渲染 + 隐藏，零视觉痕迹，托盘恢复
                 let start_hidden = app
                     .try_state::<config::manager::ConfigManager>()
                     .and_then(|m| m.get_global_settings().ok())
@@ -127,55 +134,24 @@ pub fn run() {
                 let auto_minimized =
                     should_start_minimized(&std::env::args().collect::<Vec<_>>());
 
-                if start_hidden {
-                    // 启动后最小化到托盘：visible:false + with_webview(false) 双保险，零闪烁
-                    log::info!("START: start_minimized_to_tray=true, window stays hidden");
+                if start_hidden || auto_minimized {
+                    log::info!(
+                        "START: hidden startup (start_minimized_to_tray={start_hidden}, --minimized={auto_minimized})"
+                    );
                     #[cfg(target_os = "windows")]
-                    {
-                        let w = window.clone();
-                        let _ = w.with_webview(move |webview| unsafe {
-                            webview.controller().SetIsVisible(false);
-                        });
-                    }
+                    suspend_webview_rendering(&window);
                     let _ = window.hide();
-                } else if auto_minimized {
-                    // 自启参数：最小化到任务栏（visible:false + with_webview(false) 防闪现）
-                    log::info!("START: --minimized detected, minimizing window to taskbar");
-                    #[cfg(target_os = "windows")]
-                    {
-                        let w = window.clone();
-                        let _ = w.with_webview(move |webview| unsafe {
-                            webview.controller().SetIsVisible(false);
-                        });
-                    }
-                    let win = window.clone();
-                    std::thread::Builder::new()
-                        .name("start-minimized".into())
-                        .spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(600));
-                            let _ = win.minimize();
-                        })?;
                 } else {
-                    // 正常启动：先隐藏 WebView 防闪，等待加载完成后显示
+                    // 正常启动：挂起渲染防闪现，等 WebView 加载后恢复渲染并显示
                     #[cfg(target_os = "windows")]
-                    {
-                        let w = window.clone();
-                        let _ = w.with_webview(move |webview| unsafe {
-                            webview.controller().SetIsVisible(false);
-                        });
-                    }
+                    suspend_webview_rendering(&window);
                     let win = window.clone();
                     std::thread::Builder::new()
                         .name("show-main-window".into())
                         .spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(1000));
                             #[cfg(target_os = "windows")]
-                            {
-                                let w = win.clone();
-                                let _ = w.with_webview(move |webview| unsafe {
-                                    webview.controller().SetIsVisible(true);
-                                });
-                            }
+                            resume_webview_rendering(&win);
                             let _ = win.show();
                         })?;
                 }
