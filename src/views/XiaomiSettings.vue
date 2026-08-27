@@ -129,35 +129,30 @@ function applyVoiceMeter(p: Record<string, unknown>) {
 }
 const showVoiceShortcutTip = ref(false);
 const showGainTip = ref(false);
-const showTriggerTip = ref(false);
 const showRepairTip = ref(false);
 const showWinuhidTip = ref(false);
 const showAtvvTip = ref(false);
 const showRestartTip = ref(false);
 const voiceInfoBtn = ref<HTMLElement | null>(null);
 const gainInfoBtn = ref<HTMLElement | null>(null);
-const triggerInfoBtn = ref<HTMLElement | null>(null);
 const repairInfoBtn = ref<HTMLElement | null>(null);
 const winuhidInfoBtn = ref<HTMLElement | null>(null);
 const atvvInfoBtn = ref<HTMLElement | null>(null);
 const restartInfoBtn = ref<HTMLElement | null>(null);
 const voiceTipEl = ref<HTMLElement | null>(null);
 const gainTipEl = ref<HTMLElement | null>(null);
-const triggerTipEl = ref<HTMLElement | null>(null);
 const repairTipEl = ref<HTMLElement | null>(null);
 const winuhidTipEl = ref<HTMLElement | null>(null);
 const atvvTipEl = ref<HTMLElement | null>(null);
 const restartTipEl = ref<HTMLElement | null>(null);
 const voiceTipStyle = ref<Record<string, string>>({});
 const gainTipStyle = ref<Record<string, string>>({});
-const triggerTipStyle = ref<Record<string, string>>({});
 const repairTipStyle = ref<Record<string, string>>({});
 const winuhidTipStyle = ref<Record<string, string>>({});
 const atvvTipStyle = ref<Record<string, string>>({});
 const restartTipStyle = ref<Record<string, string>>({});
 let voiceTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let gainTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
-let triggerTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let repairTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let winuhidTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let atvvTipCloseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -269,40 +264,6 @@ function toggleGainTip() {
     showGainTip.value = false;
   } else {
     void openGainTip();
-  }
-}
-
-async function openTriggerTip() {
-  if (triggerTipCloseTimer) {
-    clearTimeout(triggerTipCloseTimer);
-    triggerTipCloseTimer = null;
-  }
-  triggerTipStyle.value = {
-    position: "fixed",
-    top: "0px",
-    left: "0px",
-    visibility: "hidden",
-    zIndex: "2000",
-  };
-  showTriggerTip.value = true;
-  await nextTick();
-  requestAnimationFrame(() => {
-    placeInfoTip(triggerInfoBtn.value, triggerTipEl.value, triggerTipStyle);
-  });
-}
-
-function scheduleCloseTriggerTip() {
-  if (triggerTipCloseTimer) clearTimeout(triggerTipCloseTimer);
-  triggerTipCloseTimer = setTimeout(() => {
-    showTriggerTip.value = false;
-  }, 120);
-}
-
-function toggleTriggerTip() {
-  if (showTriggerTip.value) {
-    showTriggerTip.value = false;
-  } else {
-    void openTriggerTip();
   }
 }
 
@@ -448,7 +409,6 @@ function onViewportChange() {
   const anyTip =
     showVoiceShortcutTip.value ||
     showGainTip.value ||
-    showTriggerTip.value ||
     showRepairTip.value ||
     showWinuhidTip.value ||
     showAtvvTip.value ||
@@ -462,9 +422,6 @@ function onViewportChange() {
     }
     if (showGainTip.value) {
       placeInfoTip(gainInfoBtn.value, gainTipEl.value, gainTipStyle);
-    }
-    if (showTriggerTip.value) {
-      placeInfoTip(triggerInfoBtn.value, triggerTipEl.value, triggerTipStyle);
     }
     if (showRepairTip.value) {
       placeInfoTip(repairInfoBtn.value, repairTipEl.value, repairTipStyle);
@@ -563,8 +520,6 @@ async function applyImePreset(presetId: ImePresetId) {
   config.value.button_bindings = next.button_bindings;
   config.value.voice_hotkey = next.voice_hotkey;
   config.value.voice_shortcut_enabled = true;
-  config.value.trigger_mode = next.trigger_mode;
-  config.value.voice_release_behavior = next.voice_release_behavior;
   await configStore.saveConfig(type, next);
   setupApplyHint.value = definition.applyHint;
   prependLog(definition.logMessage);
@@ -1044,7 +999,6 @@ onUnmounted(() => {
   if (devicePollTimer) clearInterval(devicePollTimer);
   if (voiceTipCloseTimer) clearTimeout(voiceTipCloseTimer);
   if (gainTipCloseTimer) clearTimeout(gainTipCloseTimer);
-  if (triggerTipCloseTimer) clearTimeout(triggerTipCloseTimer);
   if (repairTipCloseTimer) clearTimeout(repairTipCloseTimer);
   if (winuhidTipCloseTimer) clearTimeout(winuhidTipCloseTimer);
   if (atvvTipCloseTimer) clearTimeout(atvvTipCloseTimer);
@@ -1536,11 +1490,6 @@ function toggleConnection() {
                   @click="applyImePreset(preset.id)"
                 >
                   快速应用：{{ presetShortcutLabel(preset) }}
-                  ·
-                  {{ preset.triggerMode === "Hold" ? "按住" : "点击" }}
-                  <template v-if="preset.voiceReleaseBehavior === 'TapSameChord'">
-                    · 松手再点关
-                  </template>
                 </button>
               </div>
               <figure v-if="isWechatPreset(preset.id)" class="setup-ime-figure">
@@ -1714,63 +1663,6 @@ function toggleConnection() {
                     <li>不发送映射键（日志只记按下/抬起语音键）</li>
                   </ul>
                   <p class="tip-aside">听写需自行打开输入法语音。</p>
-                </div>
-              </div>
-            </Teleport>
-          </div>
-
-          <div class="voice-toolbar-item">
-            <span class="voice-toolbar-label">触发模式</span>
-            <select
-              v-model="config.trigger_mode"
-              class="form-select voice-toolbar-select"
-              @change="persistVoiceSettings"
-            >
-              <option value="Toggle">点击</option>
-              <option value="Hold">按住</option>
-            </select>
-            <button
-              ref="triggerInfoBtn"
-              type="button"
-              class="title-info voice-info"
-              :aria-expanded="showTriggerTip"
-              aria-label="触发模式说明"
-              @mouseenter="openTriggerTip"
-              @mouseleave="scheduleCloseTriggerTip"
-              @focus="openTriggerTip"
-              @blur="scheduleCloseTriggerTip"
-              @click.stop="toggleTriggerTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showTriggerTip"
-                ref="triggerTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="triggerTipStyle"
-                @mouseenter="openTriggerTip"
-                @mouseleave="scheduleCloseTriggerTip"
-              >
-                <p class="tip-lead">
-                  快捷键跟随遥控器实际操作：点一下就点按，按住就按住。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">点击</div>
-                  <ul>
-                    <li>短按语音键：点按一次映射快捷键</li>
-                    <li>长按语音键：按住映射快捷键，松手释放</li>
-                  </ul>
-                  <p class="tip-aside">适合「点一下开/关」类输入法，也会正确处理长按。</p>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">按住</div>
-                  <ul>
-                    <li>按下语音键：立刻按住映射快捷键并传声</li>
-                    <li>松开语音键：释放快捷键并结束</li>
-                  </ul>
-                  <p class="tip-aside">适合「按住说话」类输入法。</p>
                 </div>
               </div>
             </Teleport>

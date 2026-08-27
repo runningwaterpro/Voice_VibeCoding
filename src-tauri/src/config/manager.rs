@@ -42,6 +42,7 @@ impl Default for KeyAction {
 
 /// 触发模式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+// ponytail: 保留枚举仅为兼容旧 xiaomi.json；语音键行为已统一为纯 hold（按下→DOWN，抬起→UP），运行时不再分支
 pub enum TriggerMode {
     /// 点击型：点一下开始（松手继续），再点结束并提交（需 MIC_OPEN 保活）
     Toggle,
@@ -56,6 +57,7 @@ impl Default for TriggerMode {
 }
 
 /// 语音键抬起后的附加行为（适配开关式输入法）
+// ponytail: 保留仅为兼容旧 xiaomi.json；行为已统一为纯 hold，不再补发 tap
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum VoiceReleaseBehavior {
     /// 仅松开按住的组合键

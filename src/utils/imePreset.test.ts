@@ -9,19 +9,16 @@ function baseConfig(): DeviceConfig {
       mic: { type: "SingleKey", value: 0xa5 },
     },
     voice_hotkey: ["rightalt"],
-    trigger_mode: "Toggle",
     bluetooth_address: null,
     voice_shortcut_enabled: false,
   };
 }
 
 describe("applyImePresetConfig", () => {
-  it("applies wechat hold as Ctrl+Win Hold with no release tap", () => {
+  it("applies wechat hold as Ctrl+Win with voice enabled", () => {
     const next = applyImePresetConfig(baseConfig(), "wechat-hold");
     expect(next.voice_hotkey).toEqual(["leftctrl", "leftwin"]);
-    expect(next.trigger_mode).toBe("Hold");
     expect(next.voice_shortcut_enabled).toBe(true);
-    expect(next.voice_release_behavior).toBe("None");
     expect(next.button_bindings.mic).toEqual({
       type: "ComboKey",
       value: [0xa2, 0x5b],
@@ -32,21 +29,18 @@ describe("applyImePresetConfig", () => {
     });
   });
 
-  it("applies doubao hands-free as RightAlt+Space Toggle", () => {
+  it("applies doubao hands-free as RightAlt+Space combo", () => {
     const next = applyImePresetConfig(baseConfig(), "doubao-hands-free");
     expect(next.voice_hotkey).toEqual(["rightalt", "space"]);
-    expect(next.trigger_mode).toBe("Toggle");
-    expect(next.voice_release_behavior).toBe("None");
     expect(next.button_bindings.mic).toEqual({
       type: "ComboKey",
       value: [0xa5, 0x20],
     });
   });
 
-  it("applies qianwen win+alt as Hold combo", () => {
+  it("applies qianwen win+alt as combo", () => {
     const next = applyImePresetConfig(baseConfig(), "qianwen-win-alt");
     expect(next.voice_hotkey).toEqual(["leftwin", "leftalt"]);
-    expect(next.trigger_mode).toBe("Hold");
     expect(next.button_bindings.mic).toEqual({
       type: "ComboKey",
       value: [0x5b, 0xa4],

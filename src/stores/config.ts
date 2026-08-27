@@ -8,7 +8,6 @@ function emptyConfig(): DeviceConfig {
     button_aliases: {},
     button_bindings: {},
     voice_hotkey: null,
-    trigger_mode: "Hold",
     bluetooth_address: null,
     gain_db: 10,
     voice_shortcut_enabled: true,

@@ -1,4 +1,4 @@
-import type { DeviceConfig, KeyAction, TriggerMode, VoiceReleaseBehavior } from "../types";
+import type { DeviceConfig, KeyAction } from "../types";
 
 export type ImePresetId =
   | "wechat-hold"
@@ -22,8 +22,6 @@ export interface ImePresetDefinition {
   tag: string;
   shortcutVks: number[];
   voiceHotkey: string[];
-  triggerMode: TriggerMode;
-  voiceReleaseBehavior: VoiceReleaseBehavior;
   applyHint: string;
   logMessage: string;
   /** Short setup steps shown in 输入法设置 */
@@ -58,7 +56,7 @@ export const IME_FAQ = {
     {
       title: "其它输入法",
       items: [
-        "在「按键映射」中把语音键设成与输入法相同的组合，并选择「按住」或「点击」。",
+        "在「按键映射」中把语音键设成与输入法相同的组合；语音键行为固定为「按住说话」：单击=按一次，按住=持续按住。",
       ],
     },
   ] satisfies ImeFaqSection[],
@@ -90,12 +88,10 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "按住 · Ctrl+Win",
     shortcutVks: [0xa2, 0x5b],
     voiceHotkey: ["leftctrl", "leftwin"],
-    triggerMode: "Hold",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 左 Ctrl + 左 Win，触发模式 = 按住",
+    applyHint: "已应用：语音键 = 左 Ctrl + 左 Win（按住说话）",
     logMessage: "设置建议：已快速应用微信按住说话映射（左 Ctrl + 左 Win）",
     steps: [
-      "本软件语音键设为「左 Ctrl + 左 Win」，触发模式选「按住」（可用下方快速应用）。",
+      "本软件语音键设为「左 Ctrl + 左 Win」（可用下方快速应用）。",
       "打开微信输入法 → 设置 → 快捷键，将「按住说话」设为与本软件相同的组合键。",
       "听写麦克风选 CABLE Output（VB-Audio Virtual Cable）。",
     ],
@@ -106,12 +102,10 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "按住 · 右 Alt",
     shortcutVks: [0xa5],
     voiceHotkey: ["rightalt"],
-    triggerMode: "Hold",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 右 Alt，触发模式 = 按住",
+    applyHint: "已应用：语音键 = 右 Alt（按住说话）",
     logMessage: "设置建议：已快速应用豆包长按语音映射（右 Alt）",
     steps: [
-      "本软件语音键设为「右 Alt」，触发模式选「按住」。",
+      "本软件语音键设为「右 Alt」。",
       "在豆包中启用长按语音，并将快捷键设为右 Alt（与本软件一致）。",
       "听写麦克风选 CABLE Output；焦点放在可输入的文本框。",
       "按住遥控语音键说话，松开后豆包应结束听写并上屏。",
@@ -123,12 +117,10 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "点击 · 右 Alt+空格",
     shortcutVks: [0xa5, 0x20],
     voiceHotkey: ["rightalt", "space"],
-    triggerMode: "Toggle",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 右 Alt + 空格，触发模式 = 点击",
+    applyHint: "已应用：语音键 = 右 Alt + 空格（点击=按一次）",
     logMessage: "设置建议：已快速应用豆包免按语音映射（右 Alt + 空格）",
     steps: [
-      "本软件语音键设为「右 Alt + 空格」，触发模式选「点击」。",
+      "本软件语音键设为「右 Alt + 空格」。",
       "在豆包中开启免按/开关式语音，并将快捷键设为右 Alt + 空格。",
       "听写麦克风选 CABLE Output。",
     ],
@@ -139,9 +131,7 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "",
     shortcutVks: [0xa5],
     voiceHotkey: ["rightalt"],
-    triggerMode: "Hold",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 右 Alt，触发模式 = 按住",
+    applyHint: "已应用：语音键 = 右 Alt（按住说话）",
     logMessage: "设置建议：已快速应用千问按住说话映射（右 Alt）",
     steps: [],
   },
@@ -151,9 +141,7 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "",
     shortcutVks: [0x5b, 0xa4],
     voiceHotkey: ["leftwin", "leftalt"],
-    triggerMode: "Hold",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 左 Win + 左 Alt，触发模式 = 按住",
+    applyHint: "已应用：语音键 = 左 Win + 左 Alt（按住说话）",
     logMessage: "设置建议：已快速应用千问按住说话映射（左 Win + 左 Alt）",
     steps: [],
   },
@@ -163,9 +151,7 @@ export const IME_PRESETS: Record<ImePresetId, ImePresetDefinition> = {
     tag: "",
     shortcutVks: [0xa2, 0x5b],
     voiceHotkey: ["leftctrl", "leftwin"],
-    triggerMode: "Hold",
-    voiceReleaseBehavior: "None",
-    applyHint: "已应用：语音键 = 左 Ctrl + 左 Win，触发模式 = 按住",
+    applyHint: "已应用：语音键 = 左 Ctrl + 左 Win（按住说话）",
     logMessage: "设置建议：已快速应用千问按住说话映射（左 Ctrl + 左 Win）",
     steps: [],
   },
@@ -177,9 +163,9 @@ export const QIANWEN_GUIDE = {
   tag: "三种快捷键任选其一",
   steps: [
     "在千问设置中，将按住语音快捷键选为「左 Ctrl + 左 Win」「左 Win + 左 Alt」或「右 Alt」之一（须与下方快速应用按钮一致）。",
-    "点下方对应「快速应用」按钮，本软件语音键与触发模式（按住）会自动写好。",
+    "点下方对应「快速应用」按钮，本软件语音键会自动写好。",
     "听写麦克风选 CABLE Output；焦点放在可输入文本框。",
-    "若选前两种组合，需虚拟键盘（WinUHid）已就绪；多修饰键会分步注入以匹配真实按键时序。",
+    "若选前两种组合，需虚拟键盘（WinUHid）已就绪。",
     "按住遥控语音键说话，松开后结束听写并上屏。",
   ],
 } as const;
@@ -261,7 +247,5 @@ export function applyImePresetConfig(
     },
     voice_hotkey: [...definition.voiceHotkey],
     voice_shortcut_enabled: true,
-    trigger_mode: definition.triggerMode,
-    voice_release_behavior: definition.voiceReleaseBehavior,
   };
 }

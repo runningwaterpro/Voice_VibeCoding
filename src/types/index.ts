@@ -23,28 +23,15 @@ export interface KeyAction {
   value: number | number[] | string | null;
 }
 
-export type TriggerMode = "Toggle" | "Hold";
-/** Toggle=点击型快捷键；Hold=按住型快捷键（传声仍为按住遥控语音键） */
-
-/**
- * 语音键抬起后的附加行为。
- * - None：仅松开按住的组合键
- * - TapSameChord：松开后再完整点按一次同一组合（适配开关式输入法）
- */
-export type VoiceReleaseBehavior = "None" | "TapSameChord";
-
 export interface DeviceConfig {
   button_aliases: Record<string, string>;
   button_bindings: Record<string, KeyAction>;
   voice_hotkey: string[] | null;
-  trigger_mode: TriggerMode;
   bluetooth_address: string | null;
   /** 麦克风增益 dB（对齐 Python gain_db，默认 10） */
   gain_db?: number;
   /** 是否注入语音快捷键（传声与此项无关） */
   voice_shortcut_enabled?: boolean;
-  /** 语音键抬起后的附加行为（缺省 None，兼容旧配置） */
-  voice_release_behavior?: VoiceReleaseBehavior;
 }
 
 export interface GlobalSettings {

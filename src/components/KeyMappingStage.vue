@@ -128,8 +128,6 @@ function micBindingSignature(): string {
   const vks = actionToVks(mic);
   return JSON.stringify({
     vks,
-    mode: props.config.trigger_mode,
-    release: props.config.voice_release_behavior,
   });
 }
 
