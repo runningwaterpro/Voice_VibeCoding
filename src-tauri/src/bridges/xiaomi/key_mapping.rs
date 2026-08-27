@@ -415,7 +415,10 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
     }
     // 纯 hold：按下 → 映射键 DOWN，抬起 → UP（单击=热键按一次，按住=热键持续按住）
     if pressed {
-        // 注入语音和弦期间吞掉遥控器原生 F5，避免混入 Ctrl+Win 使微信「按住说话」不识别
+        // 语音唤起前把本进程 LL 钩子顶到链头（装到微信钩子之前），
+        // 才能替微信吞掉遥控器原生 F5，避免 Ctrl+Win+F5 使微信「按住说话」不识别
+        crate::bridges::xiaomi::special_keys::bump_hook_to_front();
+        // 注入语音和弦期间吞掉遥控器原生 F5
         arm_voice_native_suppress();
         let pressed_ok = {
             let mut state = VOICE_CHORD.lock();
