@@ -184,11 +184,15 @@ pub fn should_suppress_voice_f5(down: bool, up: bool) -> bool {
     if VOICE_F5_DOWN_SUPPRESSED.load(Ordering::Acquire) {
         return true;
     }
+    // 明确注入语音和弦期间：无条件吞 F5（遥控器原生 F5 会混入 Ctrl+Win，微信「按住说话」不识别）
+    if voice_native_suppress_active() {
+        VOICE_F5_DOWN_SUPPRESSED.store(true, Ordering::Release);
+        return true;
+    }
     if !input_session_active() {
         return false;
     }
-    if voice_native_suppress_active()
-        || direct_signal_recent("voice", Duration::from_millis(300))
+    if direct_signal_recent("voice", Duration::from_millis(300))
         || direct_signal_recent("mic", Duration::from_millis(300))
     {
         VOICE_F5_DOWN_SUPPRESSED.store(true, Ordering::Release);
@@ -411,6 +415,8 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
     }
     // 纯 hold：按下 → 映射键 DOWN，抬起 → UP（单击=热键按一次，按住=热键持续按住）
     if pressed {
+        // 注入语音和弦期间吞掉遥控器原生 F5，避免混入 Ctrl+Win 使微信「按住说话」不识别
+        arm_voice_native_suppress();
         let pressed_ok = {
             let mut state = VOICE_CHORD.lock();
             state.press_with(&vks, inject_voice_chord)
