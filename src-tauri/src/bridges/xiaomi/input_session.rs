@@ -986,6 +986,9 @@ fn arm_atvv_voice_session(state: &Arc<Mutex<AtvvVoiceState>>, clear_frames: bool
 /// 纯 hold 语义：按下 → 映射键 DOWN，抬起 → UP（单击=热键按一次，按住=热键持续按住）。
 fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<AtvvVoiceState>>) {
     use crate::bridges::xiaomi::voice_pcm;
+    use std::time::Instant;
+
+    let t0 = Instant::now();
 
     {
         let Ok(mut st) = state.lock() else {
@@ -1000,12 +1003,26 @@ fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<
     // ArmSessionState
     arm_atvv_voice_session(state, true);
 
+    let t1 = Instant::now();
+    let pcm_ready = voice_pcm::is_ready();
+
     // EnsurePcmReady — 同步优先，避免首包才 PING
     voice_pcm::ensure_pcm_ready_on_press();
 
+    let t2 = Instant::now();
+
     // ShortcutDown — 输入法先于 VB-CABLE CLEAR
     key_mapping::on_remote_button(app, "mic", true);
-    log::info!("XIAOMI ATVV AUDIO_START → shortcut DOWN");
+    let t3 = Instant::now();
+
+    log::info!(
+        "XIAOMI VOICE LATENCY pcm_was_ready={} lock={:.1}ms pcm_wait={:.1}ms inject={:.1}ms total={:.1}ms",
+        pcm_ready,
+        t1.duration_since(t0).as_secs_f64() * 1000.0,
+        t2.duration_since(t1).as_secs_f64() * 1000.0,
+        t3.duration_since(t2).as_secs_f64() * 1000.0,
+        t3.duration_since(t0).as_secs_f64() * 1000.0,
+    );
 
     // PcmClear
     voice_pcm::clear();
