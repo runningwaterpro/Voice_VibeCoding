@@ -432,6 +432,11 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
             }
         }
 
+        // ponytail: clear tap_ready on every inner-loop exit (client disconnect, stream error,
+        // heartbeat timeout, host PID change) so physical Home/Menu/Volume keys are not
+        // permanently suppressed while the hub waits for a new client.
+        special_keys::set_hid_tap_ready(false);
+
         release_active(&active);
         drop(listener);
         if !stop.load(Ordering::SeqCst) {
