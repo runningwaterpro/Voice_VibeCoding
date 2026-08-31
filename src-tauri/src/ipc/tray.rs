@@ -109,7 +109,7 @@ fn tooltip_for(phase: TrayPhase) -> &'static str {
 /// 把图标 + tooltip 应用到托盘（主线程执行）
 fn apply_icon(app: &AppHandle, icon: Image<'static>, phase: TrayPhase) {
     let app = app.clone();
-    let _ = app.run_on_main_thread(move || {
+    let _ = app.clone().run_on_main_thread(move || {
         if let Some(tray) = app.tray_by_id("main") {
             let _ = tray.set_icon(Some(icon));
             let _ = tray.set_tooltip(Some(tooltip_for(phase)));
@@ -135,7 +135,7 @@ fn breath_worker(app: AppHandle) {
             }
             let img = Image::new_owned(frame.into_raw(), w, h);
             let app2 = app.clone();
-            let _ = app2.run_on_main_thread(move || {
+            let _ = app2.clone().run_on_main_thread(move || {
                 if let Some(tray) = app2.tray_by_id("main") {
                     let _ = tray.set_icon(Some(img));
                 }
@@ -175,7 +175,7 @@ pub fn set_tray_phase(app: &AppHandle, phase: TrayPhase) {
             // 呼吸 worker 自会渲染；先确保它在跑，并把 tooltip 切到"正在初始化"
             ensure_breath_worker(app);
             let app2 = app.clone();
-            let _ = app2.run_on_main_thread(move || {
+            let _ = app2.clone().run_on_main_thread(move || {
                 if let Some(tray) = app2.tray_by_id("main") {
                     let _ = tray.set_tooltip(Some(tooltip_for(TrayPhase::Initializing)));
                 }
@@ -348,7 +348,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Error
 
     // 托盘就绪即进入"正在初始化"呼吸态，等 input_session 就绪回调切到 Success/Failed
     PHASE.store(TrayPhase::Initializing as u8, Ordering::Release);
-    ensure_breath_worker(app.handle());
+    ensure_breath_worker(app);
 
     log::info!("System tray icon created");
     Ok(tray)
