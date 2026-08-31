@@ -403,6 +403,79 @@ fn format_repair_failure(output: &std::process::Output, result_raw: &str) -> Str
     )
 }
 
+fn reboot_flag_path() -> Option<PathBuf> {
+    std::env::var("LOCALAPPDATA").ok().map(|local| {
+        PathBuf::from(local)
+            .join("com.remote-bridge-hub.app")
+            .join("winuhid")
+            .join("reboot-required.flag")
+    })
+}
+
+fn reboot_flag_age() -> Option<Duration> {
+    let path = reboot_flag_path()?;
+    if !path.is_file() {
+        return None;
+    }
+    path.metadata().ok()?.modified().ok()?.elapsed().ok()
+}
+
+fn clear_reboot_flag() {
+    if let Some(path) = reboot_flag_path() {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(target_os = "windows")]
+extern "system" {
+    fn GetTickCount64() -> u64;
+}
+
+#[cfg(target_os = "windows")]
+fn os_uptime() -> Option<Duration> {
+    Some(Duration::from_millis(unsafe { GetTickCount64() }))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn os_uptime() -> Option<Duration> {
+    None
+}
+
+/// After a true Windows 3010 we leave a flag. Run one auto-repair only if
+/// the machine has rebooted since that flag was written and the injector is still down.
+fn should_run_post_reboot_repair(
+    ready: bool,
+    flag_age: Option<Duration>,
+    uptime: Option<Duration>,
+) -> bool {
+    if ready {
+        return false;
+    }
+    let Some(age) = flag_age else {
+        return false;
+    };
+    match uptime {
+        Some(up) => age > up,
+        None => true,
+    }
+}
+
+fn script_requests_reboot(result_raw: &str, exit_code: Option<i32>) -> bool {
+    let raw_l = result_raw.to_ascii_lowercase();
+    raw_l.contains("restart required")
+        || result_raw.contains("需要重启")
+        || exit_code == Some(3010)
+}
+
+fn script_device_not_accessible(result_raw: &str, stdout: &str) -> bool {
+    let blob = format!("{result_raw}\n{stdout}").to_ascii_lowercase();
+    blob.contains("device not accessible") || blob.contains("retry auto-repair")
+}
+
+fn reboot_required_message() -> &'static str {
+    "驱动已安装，必须重启 Windows 后虚拟键盘才会生效。重启后若仍未就绪，会自动完成剩余步骤。"
+}
+
 /// 启动时尽力部署 DLL 并尝试打开注入器（不弹 UAC）。
 pub fn ensure_runtime_quiet() {
     match deploy_dll_beside_exe() {
