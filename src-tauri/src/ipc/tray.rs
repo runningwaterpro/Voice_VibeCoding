@@ -126,8 +126,8 @@ fn breath_worker(app: AppHandle) {
     while BREATH_RUNNING.load(Ordering::Acquire) {
         let phase = TrayPhase::from_u8(PHASE.load(Ordering::Acquire));
         if phase == TrayPhase::Initializing {
-            // 呼吸：周期 ~1.6s，alpha 35%→100%
-            let a = 0.35 + 0.65 * ((t * std::f32::consts::TAU / 1.6).sin().abs());
+            // 呼吸：周期 ~3.0s，alpha 35%→100%（类似 macOS 设备指示灯节奏）
+            let a = 0.35 + 0.65 * ((t * std::f32::consts::TAU / 3.0).sin().abs());
             let ai = (255.0 * a) as u8;
             let mut frame = base.clone();
             for p in frame.pixels_mut() {
@@ -140,7 +140,7 @@ fn breath_worker(app: AppHandle) {
                     let _ = tray.set_icon(Some(img));
                 }
             });
-            t = (t + step) % 1.6;
+            t = (t + step) % 3.0;
         } else {
             t = 0.0;
         }
