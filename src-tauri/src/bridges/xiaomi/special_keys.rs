@@ -366,64 +366,30 @@ fn hook_loop() {
 
 /// 音量键原生事件是否应被吞掉（避免与 SendInput 注入叠成系统双格）。
 ///
-/// - `tap_ready`：HID Tap 已接管（应用负责注入一次）→ **无条件吞**原生音量事件，
-///   消除 LL 钩子先于 BLE/HID-Tap 信号到达时 `direct_signal_recent` 尚未标记的时序窗口；
-/// - `recent_signal`：200ms 窗口内遥控器刚按下过该音量键 → 兜底吞（Tap 未就绪时）。
+/// 背景：遥控器固件会额外冒出 VK_VOLUME_*，与 Tap/SendInput 叠成双格。
+///
+/// - **不得**用 `tap_ready` 无条件吞：实体音量±/静音与固件 VK 在 LL 无法区分
+///   （与 Home/Menu 同原则；否则软件运行期间物理键盘音量键全部失效）；
+/// - `recent_signal`：200ms 内遥控器刚按下 → 吞固件残留（HID Tap 侧尽早
+///   `mark_direct_signal`，缩小 LL 先到窗口）。
 ///
 /// 注意：非音量键（方向/OK/返回等）不受此判定影响。
-///
-/// ```
-/// use remote_bridge_hub_lib::bridges::xiaomi::special_keys::should_suppress_volume_native;
-///
-/// // HID Tap 接管：无条件吞（消除 LL 先于 BLE 信号的时序窗口 → 防双格）
-/// assert!(should_suppress_volume_native(0xAF, true, false));
-/// assert!(should_suppress_volume_native(0xAE, true, false));
-/// assert!(should_suppress_volume_native(0xAD, true, false));
-/// // Tap 未就绪但有近期信号：兜底吞
-/// assert!(should_suppress_volume_native(0xAF, false, true));
-/// // 两者皆无：透传（物理键盘音量键必须可用）
-/// assert!(!should_suppress_volume_native(0xAF, false, false));
-/// // 非音量键不受影响
-/// assert!(!should_suppress_volume_native(0x26, true, true));
-/// assert!(!should_suppress_volume_native(0x0D, true, false));
-/// ```
-pub fn should_suppress_volume_native(vk: u16, tap_ready: bool, recent_signal: bool) -> bool {
+pub fn should_suppress_volume_native(vk: u16, _tap_ready: bool, recent_signal: bool) -> bool {
     let is_volume = matches!(vk, 0xAF | 0xAE | 0xAD); // VK_VOLUME_UP / VK_VOLUME_DOWN / VK_VOLUME_MUTE
-    is_volume && (tap_ready || recent_signal)
+    // 仅 recent：tap_ready 会误伤实体音量键（与固件 VK_VOLUME_* 无法在 LL 区分）
+    is_volume && recent_signal
 }
 
-/// menu/home 原生事件是否应被吞掉（与音量键 `should_suppress_volume_native` 同策略）。
+/// menu/home 原生事件是否应被吞掉。
 ///
-/// 背景：HID Tap 是旁路抄送，LL 钩子可能先于 hub 的 HID 报文到达 →
-/// `direct_signal_recent("menu"/"home")` 尚未标记，原生气漏出：
-/// - menu 固件 usage 0x65 翻译成 VK_APPS(0x5D)：慢速点击时先弹右键菜单，
-///   再叠上注入的 Win(0x5B)，之后 Win 弹起被系统吃掉 → 菜单关不掉；
-/// - home 映射为 Space(0x20) 时，固件原生 VK_HOME(0x24)/0xAC 漏出会先跳行首。
+/// 背景：遥控器固件会额外冒出 VK_HOME(0x24)/0xAC / VK_APPS(0x5D)，与 Tap 注入叠成双击。
 ///
-/// - `tap_ready`：Tap 已接管（应用负责注入）→ 无条件吞原生 menu/home；
-/// - `recent_signal`：250ms 内遥控器刚按下过该键 → 兜底吞；
-/// - 两者皆无：透传（物理键盘的 Home / Menu 键必须可用）。
-///
-/// ```
-/// use remote_bridge_hub_lib::bridges::xiaomi::special_keys::should_suppress_native_menu_home;
-///
-/// // Tap 接管：无条件吞（消除 LL 先于 HID-Tap 信号的时序窗口）
-/// assert!(should_suppress_native_menu_home(0x5D, true, false));
-/// assert!(should_suppress_native_menu_home(0x24, true, false));
-/// assert!(should_suppress_native_menu_home(0xAC, true, true));
-/// // Tap 未就绪但有近期信号：兜底吞
-/// assert!(should_suppress_native_menu_home(0x5D, false, true));
-/// assert!(should_suppress_native_menu_home(0x24, false, true));
-/// // 两者皆无：透传
-/// assert!(!should_suppress_native_menu_home(0x5D, false, false));
-/// assert!(!should_suppress_native_menu_home(0x24, false, false));
-/// // 非 menu/home 键不受影响
-/// assert!(!should_suppress_native_menu_home(0x20, true, true));
-/// assert!(!should_suppress_native_menu_home(0xA6, true, true));
-/// ```
-pub fn should_suppress_native_menu_home(vk: u16, tap_ready: bool, recent_signal: bool) -> bool {
+/// - **不得**用 `tap_ready` 无条件吞：实体 Home/菜单与遥控器固件 VK 在 LL 无法区分；
+/// - `recent_signal`：250ms 内遥控器刚按下 → 吞固件残留（与 back/tv/power 一致）。
+pub fn should_suppress_native_menu_home(vk: u16, _tap_ready: bool, recent_signal: bool) -> bool {
     let is_menu_or_home = matches!(vk, 0x5D | 0x24 | 0xAC); // VK_APPS / VK_HOME / 0xAC
-    is_menu_or_home && (tap_ready || recent_signal)
+    // 仅 recent：tap_ready 会误伤实体 Home（与固件 VK_HOME 无法在 LL 区分）
+    is_menu_or_home && recent_signal
 }
 
 #[cfg(test)]
@@ -431,25 +397,24 @@ mod tests {
     use super::should_suppress_volume_native;
 
     #[test]
-    fn volume_up_suppressed_when_tap_ready() {
-        // HID Tap 接管时：即使 recent 信号尚未标记（LL 钩子先到），也必须吞掉原生音量，
-        // 否则固件原生 + SendInput 注入 = 两格。
-        assert!(should_suppress_volume_native(0xAF, true, false));
-        assert!(should_suppress_volume_native(0xAE, true, false));
-        assert!(should_suppress_volume_native(0xAD, true, false));
+    fn volume_not_suppressed_by_tap_ready_alone() {
+        // 与 Home/Menu 同原则：Tap 就绪不能单独吞，否则实体音量±/静音失效
+        assert!(!should_suppress_volume_native(0xAF, true, false));
+        assert!(!should_suppress_volume_native(0xAE, true, false));
+        assert!(!should_suppress_volume_native(0xAD, true, false));
     }
 
     #[test]
-    fn volume_suppressed_on_recent_signal_without_tap() {
-        // Tap 未就绪但 200ms 内有遥控器信号：兜底吞（对齐旧行为）
+    fn volume_suppressed_on_recent_signal() {
+        // 200ms 内有遥控器信号：吞固件残留（防双格）
         assert!(should_suppress_volume_native(0xAF, false, true));
-        assert!(should_suppress_volume_native(0xAE, false, true));
+        assert!(should_suppress_volume_native(0xAE, true, true));
         assert!(should_suppress_volume_native(0xAD, false, true));
     }
 
     #[test]
     fn volume_passthrough_when_neither_ready() {
-        // Tap 未接管且无近期信号：透传原生事件（物理键盘音量键必须可用）
+        // 无近期信号：透传原生事件（物理键盘音量键必须可用）
         assert!(!should_suppress_volume_native(0xAF, false, false));
         assert!(!should_suppress_volume_native(0xAE, false, false));
         assert!(!should_suppress_volume_native(0xAD, false, false));
@@ -464,35 +429,22 @@ mod tests {
         assert!(!should_suppress_volume_native(0xA6, true, false));
     }
 
-    #[test]
-    fn tap_ready_beats_stale_recent() {
-        // tap_ready=true 且 recent=false 时必须吞（时序窗口核心场景）
-        assert!(should_suppress_volume_native(0xAF, true, false));
-        // 与 recent=true 时结果一致
-        assert_eq!(
-            should_suppress_volume_native(0xAF, true, false),
-            should_suppress_volume_native(0xAF, true, true)
-        );
-    }
-
-    // ---- menu/home：与音量键同策略（v1.3.13 时序窗口修复）----
+    // ---- menu/home：仅 recent（tap_ready 不得误伤实体 Home）----
 
     use super::should_suppress_native_menu_home;
 
     #[test]
-    fn menu_home_suppressed_when_tap_ready() {
-        // Tap 接管时无条件吞原生 menu(VK_APPS)/home，即使 recent 信号尚未标记
-        // （LL 钩子先于 hub HID 报文到达的时序窗口 → 慢速点击漏右键菜单/跳行首）
-        assert!(should_suppress_native_menu_home(0x5D, true, false));
-        assert!(should_suppress_native_menu_home(0x24, true, false));
-        assert!(should_suppress_native_menu_home(0xAC, true, false));
+    fn menu_home_not_suppressed_by_tap_ready_alone() {
+        // 与 F5 同原则：Tap 就绪不能单独吞，否则实体 Home/菜单键失效
+        assert!(!should_suppress_native_menu_home(0x5D, true, false));
+        assert!(!should_suppress_native_menu_home(0x24, true, false));
+        assert!(!should_suppress_native_menu_home(0xAC, true, false));
     }
 
     #[test]
-    fn menu_home_suppressed_on_recent_signal_without_tap() {
-        // Tap 未就绪但 250ms 内有遥控器信号：兜底吞（对齐旧行为）
+    fn menu_home_suppressed_on_recent_signal() {
         assert!(should_suppress_native_menu_home(0x5D, false, true));
-        assert!(should_suppress_native_menu_home(0x24, false, true));
+        assert!(should_suppress_native_menu_home(0x24, true, true));
         assert!(should_suppress_native_menu_home(0xAC, false, true));
     }
 
