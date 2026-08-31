@@ -103,6 +103,7 @@ fn windows_run_input_session(
 
     tv_gate::mark_connecting();
     reset_atvv_subscribed();
+    crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Initializing);
 
     unsafe {
         let _ = windows::Win32::System::Com::CoInitializeEx(
@@ -389,6 +390,16 @@ fn windows_run_input_session(
 
     crate::bridges::xiaomi::key_mapping::set_input_session_active(true);
 
+    // 语音就绪状态：会话激活后按 ATVV 订阅结果切换托盘图标
+    crate::ipc::tray::set_tray_phase(
+        &app,
+        if atvv_ok {
+            crate::ipc::tray::TrayPhase::Success
+        } else {
+            crate::ipc::tray::TrayPhase::Failed
+        },
+    );
+
     let mut since_batt = Instant::now();
     let mut since_pcm_warm = Instant::now();
     let mut since_atvv_retry = Instant::now();
@@ -403,6 +414,10 @@ fn windows_run_input_session(
                         mark_atvv_subscribed(true);
                         emit_message(&app, "ATVV 语音键/音频已订阅（后台重试成功）");
                         log::info!("ATVV subscribe recovered on periodic retry");
+                        crate::ipc::tray::set_tray_phase(
+                            &app,
+                            crate::ipc::tray::TrayPhase::Success,
+                        );
                         tv_gate::mark_ready(Duration::from_secs_f32(tv_delay.max(0.0)));
                         if let Err(e) = voice_pcm::ensure_started() {
                             log::warn!("VB-CABLE PCM not ready after ATVV retry: {e}");
@@ -448,6 +463,7 @@ fn windows_run_input_session(
 
     voice_pcm::stop();
     crate::bridges::xiaomi::key_mapping::set_input_session_active(false);
+    crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Failed);
     tv_gate::reset();
     mark_atvv_subscribed(false);
     let _ = device.RemoveConnectionStatusChanged(conn_token);

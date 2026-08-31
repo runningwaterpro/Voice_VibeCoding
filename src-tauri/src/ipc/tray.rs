@@ -6,9 +6,12 @@ use tauri::{
     tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::OnceLock;
 
 fn quit_app(app: &AppHandle) {
-    // 先停桥接 / HID Tap / 钩子 / 音频子进程，避免托盘退出后 remote-bridge-hub.exe 残留
+    // 先停托盘状态线程，再停桥接 / HID Tap / 钩子 / 音频子进程
+    stop_tray_state();
     if let Some(runtime) =
         app.try_state::<std::sync::Arc<crate::bridges::xiaomi::connect::XiaomiRuntime>>()
     {
@@ -25,6 +28,168 @@ fn quit_app(app: &AppHandle) {
 /// 供 IPC `quit_application` 调用
 pub fn quit_app_public(app: &AppHandle) {
     quit_app(app);
+}
+
+// ============================================================
+// 托盘三态语音就绪指示
+//
+//   Initializing → 呼吸灯（正弦透明度淡入淡出）
+//   Success      → 正常图标
+//   Failed       → 正常图标 + 右下角红色叹号徽标
+//
+// 状态机由 input_session 的会话生命周期驱动；呼吸 worker 为
+// 常驻守护线程，只在 Initializing 阶段渲染帧，其余时间空转。
+// 不在 LL 键盘钩子热路径上，零时序污染。
+// ============================================================
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TrayPhase {
+    Initializing = 0,
+    Success = 1,
+    Failed = 2,
+}
+
+impl TrayPhase {
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => TrayPhase::Success,
+            2 => TrayPhase::Failed,
+            _ => TrayPhase::Initializing,
+        }
+    }
+}
+
+static PHASE: AtomicU8 = AtomicU8::new(TrayPhase::Initializing as u8);
+static BREATH_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// 正常图标（Success）—— 512px ARGB
+fn ready_icon() -> Image<'static> {
+    static READY: OnceLock<Image<'static>> = OnceLock::new();
+    READY.get_or_init(|| {
+        Image::from_bytes(include_bytes!("../../icons/tray-icon.png"))
+            .unwrap_or_else(|_| Image::from_bytes(include_bytes!("../../icons/32x32.png")).unwrap())
+    })
+    .clone()
+}
+
+/// 失败图标（正常 + 右下角红圆白叹号）—— 512px ARGB
+fn error_icon() -> Image<'static> {
+    static ERR: OnceLock<Image<'static>> = OnceLock::new();
+    ERR.get_or_init(|| {
+        Image::from_bytes(include_bytes!("../../icons/tray-icon-error.png"))
+            .unwrap_or_else(|_| ready_icon())
+    })
+    .clone()
+}
+
+/// 呼吸动画的基像素：把正常图标降采样到 128² 的 RGBA 缓冲（每帧复用副本）。
+fn breath_base() -> &'static image::RgbaImage {
+    static BASE: OnceLock<image::RgbaImage> = OnceLock::new();
+    BASE.get_or_init(|| {
+        let img = image::load_from_memory(include_bytes!("../../icons/tray-icon.png"))
+            .expect("decode tray-icon for breathing");
+        image::imageops::resize(
+            &img.into_rgba8(),
+            128,
+            128,
+            image::imageops::FilterType::Lanczos3,
+        )
+    })
+}
+
+fn tooltip_for(phase: TrayPhase) -> &'static str {
+    match phase {
+        TrayPhase::Initializing => "Voice VibeCoding（正在初始化…）",
+        TrayPhase::Success => "Voice VibeCoding（已就绪）",
+        TrayPhase::Failed => "Voice VibeCoding（初始化失败）",
+    }
+}
+
+/// 把图标 + tooltip 应用到托盘（主线程执行）
+fn apply_icon(app: &AppHandle, icon: Image<'static>, phase: TrayPhase) {
+    let app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(tray) = app.tray_by_id("main") {
+            let _ = tray.set_icon(Some(icon));
+            let _ = tray.set_tooltip(Some(tooltip_for(phase)));
+        }
+    });
+}
+
+/// 呼吸守护线程。只在 Initializing 渲染帧；其它阶段空转。退出靠 BREATH_RUNNING=false。
+fn breath_worker(app: AppHandle) {
+    let base = breath_base().clone(); // 128x128 RgbaImage
+    let (w, h) = base.dimensions();
+    let mut t = 0.0_f32;
+    let step = 0.030_f32; // ~33fps
+    while BREATH_RUNNING.load(Ordering::Acquire) {
+        let phase = TrayPhase::from_u8(PHASE.load(Ordering::Acquire));
+        if phase == TrayPhase::Initializing {
+            // 呼吸：周期 ~1.6s，alpha 35%→100%
+            let a = 0.35 + 0.65 * ((t * std::f32::consts::TAU / 1.6).sin().abs());
+            let ai = (255.0 * a) as u8;
+            let mut frame = base.clone();
+            for p in frame.pixels_mut() {
+                p.0[3] = ((p.0[3] as f32) * (ai as f32) / 255.0) as u8;
+            }
+            let img = Image::new_owned(frame.into_raw(), w, h);
+            let app2 = app.clone();
+            let _ = app2.run_on_main_thread(move || {
+                if let Some(tray) = app2.tray_by_id("main") {
+                    let _ = tray.set_icon(Some(img));
+                }
+            });
+            t = (t + step) % 1.6;
+        } else {
+            t = 0.0;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+}
+
+/// 启动呼吸守护线程（幂等；首次调用时拉起）
+fn ensure_breath_worker(app: &AppHandle) {
+    if BREATH_RUNNING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("tray-breath".into())
+        .spawn(move || breath_worker(app));
+}
+
+/// 退出前停止呼吸线程
+pub fn stop_tray_state() {
+    BREATH_RUNNING.store(false, Ordering::Release);
+}
+
+/// 设置托盘状态（对外主入口）
+pub fn set_tray_phase(app: &AppHandle, phase: TrayPhase) {
+    let prev = TrayPhase::from_u8(PHASE.swap(phase as u8, Ordering::AcqRel));
+    if prev == phase {
+        return;
+    }
+    match phase {
+        TrayPhase::Initializing => {
+            // 呼吸 worker 自会渲染；先确保它在跑，并把 tooltip 切到"正在初始化"
+            ensure_breath_worker(app);
+            let app2 = app.clone();
+            let _ = app2.run_on_main_thread(move || {
+                if let Some(tray) = app2.tray_by_id("main") {
+                    let _ = tray.set_tooltip(Some(tooltip_for(TrayPhase::Initializing)));
+                }
+            });
+        }
+        TrayPhase::Success => {
+            ensure_breath_worker(app); // 确保线程在跑（后续可复用）
+            apply_icon(app, ready_icon(), TrayPhase::Success);
+        }
+        TrayPhase::Failed => {
+            ensure_breath_worker(app);
+            apply_icon(app, error_icon(), TrayPhase::Failed);
+        }
+    }
 }
 
 fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -163,7 +328,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Error
         .icon(icon)
         .icon_as_template(false)
         .menu(&menu)
-        .tooltip("Voice VibeCoding")
+        .tooltip("Voice VibeCoding（正在初始化…）")
         // 左键还原窗口；右键弹出菜单（Windows 默认）
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
@@ -180,6 +345,10 @@ pub fn setup_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Error
             }
         })
         .build(app)?;
+
+    // 托盘就绪即进入"正在初始化"呼吸态，等 input_session 就绪回调切到 Success/Failed
+    PHASE.store(TrayPhase::Initializing as u8, Ordering::Release);
+    ensure_breath_worker(app.handle());
 
     log::info!("System tray icon created");
     Ok(tray)
