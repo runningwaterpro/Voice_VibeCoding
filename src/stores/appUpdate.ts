@@ -167,12 +167,11 @@ export const useAppUpdateStore = defineStore("appUpdate", () => {
     try {
       const result = await invoke<AppUpdateInfo>("ignore_app_update", { version: ver });
       applyUpdateInfo(result);
-      showModal.value = false;
-      resetDownloadState();
     } catch (e) {
       console.warn("ignore_app_update failed:", e);
-      throw e;
     }
+    showModal.value = false;
+    resetDownloadState();
   }
 
   async function checkForUpdate(force = false) {
