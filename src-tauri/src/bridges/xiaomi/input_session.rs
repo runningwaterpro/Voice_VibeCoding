@@ -403,14 +403,25 @@ fn windows_run_input_session(
     let mut since_batt = Instant::now();
     let mut since_pcm_warm = Instant::now();
     let mut since_atvv_retry = Instant::now();
+    let mut atvv_periodic_failures: u32 = 0;
+    const ATVV_PERIODIC_MAX_FAILURES: u32 = 10;
+    const ATVV_PERIODIC_RETRY_SECS: u64 = 30;
     while !runtime.should_stop() {
         std::thread::sleep(Duration::from_millis(200));
-        if !atvv_ok && since_atvv_retry.elapsed() >= Duration::from_secs(3) {
+        if !atvv_ok
+            && atvv_periodic_failures < ATVV_PERIODIC_MAX_FAILURES
+            && since_atvv_retry.elapsed() >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)
+        {
+            atvv_periodic_failures += 1;
             since_atvv_retry = Instant::now();
+            log::info!(
+                "ATVV periodic retry attempt={atvv_periodic_failures}/{ATVV_PERIODIC_MAX_FAILURES}"
+            );
             if let Some(atvv) = atvv_service.as_ref() {
                 match subscribe_atvv_service(&app, atvv, &gate, &mut tokens, gain_db) {
                     Ok(true) => {
                         atvv_ok = true;
+                        atvv_periodic_failures = 0;
                         mark_atvv_subscribed(true);
                         emit_message(&app, "ATVV 语音键/音频已订阅（后台重试成功）");
                         log::info!("ATVV subscribe recovered on periodic retry");
@@ -438,6 +449,10 @@ fn windows_run_input_session(
                         );
                     }
                 }
+            }
+            if atvv_periodic_failures >= ATVV_PERIODIC_MAX_FAILURES && !atvv_ok {
+                log::warn!("ATVV periodic retry exhausted after {ATVV_PERIODIC_MAX_FAILURES} attempts");
+                emit_message(&app, "ATVV 后台重试已停止，请点击「修复 ATVV 连接」重试");
             }
         }
         // 会话中保持 PCM 通路预热（路由重启后自动恢复）
