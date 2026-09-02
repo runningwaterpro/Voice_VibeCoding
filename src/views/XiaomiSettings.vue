@@ -598,7 +598,6 @@ async function applyImePreset(presetId: ImePresetId) {
 }
 
 let hostPollTimer: ReturnType<typeof setInterval> | null = null;
-let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
 function itemToneClass(tone: string): string {
   if (tone === "ok") return "ok";
@@ -1078,10 +1077,7 @@ onMounted(async () => {
       .catch(() => undefined),
   ]);
   hostPollTimer = setInterval(refreshHost, 1000);
-  // 持续拉取设备信息（含电量），避免必须切页才刷新
-  devicePollTimer = setInterval(() => {
-    void bridge.refreshStatus(type);
-  }, 1500);
+  // ponytail: 电量变化由后端事件推送，无需前端轮询
   window.addEventListener("resize", onViewportChange);
   window.addEventListener("scroll", onViewportChange, true);
 
@@ -1211,7 +1207,6 @@ onUnmounted(() => {
   unlistenWinuhidComplete?.();
   unlistenWinuhidError?.();
   if (hostPollTimer) clearInterval(hostPollTimer);
-  if (devicePollTimer) clearInterval(devicePollTimer);
   if (voiceTipCloseTimer) clearTimeout(voiceTipCloseTimer);
   if (gainTipCloseTimer) clearTimeout(gainTipCloseTimer);
   if (triggerTipCloseTimer) clearTimeout(triggerTipCloseTimer);

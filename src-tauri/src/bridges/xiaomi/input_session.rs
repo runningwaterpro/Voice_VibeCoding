@@ -470,8 +470,8 @@ fn windows_run_input_session(
             voice_pcm::warmup_async();
         }
         if let Some(ch) = battery_ch.as_ref() {
-            // 首次已读；之后每 45s 轮询，并在启动后 3s 再读一次（提高 UI 首次可见性）
-            let due = since_batt.elapsed() >= Duration::from_secs(45)
+            // ponytail: 60s 轮询，变化时通过事件推送前端，前端不再主动轮询电量
+            let due = since_batt.elapsed() >= Duration::from_secs(60)
                 || (last_battery.is_none() && since_batt.elapsed() >= Duration::from_secs(3));
             if due {
                 since_batt = Instant::now();
