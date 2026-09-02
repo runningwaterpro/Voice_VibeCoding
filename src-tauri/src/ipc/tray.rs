@@ -31,11 +31,12 @@ pub fn quit_app_public(app: &AppHandle) {
 }
 
 // ============================================================
-// 托盘三态语音就绪指示
+// 托盘四态语音就绪指示
 //
 //   Initializing → 呼吸灯（正弦透明度淡入淡出）
 //   Success      → 正常图标
-//   Failed       → 正常图标 + 右下角红色叹号徽标
+//   Warning      → 正常图标 + 右下角橙色叹号徽标（语音通道异常）
+//   Failed       → 正常图标 + 右下角红色叹号徽标（连接异常）
 //
 // 状态机由 input_session 的会话生命周期驱动；呼吸 worker 为
 // 常驻守护线程，只在 Initializing 阶段渲染帧，其余时间空转。
@@ -48,6 +49,7 @@ pub enum TrayPhase {
     Initializing = 0,
     Success = 1,
     Failed = 2,
+    Warning = 3, // 桥接正常但语音通道（ATVV）异常
 }
 
 impl TrayPhase {
@@ -55,6 +57,7 @@ impl TrayPhase {
         match v {
             1 => TrayPhase::Success,
             2 => TrayPhase::Failed,
+            3 => TrayPhase::Warning,
             _ => TrayPhase::Initializing,
         }
     }
@@ -83,6 +86,16 @@ fn error_icon() -> Image<'static> {
     .clone()
 }
 
+/// 警告图标（正常 + 右下角橙圆白叹号）—— 512px ARGB
+fn warning_icon() -> Image<'static> {
+    static WARN: OnceLock<Image<'static>> = OnceLock::new();
+    WARN.get_or_init(|| {
+        Image::from_bytes(include_bytes!("../../icons/tray-icon-warning.png"))
+            .unwrap_or_else(|_| ready_icon())
+    })
+    .clone()
+}
+
 /// 呼吸动画的基像素：把正常图标降采样到 128² 的 RGBA 缓冲（每帧复用副本）。
 fn breath_base() -> &'static image::RgbaImage {
     static BASE: OnceLock<image::RgbaImage> = OnceLock::new();
@@ -102,7 +115,8 @@ fn tooltip_for(phase: TrayPhase) -> &'static str {
     match phase {
         TrayPhase::Initializing => "Voice VibeCoding（正在初始化…）",
         TrayPhase::Success => "Voice VibeCoding（已就绪）",
-        TrayPhase::Failed => "Voice VibeCoding（初始化失败）",
+        TrayPhase::Failed => "Voice VibeCoding（连接异常）",
+        TrayPhase::Warning => "Voice VibeCoding（语音通道异常）",
     }
 }
 
@@ -172,18 +186,17 @@ pub fn set_tray_phase(app: &AppHandle, phase: TrayPhase) {
     }
     match phase {
         TrayPhase::Initializing => {
-            // 呼吸 worker 自会渲染；先确保它在跑，并把 tooltip 切到"正在初始化"
             ensure_breath_worker(app);
-            let app2 = app.clone();
-            let _ = app2.clone().run_on_main_thread(move || {
-                if let Some(tray) = app2.tray_by_id("main") {
-                    let _ = tray.set_tooltip(Some(tooltip_for(TrayPhase::Initializing)));
-                }
-            });
+            // 重置图标为正常状态，防止上次的 warning/error 图标残留
+            apply_icon(app, ready_icon(), TrayPhase::Initializing);
         }
         TrayPhase::Success => {
-            ensure_breath_worker(app); // 确保线程在跑（后续可复用）
+            ensure_breath_worker(app);
             apply_icon(app, ready_icon(), TrayPhase::Success);
+        }
+        TrayPhase::Warning => {
+            ensure_breath_worker(app);
+            apply_icon(app, warning_icon(), TrayPhase::Warning);
         }
         TrayPhase::Failed => {
             ensure_breath_worker(app);

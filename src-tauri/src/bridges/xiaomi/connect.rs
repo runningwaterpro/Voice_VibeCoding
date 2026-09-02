@@ -52,6 +52,8 @@ const XIAOMI_2_PRO_NAMES: &[&str] = &["mi rc", "xiaomi bluetooth remote 2 pro"];
 pub struct XiaomiRuntime {
     pub stop: AtomicBool,
     pub running: AtomicBool,
+    /// 蓝牙异常断开标志（非用户主动断开时置位，用于托盘图标区分）
+    pub abnormal_disconnect: AtomicBool,
 }
 
 impl XiaomiRuntime {
@@ -65,10 +67,15 @@ impl XiaomiRuntime {
 
     pub fn clear_stop(&self) {
         self.stop.store(false, Ordering::SeqCst);
+        self.abnormal_disconnect.store(false, Ordering::SeqCst);
     }
 
     pub fn should_stop(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    pub fn is_abnormal_disconnect(&self) -> bool {
+        self.abnormal_disconnect.load(Ordering::SeqCst)
     }
 }
 

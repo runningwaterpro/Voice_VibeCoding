@@ -142,6 +142,12 @@ fn windows_run_input_session(
                     if let Ok(status) = dev.ConnectionStatus() {
                         if status == BluetoothConnectionStatus::Disconnected {
                             log::warn!("Xiaomi remote disconnected (input session)");
+                            // 非用户主动断开 → 标记异常，用于托盘图标区分
+                            if !runtime_conn.should_stop() {
+                                runtime_conn
+                                    .abnormal_disconnect
+                                    .store(true, Ordering::SeqCst);
+                            }
                             runtime_conn.running.store(false, Ordering::SeqCst);
                         }
                     }
@@ -396,7 +402,7 @@ fn windows_run_input_session(
         if atvv_ok {
             crate::ipc::tray::TrayPhase::Success
         } else {
-            crate::ipc::tray::TrayPhase::Failed
+            crate::ipc::tray::TrayPhase::Warning
         },
     );
 
@@ -478,7 +484,12 @@ fn windows_run_input_session(
 
     voice_pcm::stop();
     crate::bridges::xiaomi::key_mapping::set_input_session_active(false);
-    crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Failed);
+    // 区分异常断开（红色）和正常断开（回到呼吸灯等待重连）
+    if runtime.is_abnormal_disconnect() {
+        crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Failed);
+    } else {
+        crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Initializing);
+    }
     tv_gate::reset();
     mark_atvv_subscribed(false);
     let _ = device.RemoveConnectionStatusChanged(conn_token);
