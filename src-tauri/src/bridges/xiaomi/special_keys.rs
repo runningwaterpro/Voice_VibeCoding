@@ -3,8 +3,7 @@
 //! 仅在「刚收到同键 HID direct / ATVV 信号」时吞掉 Windows 翻译的原 VK。
 
 use crate::bridges::xiaomi::key_mapping::{
-    consume_direct_signal, direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5,
-    EXTRA_INFO,
+    direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5, EXTRA_INFO,
 };
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
@@ -46,10 +45,11 @@ fn alt_chord_active() -> bool {
 #[cfg(target_os = "windows")]
 static HOOK_PTR: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
-/// 统一候选键：down 时等待 pre_arm mark（≤SUPPRESS_WAIT_MS），命中则吞原生并 consume-once 清除 mark，
-/// 使随后到达的注入键 recent=false 被放行；未命中放行（= 实体键盘）。
-/// up 不处理：注入键与原生键同 VK 无法区分，跟踪 up 会误吞注入 up 造成卡键；
-/// 吞掉的 down 对应的原生 up 是孤立 keyup，对正常应用无害。
+/// 统一候选键：down 时等待 pre_arm mark（≤SUPPRESS_WAIT_MS），命中则吞原生键。
+/// 注入键带 EXTRA_INFO，由 hook 的 injected 检查直接放行，不进入本路径（不会误吞）。
+/// mark 在 recent 窗口（300ms）内持续保留：固件一次按压的多个报告周期产生的
+/// 多个原生 down 都会被吞，避免"吞一个漏一个"。
+/// up 放行：吞掉的 down 对应的原生 up 是孤立 keyup，对正常应用无害。
 fn wait_and_consume_vk(vk: u32, scan: u32) -> Option<&'static str> {
     let (names, window, label): (&'static [&'static str], Duration, &'static str) = match vk {
         0xAF => (&["volume_up"], Duration::from_millis(200), "volume_up"),
@@ -71,23 +71,12 @@ fn wait_and_consume_vk(vk: u32, scan: u32) -> Option<&'static str> {
     let deadline = Instant::now() + Duration::from_millis(SUPPRESS_WAIT_MS);
     loop {
         if names.iter().any(|&n| direct_signal_recent(n, window)) {
-            // consume-once：吞原生后立刻清除 mark，注入键到达时不再命中
-            for &n in names {
-                consume_direct_signal(n);
-            }
             return Some(label);
         }
         if Instant::now() >= deadline {
             break;
         }
         std::thread::sleep(Duration::from_millis(2));
-    }
-    // 末尾兜底一次再查（避免 deadline 边界漏掉）
-    if names.iter().any(|&n| direct_signal_recent(n, window)) {
-        for &n in names {
-            consume_direct_signal(n);
-        }
-        return Some(label);
     }
     None
 }

@@ -161,18 +161,6 @@ pub fn direct_signal_recent(name: &str, window: Duration) -> bool {
     false
 }
 
-/// consume-once：LL hook 吞掉原生键后立即清除对应标记（含别名），
-/// 使随后到达的注入键 direct_signal_recent 为 false → 不被二次吞掉。
-pub fn consume_direct_signal(name: &str) {
-    let mut g = marks();
-    if let Some(m) = g.as_mut() {
-        m.remove(name);
-        for alt in binding_aliases(name) {
-            m.remove(*alt);
-        }
-    }
-}
-
 /// 对齐 Python `_wait_for_direct_signal`：F5 可能比 ATVV 0x04 先到
 fn wait_for_direct_signal(name: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
@@ -629,23 +617,14 @@ fn has_alt_modifier(vks: &[u16]) -> bool {
 }
 
 pub fn tap_vks(vks: &[u16], hold_ms: u64) {
-    // 音量/静音：优先走 SendInput 的 VK_VOLUME_*（系统音量最稳）
-    // 计算器等其它键：先试 WinUHid（含 consumer），再回落 SendInput
+    // 统一抑制配合：普通遥控器键一律走 SendInput + EXTRA_INFO。
+    // LL hook 用 dwExtraInfo==EXTRA_INFO 识别"应用注入键"并直接放行；
+    // 固件原生 VK（无标识）才进入抑制分支。这样每按恰好一次注入，
+    // 注入键永不与原生键竞争被吞。（WinUHid 注入无 EXTRA_INFO，会被当原生误吞，故普通键不走它。）
     let is_volume = vks.len() == 1 && matches!(vks[0], 0xAD | 0xAE | 0xAF);
-    if !is_volume {
-        if crate::bridges::xiaomi::hid_injector::tap_vks(vks, hold_ms) {
-            // [DEBUG-rc3] 走 WinUHid 成功
-            log::info!("[DEBUG-rc3] inject via WinUHid vks={vks:?} hold_ms={hold_ms} OK");
-            let _ = ACTION_SEQ.fetch_add(1, Ordering::Relaxed);
-            return;
-        } else {
-            // [DEBUG-rc3] WinUHid 失败/不可用，即将回落
-            log::info!("[DEBUG-rc3] inject WinUHid_DENIED vks={vks:?} is_volume={is_volume} -> fallback");
-        }
-    } else {
-        // [DEBUG-rc3] 音量键直接走 SendInput 路径
-        log::info!("[DEBUG-rc3] inject volume_via_sendinput vks={vks:?}");
-    }
+    log::info!(
+        "[DEBUG-rc3] tap_vks vks={vks:?} hold_ms={hold_ms} is_volume={is_volume} via=SendInput+EXTRA_INFO"
+    );
 
     // Alt 组合键（如 Alt+Space, Alt+S）：使用 SendMessage(WM_KEYDOWN) 注入，
     // 避免 SendInput 触发 WM_SYSKEYDOWN → 系统菜单/全局热键
@@ -655,11 +634,11 @@ pub fn tap_vks(vks: &[u16], hold_ms: u64) {
         return;
     }
 
-    key_chord(vks, false);
-    std::thread::sleep(Duration::from_millis(hold_ms.max(1)));
-    key_chord(vks, true);
+    key_chord_send_input_with_extra(vks, false, EXTRA_INFO);
+    std::thread::sleep(Duration::from_millis(hold_ms.clamp(20, 1000).max(1)));
+    key_chord_send_input_with_extra(vks, true, EXTRA_INFO);
     let _ = ACTION_SEQ.fetch_add(1, Ordering::Relaxed);
-    log::debug!("XIAOMI MAPPING inject SendInput vks={vks:?} hold_ms={hold_ms} volume={is_volume}");
+    log::debug!("XIAOMI MAPPING inject SendInput+EXTRA_INFO vks={vks:?} hold_ms={hold_ms} volume={is_volume}");
 }
 
 /// 通过 SendMessage(WM_KEYDOWN/WM_KEYUP) 注入 Alt 组合键。
