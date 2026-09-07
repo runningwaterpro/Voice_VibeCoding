@@ -98,6 +98,12 @@ pub fn ensure_hook_for_capture() {
 }
 
 pub fn start_special_key_hook() {
+    // [DEBUG-rc3] hook 是否被调用 / enabled / 已在运行
+    log::info!(
+        "[DEBUG-rc3] start_special_key_hook called enabled={} already_running={}",
+        HOOK_ENABLED.load(Ordering::Acquire),
+        RUNNING.load(Ordering::Acquire)
+    );
     if !HOOK_ENABLED.load(Ordering::Acquire) {
         log::info!("XIAOMI SPECIAL KEY hook disabled by config");
         return;
@@ -213,6 +219,22 @@ fn hook_loop() {
             let up = msg == 0x0101 || msg == 0x0105;
             let tap_ready = HID_TAP_READY.load(Ordering::Acquire);
 
+            // [DEBUG-rc3] 诊断：记录每个可能相关的按键到达 LL hook 时的完整判定上下文
+            if matches!(vk, 0x25 | 0x26 | 0x27 | 0x28 | 0x0D | 0x24 | 0x5D | 0xA6 | 0xAF | 0xAE | 0xAD | 0xC0) {
+                log::info!(
+                    "[DEBUG-rc3] LL vk=0x{vk:02X} msg=0x{msg:04X} scan=0x{scan:02X} flags=0x{flags:02X} down={down} up={up} injected={injected} tap_ready={tap_ready} \
+                     recent_left={} recent_right={} recent_up={} recent_down={} recent_ok={} recent_home={} recent_menu={} recent_back={}",
+                    direct_signal_recent("left", Duration::from_millis(300)),
+                    direct_signal_recent("right", Duration::from_millis(300)),
+                    direct_signal_recent("up", Duration::from_millis(300)),
+                    direct_signal_recent("down", Duration::from_millis(300)),
+                    direct_signal_recent("ok", Duration::from_millis(200)),
+                    direct_signal_recent("home", Duration::from_millis(250)),
+                    direct_signal_recent("menu", Duration::from_millis(250)),
+                    direct_signal_recent("back", Duration::from_millis(250)),
+                );
+            }
+
             // 对齐 Python：音量仅在 Tap 就绪后抑制；其它键在 recent 信号时抑制
             // v1.5.x 修双发：Tap 接管时无条件吞原生音量（消除 LL 先于 BLE 信号的时序窗口）
             let suppress = match vk {
@@ -307,9 +329,13 @@ fn hook_loop() {
 
             if let Some(name) = suppress {
                 if down || up {
-                    log::info!("XIAOMI SPECIAL KEY {name} original_suppressed vk=0x{vk:02X}");
+                    // [DEBUG-rc3] 命中抑制：记录什么被吞了
+                    log::info!("[DEBUG-rc3] SUPPRESS vk=0x{vk:02X} name={name} down={down} up={up} leading XIAOMI SPECIAL KEY {name} original_suppressed vk=0x{vk:02X}");
                     return LRESULT(1);
                 }
+            } else if down && matches!(vk, 0x25 | 0x26 | 0x27 | 0x28 | 0x0D | 0x24 | 0x5D | 0xA6 | 0xAF | 0xAE | 0xAD) {
+                // [DEBUG-rc3] 方向/OK/Home/Menu/Back/音量未命中抑制（放行）——确认原样键是否穿透
+                log::info!("[DEBUG-rc3] PASS vk=0x{vk:02X} down scroll=0x{scan:02X}");
             }
         }
         CallNextHookEx(hook, code, wparam, lparam)

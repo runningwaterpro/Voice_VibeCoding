@@ -304,8 +304,25 @@ pub fn on_remote_button(app: &AppHandle, button_id: &str, pressed: bool) {
         return;
     };
 
+    // [DEBUG-rc3] 注入前诊断：目的 vks 是什么（对照 LL hook 是否放行）
+    if let Some(a) = lookup_action(&config, button_id) {
+        let dbg = match a {
+            KeyAction::None => "None".to_string(),
+            KeyAction::SingleKey(v) => format!("vk=0x{:02X}", v),
+            KeyAction::ComboKey(vs) => format!(
+                "combo={}",
+                vs.iter().map(|v| format!("0x{v:02X}")).collect::<Vec<_>>().join(",")
+            ),
+            KeyAction::TextInput(t) => format!("text={t}"),
+            KeyAction::LaunchApp(_) => "launch".to_string(),
+        };
+        log::info!("[DEBUG-rc3] on_remote_button key={button_id} press(ed=true) action={dbg}");
+    }
+
     let triggered = perform_button_action(&config, button_id);
     log::debug!("XIAOMI MAPPING key={button_id} mapped={triggered} pressed=true");
+    // [DEBUG-rc3] 注入是否执行了
+    log::info!("[DEBUG-rc3] on_remote_button key={button_id} after_inject triggered={triggered}");
 
     if triggered {
         mark_direct_signal(button_id);
@@ -603,9 +620,17 @@ pub fn tap_vks(vks: &[u16], hold_ms: u64) {
     let is_volume = vks.len() == 1 && matches!(vks[0], 0xAD | 0xAE | 0xAF);
     if !is_volume {
         if crate::bridges::xiaomi::hid_injector::tap_vks(vks, hold_ms) {
+            // [DEBUG-rc3] 走 WinUHid 成功
+            log::info!("[DEBUG-rc3] inject via WinUHid vks={vks:?} hold_ms={hold_ms} OK");
             let _ = ACTION_SEQ.fetch_add(1, Ordering::Relaxed);
             return;
+        } else {
+            // [DEBUG-rc3] WinUHid 失败/不可用，即将回落
+            log::info!("[DEBUG-rc3] inject WinUHid_DENIED vks={vks:?} is_volume={is_volume} -> fallback");
         }
+    } else {
+        // [DEBUG-rc3] 音量键直接走 SendInput 路径
+        log::info!("[DEBUG-rc3] inject volume_via_sendinput vks={vks:?}");
     }
 
     // Alt 组合键（如 Alt+Space, Alt+S）：使用 SendMessage(WM_KEYDOWN) 注入，

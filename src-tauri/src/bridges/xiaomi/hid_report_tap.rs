@@ -382,6 +382,12 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
                                         // 极轻路径：不 gate、不 active 比对、不注入，
                                         // 只为在原生 VK 到达 LL hook 前建立 direct_signal_recent 标记。
                                         if let Some(data) = decode_hex(msg.raw.trim()) {
+                                            // [DEBUG-rc3] pre_arm 是否到达 hub 且解出哪些 usage
+                                            log::info!(
+                                                "[DEBUG-rc3] pre_arm raw={} len={}",
+                                                msg.raw.trim(),
+                                                data.len()
+                                            );
                                             pre_arm_direct_signals(&data);
                                         }
                                     }
@@ -519,6 +525,8 @@ fn handle_ioctl(
 /// 不做 gate/active/注入，纯副作用最小路径，争取在原原生 VK 到达前命中抑制窗口。
 fn pre_arm_direct_signals(data: &[u8]) {
     let Some(payload) = decode_rc003_ioctl_output(data) else {
+        // [DEBUG-rc3] pre_arm 数据无法按 9 字节 IOCTL 解析
+        log::info!("[DEBUG-rc3] pre_arm decode_ioctl FAILURE data_raw={}", encode_hex(data));
         return;
     };
     let forwarded: HashSet<u16> = FORWARDED.iter().copied().collect();
@@ -531,6 +539,8 @@ fn pre_arm_direct_signals(data: &[u8]) {
         if id == "unknown" {
             continue;
         }
+        // [DEBUG-rc3] mark 了哪个 button_id
+        log::info!("[DEBUG-rc3] pre_arm mark id={id} usage=0x{usage:04X}");
         crate::bridges::xiaomi::key_mapping::mark_direct_signal(id);
     }
 }
