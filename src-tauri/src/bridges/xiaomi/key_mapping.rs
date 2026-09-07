@@ -304,25 +304,8 @@ pub fn on_remote_button(app: &AppHandle, button_id: &str, pressed: bool) {
         return;
     };
 
-    // [DEBUG-rc3] 注入前诊断：目的 vks 是什么（对照 LL hook 是否放行）
-    if let Some(a) = lookup_action(&config, button_id) {
-        let dbg = match a {
-            KeyAction::None => "None".to_string(),
-            KeyAction::SingleKey(v) => format!("vk=0x{:02X}", v),
-            KeyAction::ComboKey(vs) => format!(
-                "combo={}",
-                vs.iter().map(|v| format!("0x{v:02X}")).collect::<Vec<_>>().join(",")
-            ),
-            KeyAction::TextInput(t) => format!("text={t}"),
-            KeyAction::LaunchApp(_) => "launch".to_string(),
-        };
-        log::info!("[DEBUG-rc3] on_remote_button key={button_id} press(ed=true) action={dbg}");
-    }
-
     let triggered = perform_button_action(&config, button_id);
     log::debug!("XIAOMI MAPPING key={button_id} mapped={triggered} pressed=true");
-    // [DEBUG-rc3] 注入是否执行了
-    log::info!("[DEBUG-rc3] on_remote_button key={button_id} after_inject triggered={triggered}");
 
     if triggered {
         // 不再在此 mark：pre_arm（Frida 端）已为 LL hook 建立、由 hook 等待并 consume-once 消费。
@@ -622,9 +605,6 @@ pub fn tap_vks(vks: &[u16], hold_ms: u64) {
     // 固件原生 VK（无标识）才进入抑制分支。这样每按恰好一次注入，
     // 注入键永不与原生键竞争被吞。（WinUHid 注入无 EXTRA_INFO，会被当原生误吞，故普通键不走它。）
     let is_volume = vks.len() == 1 && matches!(vks[0], 0xAD | 0xAE | 0xAF);
-    log::info!(
-        "[DEBUG-rc3] tap_vks vks={vks:?} hold_ms={hold_ms} is_volume={is_volume} via=SendInput+EXTRA_INFO"
-    );
 
     // Alt 组合键（如 Alt+Space, Alt+S）：使用 SendMessage(WM_KEYDOWN) 注入，
     // 避免 SendInput 触发 WM_SYSKEYDOWN → 系统菜单/全局热键

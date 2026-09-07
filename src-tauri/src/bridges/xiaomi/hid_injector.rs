@@ -401,21 +401,8 @@ pub fn release_single(_vks: &[u16]) -> Result<(), String> {
 }
 
 fn submit(dev: &Devices, handle: *mut c_void, report: &[u8]) -> Result<(), String> {
-    // [DEBUG-rc3] 记录提交到 WinUHid 的报告字节（区分 keyboard/consumer 提交）
-    if report.len() == 8 {
-        log::info!(
-            "[DEBUG-rc3] WinUHid submit KB report={}",
-            report.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
-        );
-    } else {
-        log::info!(
-            "[DEBUG-rc3] WinUHid submit CONSUMER report={}",
-            report.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
-        );
-    }
     unsafe {
         if (dev.api.submit)(handle, report.as_ptr(), report.len() as u32) == 0 {
-            log::warn!("[DEBUG-rc3] WinUHid submit FAILED handle_nz={} report_len={}", !handle.is_null(), report.len());
             return Err("WinUHidSubmitInputReport failed".into());
         }
     }
