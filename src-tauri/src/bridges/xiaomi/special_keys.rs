@@ -260,23 +260,23 @@ fn hook_loop() {
                     Some("menu")
                 }
                 0x0D if direct_signal_recent("ok", Duration::from_millis(200)) => Some("ok"),
-                0x25 if direct_signal_recent("left", Duration::from_millis(200))
-                    || direct_signal_recent("dpad_left", Duration::from_millis(200)) =>
+                0x25 if direct_signal_recent("left", Duration::from_millis(300))
+                    || direct_signal_recent("dpad_left", Duration::from_millis(300)) =>
                 {
                     Some("left")
                 }
-                0x27 if direct_signal_recent("right", Duration::from_millis(200))
-                    || direct_signal_recent("dpad_right", Duration::from_millis(200)) =>
+                0x27 if direct_signal_recent("right", Duration::from_millis(300))
+                    || direct_signal_recent("dpad_right", Duration::from_millis(300)) =>
                 {
                     Some("right")
                 }
-                0x26 if direct_signal_recent("up", Duration::from_millis(200))
-                    || direct_signal_recent("dpad_up", Duration::from_millis(200)) =>
+                0x26 if direct_signal_recent("up", Duration::from_millis(300))
+                    || direct_signal_recent("dpad_up", Duration::from_millis(300)) =>
                 {
                     Some("up")
                 }
-                0x28 if direct_signal_recent("down", Duration::from_millis(200))
-                    || direct_signal_recent("dpad_down", Duration::from_millis(200)) =>
+                0x28 if direct_signal_recent("down", Duration::from_millis(300))
+                    || direct_signal_recent("dpad_down", Duration::from_millis(300)) =>
                 {
                     Some("down")
                 }
