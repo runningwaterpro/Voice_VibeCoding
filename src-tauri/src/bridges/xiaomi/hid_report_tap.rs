@@ -526,7 +526,8 @@ fn pre_arm_direct_signals(data: &[u8]) {
         if !forwarded.contains(&usage) {
             continue;
         }
-        let id = XiaomiButton::from_hid_usage(usage).to_button_id();
+        let btn = XiaomiButton::from_hid_usage(usage);
+        let id = btn.to_button_id();
         if id == "unknown" {
             continue;
         }
