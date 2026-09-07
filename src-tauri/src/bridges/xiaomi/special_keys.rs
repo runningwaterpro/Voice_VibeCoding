@@ -3,11 +3,16 @@
 //! 仅在「刚收到同键 HID direct / ATVV 信号」时吞掉 Windows 翻译的原 VK。
 
 use crate::bridges::xiaomi::key_mapping::{
-    direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5, EXTRA_INFO,
+    consume_direct_signal, direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5,
+    EXTRA_INFO,
 };
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// 统一抑制窗口：LL hook 收到候选原生 VK 后，等待 pre_arm mark 的最长时间。
+/// 实测时按命中率调整（越大越稳、越卡键盘；语音键 F5 用的是 80ms）。
+const SUPPRESS_WAIT_MS: u64 = 30;
 
 /// 钩子线程：重新 SetWindowsHookEx，把自己挂到链头（最后安装 = 最先调用）。
 #[cfg(target_os = "windows")]
@@ -40,6 +45,52 @@ fn alt_chord_active() -> bool {
 
 #[cfg(target_os = "windows")]
 static HOOK_PTR: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+/// 统一候选键：down 时等待 pre_arm mark（≤SUPPRESS_WAIT_MS），命中则吞原生并 consume-once 清除 mark，
+/// 使随后到达的注入键 recent=false 被放行；未命中放行（= 实体键盘）。
+/// up 不处理：注入键与原生键同 VK 无法区分，跟踪 up 会误吞注入 up 造成卡键；
+/// 吞掉的 down 对应的原生 up 是孤立 keyup，对正常应用无害。
+fn wait_and_consume_vk(vk: u32, scan: u32) -> Option<&'static str> {
+    let (names, window, label): (&'static [&'static str], Duration, &'static str) = match vk {
+        0xAF => (&["volume_up"], Duration::from_millis(200), "volume_up"),
+        0xAE => (&["volume_down"], Duration::from_millis(200), "volume_down"),
+        0xAD => (&["volume_mute", "mute"], Duration::from_millis(200), "volume_mute"),
+        0xA6 => (&["back"], Duration::from_millis(250), "back"),
+        0x24 | 0xAC => (&["home"], Duration::from_millis(250), "home"),
+        0x5D => (&["menu"], Duration::from_millis(250), "menu"),
+        0x0D => (&["ok"], Duration::from_millis(200), "ok"),
+        0x25 => (&["left", "dpad_left"], Duration::from_millis(300), "left"),
+        0x27 => (&["right", "dpad_right"], Duration::from_millis(300), "right"),
+        0x26 => (&["up", "dpad_up"], Duration::from_millis(300), "up"),
+        0x28 => (&["down", "dpad_down"], Duration::from_millis(300), "down"),
+        0xC0 if scan == 0x29 => (&["tv"], Duration::from_millis(250), "tv"),
+        0x5F | 0xFF => (&["power"], Duration::from_millis(250), "power"),
+        _ if scan == 0x5E => (&["power"], Duration::from_millis(250), "power"),
+        _ => return None,
+    };
+    let deadline = Instant::now() + Duration::from_millis(SUPPRESS_WAIT_MS);
+    loop {
+        if names.iter().any(|&n| direct_signal_recent(n, window)) {
+            // consume-once：吞原生后立刻清除 mark，注入键到达时不再命中
+            for &n in names {
+                consume_direct_signal(n);
+            }
+            return Some(label);
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    // 末尾兜底一次再查（避免 deadline 边界漏掉）
+    if names.iter().any(|&n| direct_signal_recent(n, window)) {
+        for &n in names {
+            consume_direct_signal(n);
+        }
+        return Some(label);
+    }
+    None
+}
 
 /// HID Tap 已验证 IO（可捕获返回/音量）后置 true
 pub fn set_hid_tap_ready(ready: bool) {
@@ -235,107 +286,31 @@ fn hook_loop() {
                 );
             }
 
-            // 对齐 Python：音量仅在 Tap 就绪后抑制；其它键在 recent 信号时抑制
-            // v1.5.x 修双发：Tap 接管时无条件吞原生音量（消除 LL 先于 BLE 信号的时序窗口）
-            let suppress = match vk {
-                0xAF if should_suppress_volume_native(
-                    0xAF,
-                    tap_ready,
-                    direct_signal_recent("volume_up", Duration::from_millis(200)),
-                ) =>
-                {
-                    Some("volume_up")
-                }
-                0xAE if should_suppress_volume_native(
-                    0xAE,
-                    tap_ready,
-                    direct_signal_recent("volume_down", Duration::from_millis(200)),
-                ) =>
-                {
-                    Some("volume_down")
-                }
-                0xAD if should_suppress_volume_native(
-                    0xAD,
-                    tap_ready,
-                    direct_signal_recent("volume_mute", Duration::from_millis(200))
-                        || direct_signal_recent("mute", Duration::from_millis(200)),
-                ) =>
-                {
-                    Some("volume_mute")
-                }
-                0xA6 if direct_signal_recent("back", Duration::from_millis(250)) => Some("back"),
-                0x24 | 0xAC
-                    if should_suppress_native_menu_home(
-                        vk as u16,
-                        tap_ready,
-                        direct_signal_recent("home", Duration::from_millis(250)),
-                    ) =>
-                {
-                    Some("home")
-                }
-                0x5D if should_suppress_native_menu_home(
-                    vk as u16,
-                    tap_ready,
-                    direct_signal_recent("menu", Duration::from_millis(250)),
-                ) =>
-                {
-                    Some("menu")
-                }
-                0x0D if direct_signal_recent("ok", Duration::from_millis(200)) => Some("ok"),
-                0x25 if direct_signal_recent("left", Duration::from_millis(300))
-                    || direct_signal_recent("dpad_left", Duration::from_millis(300)) =>
-                {
-                    Some("left")
-                }
-                0x27 if direct_signal_recent("right", Duration::from_millis(300))
-                    || direct_signal_recent("dpad_right", Duration::from_millis(300)) =>
-                {
-                    Some("right")
-                }
-                0x26 if direct_signal_recent("up", Duration::from_millis(300))
-                    || direct_signal_recent("dpad_up", Duration::from_millis(300)) =>
-                {
-                    Some("up")
-                }
-                0x28 if direct_signal_recent("down", Duration::from_millis(300))
-                    || direct_signal_recent("dpad_down", Duration::from_millis(300)) =>
-                {
-                    Some("down")
-                }
-                // TV: OEM_3 + scan 0x29
-                0xC0 if scan == 0x29 && direct_signal_recent("tv", Duration::from_millis(250)) => {
-                    Some("tv")
-                }
-                // Power: Sleep / 0xFF / scan 0x5E
-                0x5F | 0xFF if direct_signal_recent("power", Duration::from_millis(250)) => {
-                    Some("power")
-                }
-                _ if scan == 0x5E && direct_signal_recent("power", Duration::from_millis(250)) => {
-                    Some("power")
-                }
-                0x74 if !injected && (down || up) => {
+            // 统一抑制（consume-once）：
+            //   down：最多等待 SUPPRESS_WAIT_MS 让 pre_arm 的 mark 到达，命中则吞原生键并清除 mark，
+            //         注入键随后到达时 recent=false → 放行（= 每按恰好注入一次）。
+            //         未命中放行（= 实体键盘，等待仅造成 ≤SUPPRESS_WAIT_MS 延迟）。
+            //   up：放行（原生 up 是孤立事件，无害；防止误吞注入 up 造成卡键）。
+            //   F5 语音键保留独立的 sticky 逻辑。
+            if vk == 0x74 {
+                if down || up {
                     if should_suppress_voice_f5(down, up) {
                         crate::bridges::xiaomi::key_mapping::on_firmware_voice_key(down);
-                        Some("voice_f5")
-                    } else {
-                        if down {
-                            on_uncorrelated_f5_down();
-                        }
-                        None
+                        log::info!("[DEBUG-rc3] SUPPRESS vk=0x{vk:02X} name=voice_f5 down={down} up={up}");
+                        return LRESULT(1);
+                    } else if down {
+                        on_uncorrelated_f5_down();
                     }
                 }
-                _ => None,
-            };
-
-            if let Some(name) = suppress {
-                if down || up {
-                    // [DEBUG-rc3] 命中抑制：记录什么被吞了
-                    log::info!("[DEBUG-rc3] SUPPRESS vk=0x{vk:02X} name={name} down={down} up={up} leading XIAOMI SPECIAL KEY {name} original_suppressed vk=0x{vk:02X}");
+            } else if down {
+                if let Some(name) = wait_and_consume_vk(vk, scan) {
+                    log::info!(
+                        "[DEBUG-rc3] SUPPRESS vk=0x{vk:02X} name={name} down=true up=false wait={SUPPRESS_WAIT_MS}ms"
+                    );
                     return LRESULT(1);
+                } else {
+                    log::info!("[DEBUG-rc3] PASS vk=0x{vk:02X} down scroll=0x{scan:02X}");
                 }
-            } else if down && matches!(vk, 0x25 | 0x26 | 0x27 | 0x28 | 0x0D | 0x24 | 0x5D | 0xA6 | 0xAF | 0xAE | 0xAD) {
-                // [DEBUG-rc3] 方向/OK/Home/Menu/Back/音量未命中抑制（放行）——确认原样键是否穿透
-                log::info!("[DEBUG-rc3] PASS vk=0x{vk:02X} down scroll=0x{scan:02X}");
             }
         }
         CallNextHookEx(hook, code, wparam, lparam)

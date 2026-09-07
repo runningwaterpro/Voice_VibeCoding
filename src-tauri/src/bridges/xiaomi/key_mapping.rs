@@ -161,6 +161,18 @@ pub fn direct_signal_recent(name: &str, window: Duration) -> bool {
     false
 }
 
+/// consume-once：LL hook 吞掉原生键后立即清除对应标记（含别名），
+/// 使随后到达的注入键 direct_signal_recent 为 false → 不被二次吞掉。
+pub fn consume_direct_signal(name: &str) {
+    let mut g = marks();
+    if let Some(m) = g.as_mut() {
+        m.remove(name);
+        for alt in binding_aliases(name) {
+            m.remove(*alt);
+        }
+    }
+}
+
 /// 对齐 Python `_wait_for_direct_signal`：F5 可能比 ATVV 0x04 先到
 fn wait_for_direct_signal(name: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
@@ -325,7 +337,9 @@ pub fn on_remote_button(app: &AppHandle, button_id: &str, pressed: bool) {
     log::info!("[DEBUG-rc3] on_remote_button key={button_id} after_inject triggered={triggered}");
 
     if triggered {
-        mark_direct_signal(button_id);
+        // 不再在此 mark：pre_arm（Frida 端）已为 LL hook 建立、由 hook 等待并 consume-once 消费。
+        // 若在注入后重新 mark，注入键（WinUHid 产生的 VK）到达 LL hook 时会再次命中而像原生一样被吞 → 循环。
+        // 抬起路径（!pressed）上方仍 mark，供 keyup 关联。
         match button_id {
             "back" => start_hold_repeat(
                 app.clone(),
