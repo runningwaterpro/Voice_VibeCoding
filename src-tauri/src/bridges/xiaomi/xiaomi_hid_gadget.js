@@ -103,7 +103,6 @@ function installHook() {
           // 右键菜单、back 0xF1、方向 0x4F-52、OK 0x28、TV 0x35、主页 0x4A、电源 0x66、
           // 音量/静音 0x7F/80/81 及 Consumer 0xE2/E9/EA），改由应用 SendInput 注入单一动作。
           // onLeave 在返回调用方之前执行，此处改缓冲有效。
-          if (output !== null) {
             for (let offset = 3; offset + 1 < EXPECTED_OUTPUT_LENGTH; offset += 2) {
               const usage = this.output.add(offset).readU16();
               const mapped =
@@ -120,7 +119,6 @@ function installHook() {
                 this.output.add(offset).writeU16(0);
               }
             }
-          }
         }
       } catch (error) {
         emit({ kind: "error", message: String(error) });
