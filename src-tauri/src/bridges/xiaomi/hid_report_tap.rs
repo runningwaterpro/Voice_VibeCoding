@@ -378,6 +378,13 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
                                             );
                                         }
                                     }
+                                    "pre_arm" => {
+                                        // 极轻路径：不 gate、不 active 比对、不注入，
+                                        // 只为在原生 VK 到达 LL hook 前建立 direct_signal_recent 标记。
+                                        if let Some(data) = decode_hex(msg.raw.trim()) {
+                                            pre_arm_direct_signals(&data);
+                                        }
+                                    }
                                     "gatt_read" => {
                                         if let Some(data) = decode_hex(msg.raw.trim()) {
                                             if !data.is_empty() {
@@ -505,6 +512,26 @@ fn handle_ioctl(
         }
         emit_key_and_map(app, id, button_label(id), false);
         tap_log(&format!("XIAOMI HID TAP key={id} usage=0x{usage:04X} up"));
+    }
+}
+
+/// pre_arm：IOCTL 返回瞬间，只为 LL hook 提前建立 direct_signal_recent 标记。
+/// 不做 gate/active/注入，纯副作用最小路径，争取在原原生 VK 到达前命中抑制窗口。
+fn pre_arm_direct_signals(data: &[u8]) {
+    let Some(payload) = decode_rc003_ioctl_output(data) else {
+        return;
+    };
+    let forwarded: HashSet<u16> = FORWARDED.iter().copied().collect();
+    for usage in payload_usages(payload) {
+        if !forwarded.contains(&usage) {
+            continue;
+        }
+        let btn = XiaomiButton::from_hid_usage(usage);
+        let id = btn.to_button_id();
+        if id == "unknown" {
+            continue;
+        }
+        crate::bridges::xiaomi::key_mapping::mark_direct_signal(id);
     }
 }
 

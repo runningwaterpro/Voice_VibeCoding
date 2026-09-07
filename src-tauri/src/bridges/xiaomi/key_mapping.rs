@@ -308,7 +308,9 @@ pub fn on_remote_button(app: &AppHandle, button_id: &str, pressed: bool) {
     log::debug!("XIAOMI MAPPING key={button_id} mapped={triggered} pressed=true");
 
     if triggered {
-        mark_direct_signal(button_id);
+        // 不再在此 mark：pre_arm（Frida 端）已为 LL hook 建立、由 hook 等待并 consume-once 消费。
+        // 若在注入后重新 mark，注入键（WinUHid 产生的 VK）到达 LL hook 时会再次命中而像原生一样被吞 → 循环。
+        // 抬起路径（!pressed）上方仍 mark，供 keyup 关联。
         match button_id {
             "back" => start_hold_repeat(
                 app.clone(),
@@ -598,15 +600,11 @@ fn has_alt_modifier(vks: &[u16]) -> bool {
 }
 
 pub fn tap_vks(vks: &[u16], hold_ms: u64) {
-    // 音量/静音：优先走 SendInput 的 VK_VOLUME_*（系统音量最稳）
-    // 计算器等其它键：先试 WinUHid（含 consumer），再回落 SendInput
+    // 统一抑制配合：普通遥控器键一律走 SendInput + EXTRA_INFO。
+    // LL hook 用 dwExtraInfo==EXTRA_INFO 识别"应用注入键"并直接放行；
+    // 固件原生 VK（无标识）才进入抑制分支。这样每按恰好一次注入，
+    // 注入键永不与原生键竞争被吞。（WinUHid 注入无 EXTRA_INFO，会被当原生误吞，故普通键不走它。）
     let is_volume = vks.len() == 1 && matches!(vks[0], 0xAD | 0xAE | 0xAF);
-    if !is_volume {
-        if crate::bridges::xiaomi::hid_injector::tap_vks(vks, hold_ms) {
-            let _ = ACTION_SEQ.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-    }
 
     // Alt 组合键（如 Alt+Space, Alt+S）：使用 SendMessage(WM_KEYDOWN) 注入，
     // 避免 SendInput 触发 WM_SYSKEYDOWN → 系统菜单/全局热键
@@ -616,11 +614,11 @@ pub fn tap_vks(vks: &[u16], hold_ms: u64) {
         return;
     }
 
-    key_chord(vks, false);
-    std::thread::sleep(Duration::from_millis(hold_ms.max(1)));
-    key_chord(vks, true);
+    key_chord_send_input_with_extra(vks, false, EXTRA_INFO);
+    std::thread::sleep(Duration::from_millis(hold_ms.clamp(20, 1000).max(1)));
+    key_chord_send_input_with_extra(vks, true, EXTRA_INFO);
     let _ = ACTION_SEQ.fetch_add(1, Ordering::Relaxed);
-    log::debug!("XIAOMI MAPPING inject SendInput vks={vks:?} hold_ms={hold_ms} volume={is_volume}");
+    log::debug!("XIAOMI MAPPING inject SendInput+EXTRA_INFO vks={vks:?} hold_ms={hold_ms} volume={is_volume}");
 }
 
 /// 通过 SendMessage(WM_KEYDOWN/WM_KEYUP) 注入 Alt 组合键。

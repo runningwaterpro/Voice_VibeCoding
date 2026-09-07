@@ -94,6 +94,13 @@ function installHook() {
       if (!this.capture || retval.toUInt32() !== 0 || this.output.isNull()) return;
       try {
         if (this.outputLength === EXPECTED_OUTPUT_LENGTH) {
+          // pre_arm 先于 gatt_read：在 IOCTL 返回瞬间立刻通知 Rust 侧「这些 usage 刚按下」，
+          // 让 LL hook 的 direct_signal_recent 在原原生 VK 到达前就命中，从而吞掉固件原生成键。
+          // gatt_read 随后才走完整注入链路。
+          emit({
+            kind: "pre_arm",
+            raw: hex(this.output, this.outputLength)
+          });
           emit({
             kind: "gatt_read",
             raw: hex(this.output, this.outputLength)
