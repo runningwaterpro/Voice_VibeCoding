@@ -903,8 +903,11 @@ impl ShortcutCaptureSession {
         self.runtime.capturing.store(false, Ordering::SeqCst);
         consumer_listen::stop();
 
-        if SWALLOW_ACTIVE.load(Ordering::SeqCst) {
-            wait_swallow_inactive(Duration::from_millis(2500));
+        // 仅在「已提交、正在等物理键抬完」时才值得等排空。
+        // 未提交时 maybe_finish_hook_after_drain 永不触发，等 2.5s 纯属死区：
+        // 期间 SWALLOW_ACTIVE 仍 true 但 capturing 已 false，键被白吞、不录制、不投递。
+        if SWALLOW_ACTIVE.load(Ordering::SeqCst) && CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
+            wait_swallow_inactive(Duration::from_millis(300));
         }
         set_swallow_active(false);
         reset_hook_session();
