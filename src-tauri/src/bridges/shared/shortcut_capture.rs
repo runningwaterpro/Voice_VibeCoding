@@ -904,10 +904,12 @@ impl ShortcutCaptureSession {
         consumer_listen::stop();
 
         // 仅在「已提交、正在等物理键抬完」时才值得等排空。
-        // 未提交时 maybe_finish_hook_after_drain 永不触发，等 2.5s 纯属死区：
+        // 未提交时 maybe_finish_hook_after_drain 永不触发，等待纯属死区：
         // 期间 SWALLOW_ACTIVE 仍 true 但 capturing 已 false，键被白吞、不录制、不投递。
+        // 已提交时给 800ms：组合键录入时修饰键（如 Ctrl）常晚于主键松开，
+        // 300ms 会在修饰键 keyup 到达前超时强制关闭，使其 keyup 泄漏进系统。
         if SWALLOW_ACTIVE.load(Ordering::SeqCst) && CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
-            wait_swallow_inactive(Duration::from_millis(300));
+            wait_swallow_inactive(Duration::from_millis(800));
         }
         set_swallow_active(false);
         reset_hook_session();
