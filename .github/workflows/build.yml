@@ -11,6 +11,12 @@ on:
 permissions:
   contents: write
 
+# Serialize builds for the same ref so concurrent tag/release runs
+# do not interleave asset delete/upload on the same Release.
+concurrency:
+  group: build-nsis-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -43,6 +49,63 @@ jobs:
           name: Voice-VibeCoding-NSIS
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+      # Guard: tag must match code version; installer name must match tag;
+      # stale *-setup.exe assets with a different version are deleted.
+      # Runs only on the release-upload path (tag v* or release published).
+      - name: Verify tag version and clean stale release assets
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+') {
+            throw "Release tag must look like vX.Y.Z, got: '$tag'"
+          }
+          $version = $tag.Substring(1)
+          Write-Host "Tag=$tag ExpectedVersion=$version"
+
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne $version) {
+            throw "package.json version '$($pkg.version)' != tag version '$version'"
+          }
+          if ($tauri.version -ne $version) {
+            throw "tauri.conf.json version '$($tauri.version)' != tag version '$version'"
+          }
+          Write-Host "package.json and tauri.conf.json versions match tag"
+
+          $nsisDir = 'src-tauri/target/release/bundle/nsis'
+          $exes = @(Get-ChildItem -Path $nsisDir -Filter '*.exe' -File -ErrorAction Stop)
+          if ($exes.Count -ne 1) {
+            throw "Expected exactly 1 NSIS exe in $nsisDir, found $($exes.Count): $($exes.Name -join ', ')"
+          }
+          $installer = $exes[0].Name
+          if ($installer -notmatch [regex]::Escape($version)) {
+            throw "Installer filename '$installer' does not contain version '$version'"
+          }
+          Write-Host "Installer OK: $installer"
+
+          # First tag push may run before any Release exists; cleanup then is a no-op.
+          $releaseJson = gh release view $tag --json id,assets 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release for $tag not found yet; skipping stale asset cleanup"
+          } else {
+            $release = $releaseJson | ConvertFrom-Json
+            foreach ($asset in @($release.assets)) {
+              if ($asset.name -like '*-setup.exe' -and $asset.name -notmatch [regex]::Escape($version)) {
+                Write-Host "Deleting stale mismatched asset: $($asset.name)"
+                gh release delete-asset $tag $asset.name --yes
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Failed to delete asset $($asset.name)"
+                }
+              }
+            }
+            Write-Host "Stale asset cleanup done for $tag"
+          }
 
       # 上传到 Release：push tag v* 或 release published 都触发。
       # 用户手动发布 Release 时，GitHub 会创建/指向对应 tag → 自动编译并附带安装包。
