@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -20,6 +20,15 @@ const { updateInfo, shouldShowPassivePrompt } = storeToRefs(appUpdate);
 const showQuitConfirm = ref(false);
 const quitting = ref(false);
 
+/** 顶栏会话摘要：来自主机状态（阶段 A） */
+const session = ref({
+  tone: "idle" as "idle" | "ok" | "warn" | "fail",
+  title: "正在启动…",
+  sub: "",
+});
+let hostTimer: ReturnType<typeof setInterval> | null = null;
+const connBusy = ref(false);
+
 function statusClass(status: BridgeStatus): string {
   if (status === "Connected") return "connected";
   if (status === "Connecting") return "connecting";
@@ -28,7 +37,7 @@ function statusClass(status: BridgeStatus): string {
 }
 
 const allDeviceItems = [
-  { path: "/xiaomi", label: "小米2 pro", type: "xiaomi" as const },
+  { path: "/xiaomi", label: "小米遥控器", type: "xiaomi" as const },
   { path: "/t1", label: "T1 [开发中]", type: "t1" as const, dev: true },
   { path: "/v60", label: "V60 [开发中]", type: "hanvon" as const, dev: true },
 ];
@@ -38,6 +47,58 @@ const deviceItems = computed(() =>
     ? allDeviceItems.filter((item) => !item.dev)
     : allDeviceItems
 );
+
+const isXiaomi = computed(() => bridge.devices.xiaomi.status === "Connected");
+const xiaomiStatusText = computed(() => bridge.statusLabel(bridge.devices.xiaomi.status));
+
+const connectLabel = computed(() => {
+  if (connBusy.value) return bridge.devices.xiaomi.status === "Disconnected" ? "连接中…" : "断开中…";
+  return isXiaomi.value ? "断开遥控器" : "连接遥控器";
+});
+
+async function refreshSession() {
+  try {
+    const h = await invoke<{
+      bridge_alive: boolean;
+      atvv_ok: boolean;
+      cable_ready: boolean;
+      winuhid_ready: boolean;
+      status_text: string;
+      tone: string;
+    }>("get_xiaomi_host_status");
+    if (!h.bridge_alive) {
+      session.value = { tone: "idle", title: "未连接遥控器", sub: "点「连接遥控器」或等待自动重连" };
+      return;
+    }
+    const voiceOk = h.atvv_ok && h.cable_ready && h.winuhid_ready;
+    if (voiceOk) {
+      session.value = { tone: "ok", title: "语音可用", sub: h.status_text || "已连接" };
+    } else {
+      session.value = {
+        tone: h.tone === "error" ? "fail" : "warn",
+        title: h.status_text || "已连接但语音未就绪",
+        sub: "点「修复」见小米设置页",
+      };
+    }
+  } catch {
+    session.value = { tone: "idle", title: xiaomiStatusText.value, sub: "" };
+  }
+}
+
+async function toggleConnect() {
+  if (connBusy.value) return;
+  connBusy.value = true;
+  try {
+    if (isXiaomi.value) {
+      await bridge.stopBridge("xiaomi");
+    } else {
+      await bridge.startBridge("xiaomi");
+    }
+    await refreshSession();
+  } finally {
+    connBusy.value = false;
+  }
+}
 
 const appVersion = ref("…");
 
@@ -50,6 +111,13 @@ onMounted(async () => {
   } catch {
     appVersion.value = "v1.6.0";
   }
+  await bridge.refreshStatus("xiaomi");
+  await refreshSession();
+  hostTimer = setInterval(refreshSession, 2000);
+});
+
+onUnmounted(() => {
+  if (hostTimer) clearInterval(hostTimer);
 });
 
 function navigate(path: string) {
@@ -94,7 +162,13 @@ async function confirmQuit() {
       </template>
     </div>
 
-    <nav class="nav-row">
+    <div class="session-chip" role="status" aria-live="polite">
+      <span :class="['session-dot', `tone-${session.tone}`]" />
+      <span class="session-title">{{ session.title }}</span>
+      <span v-if="session.sub" class="session-sub">{{ session.sub }}</span>
+    </div>
+
+    <nav class="nav-row" v-if="deviceItems.length > 1">
       <button
         v-for="item in deviceItems"
         :key="item.path"
@@ -109,8 +183,18 @@ async function confirmQuit() {
         <span class="nav-label">{{ item.label }}</span>
       </button>
     </nav>
+    <span v-else class="single-device-label">小米遥控器 2 Pro</span>
 
     <div class="nav-actions">
+      <button
+        type="button"
+        class="nav-item nav-connect"
+        :class="{ busy: connBusy }"
+        :disabled="connBusy"
+        @click="toggleConnect"
+      >
+        <span class="nav-label">{{ connectLabel }}</span>
+      </button>
       <button
         type="button"
         :class="['nav-item', { active: isActive('/settings') }]"
@@ -151,14 +235,69 @@ async function confirmQuit() {
 .topnav {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   height: 48px;
-  padding: 0 20px;
+  padding: 0 16px;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   user-select: none;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.session-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  font-size: 12.5px;
+}
+.session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #64748b;
+}
+.session-dot.tone-ok {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.7);
+}
+.session-dot.tone-warn {
+  background: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+}
+.session-dot.tone-fail {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
+}
+.session-title {
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-sub {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.single-device-label {
+  color: #94a3b8;
+  font-size: 12.5px;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.nav-connect.busy {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .brand {
