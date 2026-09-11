@@ -1759,6 +1759,29 @@ async function retryLoadConfig() {
           </div>
         </div>
 
+        
+      </div>
+
+      <aside class="log-aside">
+        <section class="card log-card">
+          <div class="log-card-head">
+            <p class="card-text">状态日志</p>
+            <button class="btn btn-tiny btn-secondary" type="button" @click="openLogs">
+              日志
+            </button>
+          </div>
+          <div ref="logAreaRef" class="log-area">
+            <p v-for="entry in logs" :key="entry.id" class="log-entry">
+              <span class="log-time">{{ entry.time }}</span>
+              <span class="log-text">{{ entry.text }}</span>
+            </p>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="page-body stage-grid">
+      <aside class="status-col" aria-label="运行状态">
         <section class="card host-card">
           <div class="host-status-row" role="list" aria-label="运行状态">
             <div
@@ -2024,27 +2047,8 @@ async function retryLoadConfig() {
             </div>
           </div>
         </section>
-      </div>
-
-      <aside class="log-aside">
-        <section class="card log-card">
-          <div class="log-card-head">
-            <p class="card-text">状态日志</p>
-            <button class="btn btn-tiny btn-secondary" type="button" @click="openLogs">
-              日志
-            </button>
-          </div>
-          <div ref="logAreaRef" class="log-area">
-            <p v-for="entry in logs" :key="entry.id" class="log-entry">
-              <span class="log-time">{{ entry.time }}</span>
-              <span class="log-text">{{ entry.text }}</span>
-            </p>
-          </div>
-        </section>
       </aside>
-    </div>
 
-    <div class="page-body">
       <!-- 小米专用运行状态弹层等 -->
       <div v-if="showSetupTips" class="voice-modal-backdrop" @click.self="showSetupTips = false">
         <div class="voice-modal setup-tips-modal" role="dialog" aria-modal="true" aria-labelledby="setup-tips-title">
@@ -3964,4 +3968,29 @@ async function retryLoadConfig() {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+.stage-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .stage-grid { grid-template-columns: 1fr; }
+}
+.device-info-row { display: none !important; }
+.log-aside { display: none !important; }
+.status-col .host-card { height: auto; }
+.host-status-stack { flex-direction: column; align-items: flex-start; gap: 6px; }
+.host-actions-stack { flex-direction: column; align-items: stretch; }
+.host-actions-stack .host-action-group { width: 100%; }
+.host-actions-stack .btn { width: 100%; }
+.vol-meters-full { width: 100%; margin-bottom: 12px; }
+.voice-quick-setup {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
 </style>

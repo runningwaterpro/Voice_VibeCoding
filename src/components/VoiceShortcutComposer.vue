@@ -121,26 +121,147 @@ watch(() => props.initialKeys, resetFromKeys, { immediate: true });
 </template>
 
 <style scoped>
-.shortcut-composer { margin: 0 0 14px; padding: 14px; border: 1px solid var(--info-border); border-radius: 12px; background: var(--surface-selected); }
-.shortcut-composer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.shortcut-composer-heading span, .shortcut-composer-preview > span { display: block; color: var(--text-secondary); font-size: 11px; }
-.shortcut-composer-heading strong { display: block; margin-top: 3px; color: var(--text); font-size: 13px; }
-.shortcut-composer-close { width: 28px; height: 28px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-secondary); background: var(--surface-raised); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
-.shortcut-composer-close:hover { color: var(--text); background: var(--surface-hover); }
-.shortcut-composer-note { margin: 10px 0 12px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
-.shortcut-composer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.shortcut-composer-fields label { display: grid; gap: 5px; min-width: 0; color: var(--text-secondary); font-size: 10px; font-weight: 700; }
-.shortcut-composer-fields select { width: 100%; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 7px; outline: 0; color: var(--text); background: var(--surface-raised); font: inherit; font-size: 11px; }
-.shortcut-composer-fields select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring); }
-.shortcut-main-key { grid-column: span 2; }
-.shortcut-composer-preserved { margin: 10px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
-.shortcut-composer-preview { display: grid; gap: 4px; margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); }
-.shortcut-composer-preview strong { overflow-wrap: anywhere; color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; }
-.shortcut-composer-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
-.selection-action { min-height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; color: var(--text); background: var(--surface-raised); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
-.selection-action:hover:not(:disabled) { background: var(--surface-hover); }
-.selection-action.primary { border-color: var(--primary); color: #fff; background: var(--primary); }
-.selection-action.primary:hover:not(:disabled) { background: var(--primary-dark); }
-.selection-action:disabled { opacity: .55; cursor: not-allowed; }
-@media (max-width: 760px) { .shortcut-composer-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .shortcut-main-key { grid-column: span 2; } }
+.shortcut-composer {
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid #3d5a78;
+  border-radius: 10px;
+  background: #1a2a3d;
+}
+.shortcut-composer-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shortcut-composer-heading span,
+.shortcut-composer-preview > span {
+  display: block;
+  color: #8b95a3;
+  font-size: 11px;
+}
+.shortcut-composer-heading strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text, #e8ecf1);
+  font-size: 13px;
+}
+.shortcut-composer-close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border, #343b46);
+  border-radius: 8px;
+  color: var(--text-secondary, #8b95a3);
+  background: var(--panel-2, #262c35);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.shortcut-composer-close:hover {
+  color: var(--text, #e8ecf1);
+  background: var(--surface-hover, #2a313b);
+}
+.shortcut-composer-note {
+  margin: 8px 0 12px;
+  color: #8b95a3;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.shortcut-composer-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.shortcut-composer-fields label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #8b95a3;
+  font-size: 10px;
+  font-weight: 700;
+}
+.shortcut-composer-fields select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border, #343b46);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--text, #e8ecf1);
+  background: var(--panel-2, #262c35);
+  font: inherit;
+  font-size: 11px;
+}
+.shortcut-composer-fields select:focus {
+  border-color: var(--primary, #4db6a4);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(77, 182, 164, 0.2));
+}
+.shortcut-main-key {
+  grid-column: span 2;
+}
+.shortcut-composer-preserved {
+  margin: 10px 0 0;
+  color: #8b95a3;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.shortcut-composer-preview {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border, #343b46);
+  border-radius: 8px;
+  background: var(--panel-2, #262c35);
+}
+.shortcut-composer-preview strong {
+  overflow-wrap: anywhere;
+  color: var(--text, #e8ecf1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.shortcut-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+.selection-action {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border, #343b46);
+  border-radius: 7px;
+  color: var(--text, #e8ecf1);
+  background: var(--panel-2, #262c35);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.selection-action:hover:not(:disabled) {
+  background: var(--surface-hover, #2a313b);
+}
+.selection-action.primary {
+  border-color: var(--primary, #4db6a4);
+  color: #0f172a;
+  background: var(--primary, #4db6a4);
+}
+.selection-action.primary:hover:not(:disabled) {
+  background: var(--primary-dark, #3a9a8a);
+}
+.selection-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (max-width: 760px) {
+  .shortcut-composer-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .shortcut-main-key {
+    grid-column: span 2;
+  }
+}
 </style>
