@@ -180,6 +180,23 @@ const waveLinePoints = computed(() => {
 
 const cableReady = computed(() => host.value.cable_ready);
 
+/** 阶段 B：仅异常时显示对应修复按钮（对齐 xiaomi_host_status 优先级） */
+const repairNeed = computed(() => ({
+  cable: !host.value.cable_ready,
+  winuhid: Boolean(host.value.bridge_alive && !host.value.winuhid_ready),
+  atvv: Boolean(host.value.bridge_alive && !host.value.atvv_ok),
+  restart: !host.value.bridge_alive || (host.value.bridge_alive && !host.value.audio_alive),
+}));
+const anyRepairNeed = computed(() => Object.values(repairNeed.value).some(Boolean));
+const allHealthy = computed(
+  () =>
+    host.value.bridge_alive &&
+    host.value.audio_alive &&
+    host.value.cable_ready &&
+    host.value.winuhid_ready &&
+    host.value.atvv_ok,
+);
+
 const cableVolZone = computed(() => {
   if (!cableReady.value) return "idle";
   if (!voiceMeter.value.cableActive) return "idle";
@@ -1699,7 +1716,7 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-        <!-- 双电平：同行紧凑布局，省垂直空间给下方遥控器 -->
+        <!-- 双电平：等宽两轨；增益贴在送声下方独立行，不挤轨道 -->
         <div class="vol-meters-card">
           <CableVolRuler
             :level="voiceMeter.bleLevel"
@@ -1714,6 +1731,40 @@ async function retryLoadConfig() {
             label="送声·增益后"
             :hint="cableReady ? cableVolHint : '声卡未就绪'"
           />
+          <div class="gain-inline">
+            <span class="gain-inline-label">增益</span>
+            <div class="number-stepper" role="group" aria-label="增益分贝">
+              <button
+                type="button"
+                class="stepper-btn"
+                aria-label="减小增益"
+                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
+                @click="stepGain(-GAIN_STEP)"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                class="gain-input"
+                v-model.number="gainDb"
+                :min="GAIN_MIN"
+                :max="GAIN_MAX"
+                :step="GAIN_STEP"
+                :disabled="configStore.saving || configSectionLoading"
+                @blur="clampGainOnBlur"
+              />
+              <button
+                type="button"
+                class="stepper-btn"
+                aria-label="增大增益"
+                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
+                @click="stepGain(GAIN_STEP)"
+              >
+                +
+              </button>
+            </div>
+            <span class="gain-inline-hint">只影响送声</span>
+          </div>
         </div>
 
         <section class="card host-card">
@@ -1736,8 +1787,9 @@ async function retryLoadConfig() {
             </div>
           </div>
           <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
-          <div class="host-actions">
-            <div class="host-action-group">
+          <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
+          <div v-if="anyRepairNeed" class="host-actions">
+            <div v-if="repairNeed.cable" class="host-action-group">
               <button
                 class="btn btn-secondary"
                 type="button"
@@ -1795,7 +1847,7 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div class="host-action-group">
+            <div v-if="repairNeed.winuhid" class="host-action-group">
               <button
                 class="btn btn-secondary"
                 type="button"
@@ -1853,7 +1905,7 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div class="host-action-group">
+            <div v-if="repairNeed.atvv" class="host-action-group">
               <button
                 class="btn btn-secondary"
                 type="button"
@@ -1911,7 +1963,7 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div class="host-action-group">
+            <div v-if="repairNeed.restart" class="host-action-group">
               <button
                 class="btn btn-secondary"
                 type="button"
@@ -2564,88 +2616,6 @@ async function retryLoadConfig() {
                   </ul>
                   <p class="tip-aside">适合「按住说话」类输入法。</p>
                 </div>
-              </div>
-            </Teleport>
-          </div>
-
-          <div class="voice-toolbar-item">
-            <span class="voice-toolbar-label">增益 (dB)</span>
-            <div class="number-stepper" role="group" aria-label="增益分贝">
-              <button
-                type="button"
-                class="stepper-btn"
-                aria-label="减小增益"
-                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
-                @click="stepGain(-GAIN_STEP)"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                class="gain-input"
-                v-model.number="gainDb"
-                :min="GAIN_MIN"
-                :max="GAIN_MAX"
-                :step="GAIN_STEP"
-                :disabled="configStore.saving || configSectionLoading"
-                @blur="clampGainOnBlur"
-              />
-              <button
-                type="button"
-                class="stepper-btn"
-                aria-label="增大增益"
-                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
-                @click="stepGain(GAIN_STEP)"
-              >
-                +
-              </button>
-            </div>
-            <button
-              ref="gainInfoBtn"
-              type="button"
-              class="title-info voice-info"
-              :aria-expanded="showGainTip"
-              aria-label="增益说明"
-              @mouseenter="openGainTip"
-              @mouseleave="scheduleCloseGainTip"
-              @focus="openGainTip"
-              @blur="scheduleCloseGainTip"
-              @click.stop="toggleGainTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showGainTip"
-                ref="gainTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="gainTipStyle"
-                @mouseenter="openGainTip"
-                @mouseleave="scheduleCloseGainTip"
-              >
-                <p class="tip-lead">
-                  增益 = 把遥控器麦克风声音「放大或缩小」再送进电脑（VB-CABLE）。
-                  只影响音量大小，不改变能不能说话。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">怎么调</div>
-                  <ul>
-                    <li>听不清、识别漏字 → 调高（如 10 → 14）</li>
-                    <li>破音、刺耳、识别乱 → 调低（如 10 → 6）</li>
-                    <li>常用默认 <strong>10 dB</strong>；范围 -12 ～ 30</li>
-                  </ul>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">注意</div>
-                  <ul>
-                    <li>保存后立即生效（约 0.3 秒内自动保存），无需重启桥接</li>
-                    <li>一次加减 2～4 dB 即可，别一次拉满</li>
-                  </ul>
-                </div>
-                <p class="tip-foot">
-                  简单记：声音太小就加，太吵就减。
-                </p>
               </div>
             </Teleport>
           </div>
@@ -3606,6 +3576,29 @@ async function retryLoadConfig() {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+.gain-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.gain-inline-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.gain-inline-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+.healthy-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--success, #16a34a);
 }
 
 .vol-meter-block {
