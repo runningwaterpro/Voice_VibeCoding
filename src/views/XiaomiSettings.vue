@@ -1651,12 +1651,8 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
-    <header class="page-header">
-      <div class="title-row">
-        <h2>小米遥控器 2 Pro</h2>
-      </div>
-      <!-- 连接/断开已上移到顶栏 SideNav，此处不再重复 -->
-    </header>
+    <!-- 标题与连接已在顶栏，页内不再重复大标题 -->
+    <header class="page-header page-header-slim" aria-hidden="true"></header>
 
     <div class="overview-row">
       <div class="overview-left">
@@ -2755,6 +2751,9 @@ async function retryLoadConfig() {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.page-header-slim {
+  display: none;
 }
 .page-header h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .title-info {

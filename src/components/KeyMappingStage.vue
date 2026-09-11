@@ -12,6 +12,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { DeviceConfig, KeyAction } from "../types";
 import RemoteHotspot from "./RemoteHotspot.vue";
 import RemoteKeyIcon from "./RemoteKeyIcon.vue";
+import VoiceShortcutComposer from "./VoiceShortcutComposer.vue";
 import { MEDIA_PICK_KEYS, vkDisplayName } from "../utils/vkDisplay";
 import {
   applyImePresetConfig,
@@ -66,6 +67,32 @@ const hoverId = ref<string | null>(null);
 const capturing = ref(false);
 const captureError = ref<string | null>(null);
 const liveLabels = ref<string[]>([]);
+const manualEditor = ref<{ buttonId: string; initialKeys: number[] } | null>(null);
+
+function isLeftButton(id: string): boolean {
+  return (LEFT_IDS as readonly string[]).includes(id);
+}
+
+function openManualShortcutEditor() {
+  const id = selectedId.value;
+  if (!id) return;
+  const action = props.config.button_bindings?.[id] || { type: "None", value: null };
+  const keys = actionToVks(action) || [];
+  manualEditor.value = { buttonId: id, initialKeys: keys };
+  capturing.value = false;
+  void cancelCapture();
+}
+
+function closeManualShortcutEditor() {
+  manualEditor.value = null;
+}
+
+function applyManualShortcut(keys: number[]) {
+  const editor = manualEditor.value;
+  if (!editor) return;
+  manualEditor.value = null;
+  applyCapturedKeys(editor.buttonId, keys);
+}
 
 const stageRef = ref<HTMLElement | null>(null);
 const remoteRef = ref<InstanceType<typeof RemoteHotspot> | null>(null);
@@ -563,6 +590,14 @@ onUnmounted(() => {
       </svg>
 
       <aside class="side-col left-col">
+        <VoiceShortcutComposer
+          v-if="manualEditor && isLeftButton(manualEditor.buttonId)"
+          :initial-keys="manualEditor.initialKeys"
+          :button-label="DEFAULT_LABELS[manualEditor.buttonId] || manualEditor.buttonId"
+          slot-label="快捷键"
+          @apply="applyManualShortcut"
+          @cancel="closeManualShortcutEditor"
+        />
         <div
           v-for="btn in leftButtons"
           :key="btn.id"
@@ -596,6 +631,11 @@ onUnmounted(() => {
             >
               {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
             </button>
+            <button
+              type="button"
+              class="btn-sm btn-edit"
+              @click.stop="openManualShortcutEditor"
+            >手动组合</button>
             <button
               v-if="btn.action.type !== 'None'"
               type="button"
@@ -649,6 +689,14 @@ onUnmounted(() => {
       </div>
 
       <aside class="side-col right-col">
+        <VoiceShortcutComposer
+          v-if="manualEditor && !isLeftButton(manualEditor.buttonId)"
+          :initial-keys="manualEditor.initialKeys"
+          :button-label="DEFAULT_LABELS[manualEditor.buttonId] || manualEditor.buttonId"
+          slot-label="快捷键"
+          @apply="applyManualShortcut"
+          @cancel="closeManualShortcutEditor"
+        />
         <div
           v-for="btn in rightButtons"
           :key="btn.id"
@@ -688,6 +736,11 @@ onUnmounted(() => {
             >
               {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
             </button>
+            <button
+              type="button"
+              class="btn-sm btn-edit"
+              @click.stop="openManualShortcutEditor"
+            >手动组合</button>
             <button
               v-if="btn.action.type !== 'None'"
               type="button"
