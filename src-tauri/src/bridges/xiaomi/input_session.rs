@@ -103,7 +103,7 @@ fn windows_run_input_session(
 
     tv_gate::mark_connecting();
     reset_atvv_subscribed();
-    crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Initializing);
+    crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Init);
 
     unsafe {
         let _ = windows::Win32::System::Com::CoInitializeEx(
@@ -397,12 +397,12 @@ fn windows_run_input_session(
     crate::bridges::xiaomi::key_mapping::set_input_session_active(true);
 
     // 语音就绪状态：会话激活后按 ATVV 订阅结果切换托盘图标
-    crate::ipc::tray::set_tray_phase(
+    crate::ipc::tray::sync_runtime_icons(
         &app,
         if atvv_ok {
-            crate::ipc::tray::TrayPhase::Success
+            crate::ipc::tray::TrayIconKind::Ready
         } else {
-            crate::ipc::tray::TrayPhase::Warning
+            crate::ipc::tray::TrayIconKind::Error
         },
     );
 
@@ -431,9 +431,9 @@ fn windows_run_input_session(
                         mark_atvv_subscribed(true);
                         emit_message(&app, "ATVV 语音键/音频已订阅（后台重试成功）");
                         log::info!("ATVV subscribe recovered on periodic retry");
-                        crate::ipc::tray::set_tray_phase(
+                        crate::ipc::tray::sync_runtime_icons(
                             &app,
-                            crate::ipc::tray::TrayPhase::Success,
+                            crate::ipc::tray::TrayIconKind::Ready,
                         );
                         tv_gate::mark_ready(Duration::from_secs_f32(tv_delay.max(0.0)));
                         if let Err(e) = voice_pcm::ensure_started() {
@@ -486,9 +486,9 @@ fn windows_run_input_session(
     crate::bridges::xiaomi::key_mapping::set_input_session_active(false);
     // 区分异常断开（红色）和正常断开（回到呼吸灯等待重连）
     if runtime.is_abnormal_disconnect() {
-        crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Failed);
+        crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Error);
     } else {
-        crate::ipc::tray::set_tray_phase(&app, crate::ipc::tray::TrayPhase::Initializing);
+        crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Init);
     }
     tv_gate::reset();
     mark_atvv_subscribed(false);
