@@ -2024,7 +2024,6 @@ async function retryLoadConfig() {
             </div>
           </div>
         </section>
-        </div>
       </div>
 
       <aside class="log-aside">
