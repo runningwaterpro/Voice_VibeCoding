@@ -38,13 +38,14 @@ fn load_tray_png(bytes: &'static [u8]) -> Result<Image<'static>, tauri::Error> {
 }
 
 fn load_tray_icon(kind: TrayIconKind) -> Result<Image<'static>, tauri::Error> {
+    // Prefer 32px: Windows tray is ~16–20px; 128 downscale looks mushy.
     match kind {
-        TrayIconKind::Ready => load_tray_png(include_bytes!("../../icons/tray-icon.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-32.png"))),
-        TrayIconKind::Init => load_tray_png(include_bytes!("../../icons/tray-icon-init.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-init-32.png"))),
-        TrayIconKind::Error => load_tray_png(include_bytes!("../../icons/tray-icon-error.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-error-32.png"))),
+        TrayIconKind::Ready => load_tray_png(include_bytes!("../../icons/tray-icon-32.png"))
+            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon.png"))),
+        TrayIconKind::Init => load_tray_png(include_bytes!("../../icons/tray-icon-init-32.png"))
+            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-init.png"))),
+        TrayIconKind::Error => load_tray_png(include_bytes!("../../icons/tray-icon-error-32.png"))
+            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-error.png"))),
     }
 }
 
