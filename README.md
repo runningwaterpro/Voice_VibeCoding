@@ -26,22 +26,31 @@ apple macos版 ，作者 [nijez](https://github.com/nijez)
 
 ## 本仓库（Fork）说明
 
-本仓库基于 [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding) **v1.5.7** 分叉，保留原作者全部内容。与上游的差异：
+本仓库基于 [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding) **v1.5.7** 分叉，保留原作者全部内容。安装包版本号始终使用本仓库 **1.0.x** 约定（与 tag 对齐），**不**采用上游 1.6.x 版本号。
 
-| 改动 | 说明 |
+| 范围 | 说明 |
 | --- | --- |
-| 托盘图标三态 | 语音就绪/初始化/失败三种状态，呼吸动画 |
+| 按键 / 语音键路径 | **保留本仓库 rc003 实现**（统一抑制、SendInput+EXTRA_INFO、shortcut capture 等），**未**合入上游 F5/`voice_dispatch`/`hook_bump` 策略 |
+| 托盘 | 对齐上游三态：初始化（黄）/ 就绪（绿）/ 异常（红），使用上游图标资源 |
+| UI / 设置（自上游 v1.6.7） | 小米页电量图标、音频波形与 dBFS 标尺、映射键图标、全局设置实时保存、`hide_dev_menus`、麦克风增益热更新 |
 | Home 键抑制修复 | 移除 `tap_ready` 对物理 Home/Menu/Volume 的误吞 |
 | WinUHid HardwareID 修复 | P/Invoke 签名修正 + 注册表损坏自动修复 |
 | 重启后自动修复 | WinUHid 安装需重启时，重启后自动完成剩余步骤 |
+| 发布 CI | tag 与代码版本一致性校验、清理错误版本安装包资产 |
 
-上游后续版本（v1.5.8–v1.6.1）包含更多改动（F5 策略重构、语音唤醒、UI 打磨等），尚未合并到本仓库。需要请参考上游仓库。
+**有意未合入（与上游差异）**
+
+- 上游 F5/钩子重构与相关测试（P3，保持 rc003）
+- 应用内静默升级 `silent-updater`、启动自动修复流水线 `startup_env`（P2）
+- 上游 1.6.x 版本号与升级通道元数据
+
+上游后续版本见 [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding)。
 
 原作者的项目信息、功能说明、架构文档均保留不变，见下方。
 
 ---
 
-**v1.5.7** · Windows 桌面应用
+**本 Fork 分支** · Windows 桌面应用
 
 把小米遥控器 2 Pro（及预留的 T1 / 汉王 V60）接到电脑：按键可映射成键盘快捷键，语音可送到输入法听写。
 

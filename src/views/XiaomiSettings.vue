@@ -5,9 +5,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useBridgeStore } from "../stores/bridge";
 import { useConfigStore } from "../stores/config";
+import type { DeviceConfig } from "../types";
 import DeviceStatus from "../components/DeviceStatus.vue";
+import BatteryLevelIcon from "../components/BatteryLevelIcon.vue";
+import CableVolRuler from "../components/CableVolRuler.vue";
 import KeyMappingStage from "../components/KeyMappingStage.vue";
-import wechatImeHotkeysImg from "../assets/guides/wechat-ime-hotkeysV2.png";
+import { cableZoneForLevel } from "../utils/cableVolMeter";
+import wechatImeHotkeysImg from "../assets/guides/wechat-ime-hotkeysV3.png";
 import doubaoImeHotkeysImg from "../assets/guides/doubao.png";
 import { vkDisplayName } from "../utils/vkDisplay";
 import {
@@ -63,6 +67,7 @@ const showWinuhidChoice = ref(false);
 const voiceChoiceMsg = ref("");
 const winuhidChoiceMsg = ref("");
 type WinuhidDownloadPhase = "idle" | "downloading" | "complete" | "error";
+type CableDownloadPhase = "idle" | "downloading" | "complete" | "error";
 const winuhidDownloadPhase = ref<WinuhidDownloadPhase>("idle");
 const winuhidDownloadProgress = ref<{
   downloaded: number;
@@ -71,6 +76,14 @@ const winuhidDownloadProgress = ref<{
 } | null>(null);
 const winuhidDownloadMessage = ref("");
 const winuhidZipDefaultName = ref("WinUHid_Manual.zip");
+const cableDownloadPhase = ref<CableDownloadPhase>("idle");
+const cableDownloadProgress = ref<{
+  downloaded: number;
+  total?: number | null;
+  percent?: number | null;
+} | null>(null);
+const cableDownloadMessage = ref("");
+const cableZipDefaultName = ref("VBCABLE_Driver_Pack45.zip");
 const showVoiceReboot = ref(false);
 const voiceRebootMsg = ref("");
 const showLogModal = ref(false);
@@ -110,7 +123,7 @@ const voiceMeter = ref<VoiceMeterSnapshot>({
   atvvOk: false,
 });
 
-/** 「按键映射」标题旁：最近一次 按下/抬起 + 遥控键：映射 */
+/** 「按键映射」标题旁：最近一次 按下/抬起 + 配置映射 */
 const lastMappingFlash = ref<{
   seq: number;
   phase: "down" | "up";
@@ -131,9 +144,62 @@ const bleSignalLabel = computed(() => {
   }
 });
 
-const cableActivityLabel = computed(() =>
-  voiceMeter.value.cableActive ? "输送中" : "待命"
-);
+function waveBinHeight(v: number, receiving: boolean): number {
+  const clamped = Math.min(1, Math.max(0, v));
+  let h = Math.pow(clamped, 0.25) * 100;
+  if (receiving && h < 20) h = 20;
+  return Math.max(8, h);
+}
+
+const waveAreaPath = computed(() => {
+  const wf = voiceMeter.value.waveform;
+  const receiving = voiceMeter.value.bleState === "receiving";
+  if (!wf.length) return "M0,100 L100,100 Z";
+  const top = wf
+    .map((v, i) => {
+      const x = wf.length === 1 ? 0 : (i / (wf.length - 1)) * 100;
+      const y = 100 - waveBinHeight(v, receiving);
+      return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+  return `${top} L100,100 L0,100 Z`;
+});
+
+const waveLinePoints = computed(() => {
+  const wf = voiceMeter.value.waveform;
+  const receiving = voiceMeter.value.bleState === "receiving";
+  if (!wf.length) return "0,100 100,100";
+  return wf
+    .map((v, i) => {
+      const x = wf.length === 1 ? 0 : (i / (wf.length - 1)) * 100;
+      const y = 100 - waveBinHeight(v, receiving);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+});
+
+const cableReady = computed(() => host.value.cable_ready);
+
+const cableVolZone = computed(() => {
+  if (!cableReady.value) return "idle";
+  if (!voiceMeter.value.cableActive) return "idle";
+  return cableZoneForLevel(voiceMeter.value.cableLevel);
+});
+
+const cableVolHint = computed(() => {
+  if (!cableReady.value) return "\u00a0";
+  if (!voiceMeter.value.cableActive) return "待命";
+  switch (cableVolZone.value) {
+    case "low":
+      return "偏低";
+    case "high":
+      return "偏高";
+    case "ok":
+      return "正常";
+    default:
+      return "送声";
+  }
+});
 
 function applyVoiceMeter(p: Record<string, unknown>) {
   const bleState = (p.bleState ?? p.ble_state ?? "idle") as BleMeterState;
@@ -534,6 +600,53 @@ const voiceShortcutEnabled = computed({
 const GAIN_MIN = -12;
 const GAIN_MAX = 30;
 const GAIN_STEP = 1;
+/** 连点 ± 时合并为一次保存，避免并发写配置竞态 */
+const GAIN_SAVE_DEBOUNCE_MS = 300;
+
+let gainSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let gainSaveSeq = 0;
+let voiceSettingsSaveSeq = 0;
+/** 串行化 xiaomi 配置写盘，避免增益/语音设置并发覆盖 */
+let configSaveQueue: Promise<void> = Promise.resolve();
+
+function cancelGainPersistSchedule() {
+  if (gainSaveTimer) {
+    clearTimeout(gainSaveTimer);
+    gainSaveTimer = null;
+  }
+}
+
+function runSerializedConfigSave(task: () => Promise<void>): Promise<void> {
+  const run = configSaveQueue.then(task);
+  configSaveQueue = run.catch(() => {});
+  return run;
+}
+
+/** 非增益类 xiaomi 配置保存：取消待写入的增益 debounce，并入串行队列 */
+async function saveXiaomiConfig(cfg: DeviceConfig): Promise<boolean> {
+  cancelGainPersistSchedule();
+  let ok = false;
+  await runSerializedConfigSave(async () => {
+    ok = await configStore.saveConfig(type, cfg);
+  });
+  return ok;
+}
+
+const gainToastVisible = ref(false);
+const gainToastMessage = ref("");
+const gainToastError = ref(false);
+let gainToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showGainToast(message: string, isError = false) {
+  gainToastMessage.value = message;
+  gainToastError.value = isError;
+  gainToastVisible.value = true;
+  if (gainToastTimer) clearTimeout(gainToastTimer);
+  gainToastTimer = setTimeout(() => {
+    gainToastVisible.value = false;
+    gainToastTimer = null;
+  }, 2000);
+}
 
 const gainDb = computed({
   get: () => config.value?.gain_db ?? 10,
@@ -542,7 +655,7 @@ const gainDb = computed({
     const n = typeof v === "number" ? v : Number(v);
     if (Number.isNaN(n)) return;
     config.value.gain_db = Math.min(GAIN_MAX, Math.max(GAIN_MIN, n));
-    void persistVoiceSettings();
+    scheduleGainPersist();
   },
 });
 
@@ -558,12 +671,59 @@ function clampGainOnBlur() {
   } else {
     config.value.gain_db = Math.min(GAIN_MAX, Math.max(GAIN_MIN, n));
   }
-  void persistVoiceSettings();
+  flushGainPersist();
+}
+
+function scheduleGainPersist() {
+  if (gainSaveTimer) clearTimeout(gainSaveTimer);
+  gainSaveTimer = setTimeout(() => {
+    gainSaveTimer = null;
+    void persistGainSettings();
+  }, GAIN_SAVE_DEBOUNCE_MS);
+}
+
+function flushGainPersist() {
+  if (gainSaveTimer) {
+    clearTimeout(gainSaveTimer);
+    gainSaveTimer = null;
+  }
+  void persistGainSettings();
+}
+
+async function persistGainSettings() {
+  if (!config.value || configLoadState.value !== "ready") return;
+  await runSerializedConfigSave(async () => {
+    const seq = ++gainSaveSeq;
+    const ok = await configStore.saveConfig(type, { ...config.value! });
+    if (seq !== gainSaveSeq) return;
+    if (ok) {
+      showGainToast("增益新数值已生效。");
+      return;
+    }
+    showGainToast("增益值更新失败，请调整数值重试。", true);
+    await configStore.loadConfig(type);
+    if (seq !== gainSaveSeq) return;
+    if (configStore.loadStates[type] !== "ready") {
+      showGainToast("增益值更新失败，请刷新页面后重试。", true);
+    }
+  });
 }
 
 async function persistVoiceSettings() {
   if (!config.value) return;
-  await configStore.saveConfig(type, { ...config.value });
+  cancelGainPersistSchedule();
+  await runSerializedConfigSave(async () => {
+    const seq = ++voiceSettingsSaveSeq;
+    const ok = await configStore.saveConfig(type, { ...config.value! });
+    if (seq !== voiceSettingsSaveSeq) return;
+    if (ok) return;
+    prependLog("语音设置保存失败，请重试");
+    await configStore.loadConfig(type);
+    if (seq !== voiceSettingsSaveSeq) return;
+    if (configStore.loadStates[type] !== "ready") {
+      prependLog("配置重新加载失败，请刷新页面");
+    }
+  });
 }
 
 /** 输入法一键预设（微信 / 豆包 / 千问等） */
@@ -589,7 +749,12 @@ async function applyImePreset(presetId: ImePresetId) {
   config.value.voice_shortcut_enabled = true;
   config.value.trigger_mode = next.trigger_mode;
   config.value.voice_release_behavior = next.voice_release_behavior;
-  await configStore.saveConfig(type, next);
+  const ok = await saveXiaomiConfig(next);
+  if (!ok) {
+    prependLog("预设应用失败，请重试");
+    await configStore.loadConfig(type);
+    return;
+  }
   setupApplyHint.value = definition.applyHint;
   prependLog(definition.logMessage);
   window.setTimeout(() => {
@@ -597,7 +762,13 @@ async function applyImePreset(presetId: ImePresetId) {
   }, 4000);
 }
 
+async function onKeyMappingSave(cfg: DeviceConfig) {
+  const ok = await saveXiaomiConfig(cfg);
+  if (!ok) prependLog("按键映射保存失败，请重试");
+}
+
 let hostPollTimer: ReturnType<typeof setInterval> | null = null;
+let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
 function itemToneClass(tone: string): string {
   if (tone === "ok") return "ok";
@@ -621,6 +792,9 @@ let unlistenAtvvCancel: UnlistenFn | null = null;
 let unlistenWinuhidProgress: UnlistenFn | null = null;
 let unlistenWinuhidComplete: UnlistenFn | null = null;
 let unlistenWinuhidError: UnlistenFn | null = null;
+let unlistenCableProgress: UnlistenFn | null = null;
+let unlistenCableComplete: UnlistenFn | null = null;
+let unlistenCableError: UnlistenFn | null = null;
 
 function formatTime(d = new Date()): string {
   return d.toLocaleTimeString("zh-CN", { hour12: false });
@@ -723,11 +897,11 @@ function resolveMappedActionLabel(buttonId: string): string {
 function formatKeyEventLine(
   phase: "down" | "up",
   remoteLabel: string,
-  mappedLabel: string | null
+  mappedLabel: string | null,
 ): string {
   const phaseLabel = phase === "up" ? "抬起" : "按下";
   if (mappedLabel) {
-    return `${phaseLabel} ${remoteLabel}：${mappedLabel}`;
+    return `${phaseLabel} ${remoteLabel} → ${mappedLabel}`;
   }
   return `${phaseLabel} ${remoteLabel}`;
 }
@@ -748,6 +922,10 @@ function showMappingFlash(
     lastMappingFlash.value = null;
     mappingFlashClearTimer = null;
   }, 4500);
+  // 状态日志只记配置映射，不再汇总漏键/吞键/真实输出
+  if (phase === "down") {
+    prependLog(formatKeyEventLine(phase, remoteLabel, mappedLabel));
+  }
 }
 
 async function refreshHost() {
@@ -894,12 +1072,21 @@ function applyVoiceEnvResult(result: VoiceEnvActionResult) {
 }
 
 async function voiceDetectAndRepair() {
+  if (voiceRepairing.value || winuhidRepairing.value || atvvRepairing.value || restarting.value) {
+    return;
+  }
+  openVoiceRepairChoice();
+}
+
+/** 自动检测与修复（原点击按钮的默认行为） */
+async function runVoiceAutoRepair() {
   voiceRepairing.value = true;
   showVoiceChoice.value = false;
   showVoiceReboot.value = false;
   try {
     const result = await invoke<VoiceEnvActionResult>("check_xiaomi_voice_env");
     if (result.needsChoice) {
+      // 未装驱动：回到选择窗，保留下载 / 内嵌安装等选项
       voiceChoiceMsg.value = result.message;
       showVoiceChoice.value = true;
       return;
@@ -910,12 +1097,24 @@ async function voiceDetectAndRepair() {
     const msg = `虚拟声卡检测失败: ${e}`;
     prependLog(msg);
     host.value = { ...host.value, detail: msg, tone: "error" };
+    voiceChoiceMsg.value = msg;
+    showVoiceChoice.value = true;
   } finally {
     voiceRepairing.value = false;
   }
 }
 
-async function chooseVoiceSource(source: "embedded" | "download_page" | "download_zip") {
+async function chooseVoiceSource(
+  source: "auto" | "embedded" | "embedded_force" | "download_page" | "download_zip",
+) {
+  if (source === "auto") {
+    await runVoiceAutoRepair();
+    return;
+  }
+  if (source === "download_zip") {
+    await startCableZipDownload();
+    return;
+  }
   voiceRepairing.value = true;
   showVoiceChoice.value = false;
   showVoiceReboot.value = false;
@@ -929,6 +1128,8 @@ async function chooseVoiceSource(source: "embedded" | "download_page" | "downloa
     const msg = `语音修复失败: ${e}`;
     prependLog(msg);
     host.value = { ...host.value, detail: msg, tone: "error" };
+    voiceChoiceMsg.value = msg;
+    showVoiceChoice.value = true;
   } finally {
     voiceRepairing.value = false;
   }
@@ -1025,6 +1226,85 @@ function resetWinuhidDownloadState() {
   winuhidDownloadMessage.value = "";
 }
 
+function resetCableDownloadState() {
+  cableDownloadPhase.value = "idle";
+  cableDownloadProgress.value = null;
+  cableDownloadMessage.value = "";
+}
+
+const cableDownloadProgressLabel = computed(() => {
+  const p = cableDownloadProgress.value;
+  if (!p) return "准备下载…";
+  const downloaded = formatDownloadBytes(p.downloaded);
+  if (p.total && p.total > 0) {
+    const pct = p.percent != null ? `（${Math.round(p.percent)}%）` : "";
+    return `${downloaded} / ${formatDownloadBytes(p.total)}${pct}`;
+  }
+  return `已下载 ${downloaded}`;
+});
+
+function cableDownloadProgressWidth(): string {
+  const p = cableDownloadProgress.value;
+  if (p?.percent != null) return `${Math.min(100, Math.max(0, p.percent))}%`;
+  if (cableDownloadPhase.value === "complete") return "100%";
+  return "0%";
+}
+
+async function refreshCableZipName() {
+  try {
+    const status = await invoke<{ downloadZipUrl?: string }>("get_xiaomi_voice_env_status");
+    const url = status.downloadZipUrl || "";
+    const name = url.split("/").pop();
+    if (name) cableZipDefaultName.value = name;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function startCableZipDownload() {
+  if (cableDownloadPhase.value === "downloading" || voiceRepairing.value) return;
+
+  const dest = await save({
+    defaultPath: cableZipDefaultName.value,
+    filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
+    title: "保存 VB-CABLE 驱动包",
+  });
+  if (!dest) return;
+
+  cableDownloadPhase.value = "downloading";
+  cableDownloadProgress.value = { downloaded: 0, total: null, percent: null };
+  cableDownloadMessage.value = "";
+
+  try {
+    await invoke("download_xiaomi_vbcable_zip", { destPath: dest });
+  } catch (e) {
+    cableDownloadPhase.value = "error";
+    cableDownloadMessage.value = String(e);
+    prependLog(`VB-CABLE 驱动包下载失败: ${e}`);
+  }
+}
+
+/** 停止并丢弃半成品，恢复初始态（不关弹窗，便于重试或选其它项） */
+async function stopCableZipDownload() {
+  if (cableDownloadPhase.value !== "downloading") return;
+  try {
+    await invoke("cancel_xiaomi_vbcable_zip_download");
+  } catch (e) {
+    console.warn("cancel vbcable download failed:", e);
+  }
+  resetCableDownloadState();
+  prependLog("已停止 VB-CABLE 驱动包下载");
+}
+
+/** 点「虚拟声卡修复」先弹出选项，不直接跑修复（便于测下载等路径） */
+function openVoiceRepairChoice() {
+  showVoiceReboot.value = false;
+  resetCableDownloadState();
+  voiceChoiceMsg.value = "请选择检测 / 安装方式：";
+  showVoiceChoice.value = true;
+  void refreshCableZipName();
+}
+
 async function refreshWinuhidZipName() {
   try {
     const status = await invoke<{ downloadZipUrl?: string }>("get_xiaomi_winuhid_status");
@@ -1059,6 +1339,17 @@ async function startWinuhidZipDownload() {
   }
 }
 
+async function stopWinuhidZipDownload() {
+  if (winuhidDownloadPhase.value !== "downloading") return;
+  try {
+    await invoke("cancel_xiaomi_winuhid_zip_download");
+  } catch (e) {
+    console.warn("cancel winuhid download failed:", e);
+  }
+  resetWinuhidDownloadState();
+  prependLog("已停止 WinUHid 驱动包下载");
+}
+
 function openWinuhidRepairChoice() {
   resetWinuhidDownloadState();
   winuhidChoiceMsg.value = "请选择修复或安装方式：";
@@ -1077,7 +1368,10 @@ onMounted(async () => {
       .catch(() => undefined),
   ]);
   hostPollTimer = setInterval(refreshHost, 1000);
-  // ponytail: 电量变化由后端事件推送，无需前端轮询
+  // 持续拉取设备信息（含电量），避免必须切页才刷新
+  devicePollTimer = setInterval(() => {
+    void bridge.refreshStatus(type);
+  }, 1500);
   window.addEventListener("resize", onViewportChange);
   window.addEventListener("scroll", onViewportChange, true);
 
@@ -1104,7 +1398,6 @@ onMounted(async () => {
       // D1：语音映射关闭时只显示按下/抬起，不写映射段
       const lineMapped = isVoice && !voiceMapOn ? null : resolveMappedActionLabel(id);
       showMappingFlash(label, lineMapped, phase);
-      prependLog(formatKeyEventLine(phase, label, lineMapped));
     });
   } catch (e) {
     console.warn("listen xiaomi-key failed:", e);
@@ -1172,12 +1465,12 @@ onMounted(async () => {
     unlistenWinuhidComplete = await listen<{ path: string }>(
       "winuhid-download-complete",
       (event) => {
-        winuhidDownloadPhase.value = "complete";
         const path = event.payload?.path || "";
-        winuhidDownloadMessage.value = path
-          ? `已保存到：${path}。请解压后阅读「安装说明.txt」，双击 Run-Install.cmd 安装。`
-          : "下载完成。请解压后阅读「安装说明.txt」，双击 Run-Install.cmd 安装。";
-        prependLog(winuhidDownloadMessage.value);
+        const msg = path
+          ? `WinUHid 驱动包已保存到：${path}。请解压后阅读「安装说明.txt」，双击 Run-Install.cmd 安装。`
+          : "WinUHid 驱动包下载完成。请解压后阅读「安装说明.txt」安装。";
+        prependLog(msg);
+        resetWinuhidDownloadState();
       },
     );
   } catch (e) {
@@ -1188,13 +1481,68 @@ onMounted(async () => {
     unlistenWinuhidError = await listen<{ message: string }>(
       "winuhid-download-error",
       (event) => {
+        const msg = event.payload?.message || "下载失败";
+        if (msg.includes("已取消")) {
+          resetWinuhidDownloadState();
+          return;
+        }
         winuhidDownloadPhase.value = "error";
-        winuhidDownloadMessage.value = event.payload?.message || "下载失败";
-        prependLog(`WinUHid 驱动包下载失败: ${winuhidDownloadMessage.value}`);
+        winuhidDownloadProgress.value = null;
+        winuhidDownloadMessage.value = msg;
+        prependLog(`WinUHid 驱动包下载失败: ${msg}`);
       },
     );
   } catch (e) {
     console.warn("listen winuhid-download-error failed:", e);
+  }
+
+  try {
+    unlistenCableProgress = await listen<{
+      downloaded: number;
+      total?: number | null;
+      percent?: number | null;
+    }>("vbcable-download-progress", (event) => {
+      if (!event.payload) return;
+      cableDownloadPhase.value = "downloading";
+      cableDownloadProgress.value = event.payload;
+    });
+  } catch (e) {
+    console.warn("listen vbcable-download-progress failed:", e);
+  }
+
+  try {
+    unlistenCableComplete = await listen<{ path: string }>(
+      "vbcable-download-complete",
+      (event) => {
+        const path = event.payload?.path || "";
+        const msg = path
+          ? `VB-CABLE 驱动包已保存到：${path}。请解压后按说明安装，完成后点「自动修复」。`
+          : "VB-CABLE 驱动包下载完成。请解压安装后点「自动修复」。";
+        prependLog(msg);
+        resetCableDownloadState();
+      },
+    );
+  } catch (e) {
+    console.warn("listen vbcable-download-complete failed:", e);
+  }
+
+  try {
+    unlistenCableError = await listen<{ message: string }>(
+      "vbcable-download-error",
+      (event) => {
+        const msg = event.payload?.message || "下载失败";
+        if (msg.includes("已取消")) {
+          resetCableDownloadState();
+          return;
+        }
+        cableDownloadPhase.value = "error";
+        cableDownloadProgress.value = null;
+        cableDownloadMessage.value = msg;
+        prependLog(`VB-CABLE 驱动包下载失败: ${msg}`);
+      },
+    );
+  } catch (e) {
+    console.warn("listen vbcable-download-error failed:", e);
   }
 });
 
@@ -1206,7 +1554,11 @@ onUnmounted(() => {
   unlistenWinuhidProgress?.();
   unlistenWinuhidComplete?.();
   unlistenWinuhidError?.();
+  unlistenCableProgress?.();
+  unlistenCableComplete?.();
+  unlistenCableError?.();
   if (hostPollTimer) clearInterval(hostPollTimer);
+  if (devicePollTimer) clearInterval(devicePollTimer);
   if (voiceTipCloseTimer) clearTimeout(voiceTipCloseTimer);
   if (gainTipCloseTimer) clearTimeout(gainTipCloseTimer);
   if (triggerTipCloseTimer) clearTimeout(triggerTipCloseTimer);
@@ -1214,6 +1566,10 @@ onUnmounted(() => {
   if (winuhidTipCloseTimer) clearTimeout(winuhidTipCloseTimer);
   if (atvvTipCloseTimer) clearTimeout(atvvTipCloseTimer);
   if (restartTipCloseTimer) clearTimeout(restartTipCloseTimer);
+  if (gainSaveTimer) {
+    flushGainPersist();
+  }
+  if (gainToastTimer) clearTimeout(gainToastTimer);
   if (mappingFlashClearTimer) clearTimeout(mappingFlashClearTimer);
   if (tipViewportRaf != null) {
     cancelAnimationFrame(tipViewportRaf);
@@ -1273,24 +1629,28 @@ async function retryLoadConfig() {
     <div class="overview-row">
       <div class="overview-left">
         <div class="device-info-row">
-          <div class="info-item" style="min-width: 140px !important;">
-            <span class="info-label">设备名称</span>
-            <span class="info-value">{{ device.device_name || "—" }}</span>
+          <div class="device-info-col">
+            <div class="info-line">
+              <span class="info-label">设备名称</span>
+              <span class="info-value">{{ device.device_name || "—" }}</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">蓝牙地址</span>
+              <span class="info-value">{{ device.device_address || "—" }}</span>
+            </div>
           </div>
-          <div class="info-item">
-            <span class="info-label">蓝牙地址</span>
-            <span class="info-value">{{ device.device_address || "—" }}</span>
-          </div>
-          <div class="info-item" >
-            <span class="info-label">电量</span>
-            <span class="info-value">
-              {{ device.battery_level != null ? device.battery_level + "%" : "—" }}
-            </span>
-          </div>
-          <div class="info-item">
-  
-            <span class="info-label">连接方式</span>
-            <span class="info-value">蓝牙 BLE</span>
+          <div class="device-info-col">
+            <div class="info-line">
+              <span class="info-label">剩余电量</span>
+              <span class="info-value info-value-battery">
+                <BatteryLevelIcon :level="device.battery_level" />
+                {{ device.battery_level != null ? device.battery_level + "%" : "—" }}
+              </span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">连接方式</span>
+              <span class="info-value">蓝牙 BLE</span>
+            </div>
           </div>
           <div
             class="info-item info-item-audio"
@@ -1312,13 +1672,42 @@ async function retryLoadConfig() {
               >{{ bleSignalLabel }}</span>
             </div>
             <div class="ble-wave" aria-hidden="true">
-              <span
-                v-for="(v, i) in voiceMeter.waveform"
-                :key="i"
-                class="ble-wave-bar"
-                :style="{ height: `${Math.max(8, Math.round(Math.pow(Math.min(1, Math.max(0, v)), 0.25) * 100))}%` }"
-              />
+              <svg class="ble-wave-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path class="ble-wave-fill" :d="waveAreaPath" />
+                <polyline class="ble-wave-line" :points="waveLinePoints" />
+              </svg>
             </div>
+          </div>
+          <div
+            class="info-item info-item-cable-vol"
+            :class="[
+              `cable-zone-${cableVolZone}`,
+              { 'is-active': cableReady && voiceMeter.cableActive },
+            ]"
+            title="经增益处理后送往虚拟声卡的实时电平（dBFS，0 为数字满幅）"
+          >
+            <div class="audio-label-row cable-vol-label-row">
+              <span v-if="cableReady" class="info-label">虚拟声卡音量</span>
+              <span v-else class="cable-vol-fail">虚拟声卡未就绪</span>
+              <span
+                class="cable-vol-state"
+                :class="{
+                  'is-low': cableReady && cableVolZone === 'low',
+                  'is-high': cableReady && cableVolZone === 'high',
+                  'is-ok': cableReady && cableVolZone === 'ok',
+                  'is-idle': !cableReady || !voiceMeter.cableActive,
+                  'is-sending':
+                    cableReady &&
+                    voiceMeter.cableActive &&
+                    cableVolZone === 'idle',
+                }"
+              >{{ cableVolHint }}</span>
+            </div>
+            <CableVolRuler
+              :level="voiceMeter.cableLevel"
+              :disabled="!cableReady"
+              :active="cableReady && voiceMeter.cableActive"
+            />
           </div>
         </div>
 
@@ -1328,7 +1717,6 @@ async function retryLoadConfig() {
               v-for="item in host.items"
               :key="item.id"
               class="host-status-item"
-              :class="{ 'host-status-cable': item.id === 'cable' }"
               role="listitem"
             >
               <span
@@ -1337,20 +1725,6 @@ async function retryLoadConfig() {
                 aria-hidden="true"
               />
               <span class="host-item-label">{{ item.label }}</span>
-              <div
-                v-if="item.id === 'cable'"
-                class="cable-meter"
-                :class="{ active: voiceMeter.cableActive }"
-                :title="cableActivityLabel"
-                aria-hidden="true"
-              >
-                <span class="cable-meter-track">
-                  <span
-                    class="cable-meter-fill"
-                    :style="{ width: `${Math.round(voiceMeter.cableLevel * 100)}%` }"
-                  />
-                </span>
-              </div>
               <span class="host-item-state" :class="itemToneClass(item.tone)">
                 {{ item.state_label }}
               </span>
@@ -1365,14 +1739,14 @@ async function retryLoadConfig() {
                 :disabled="voiceRepairing || restarting"
                 @click="voiceDetectAndRepair"
               >
-                {{ voiceRepairing ? "处理中..." : "虚拟声卡检测与修复" }}
+                {{ voiceRepairing ? "处理中..." : "虚拟声卡修复" }}
               </button>
               <button
                 ref="repairInfoBtn"
                 type="button"
                 class="title-info"
                 :aria-expanded="showRepairTip"
-                aria-label="虚拟声卡检测与修复说明"
+                aria-label="虚拟声卡修复说明"
                 @mouseenter="openRepairTip"
                 @mouseleave="scheduleCloseRepairTip"
                 @focus="openRepairTip"
@@ -1411,7 +1785,7 @@ async function retryLoadConfig() {
                     </ul>
                   </div>
                   <p class="tip-foot">
-                    平时语音正常就不必反复点；若提示必须重启电脑，按提示重启后再试。结果会写在右侧状态日志。
+                    点按钮会先弹出选项：默认选「自动修复」即可；也可用下载包 / 官网自测。若提示必须重启电脑，按提示重启后再试。结果会写在右侧状态日志。
                   </p>
                 </div>
               </Teleport>
@@ -1469,7 +1843,7 @@ async function retryLoadConfig() {
                     </ul>
                   </div>
                   <p class="tip-foot">
-                    会弹出 UAC 管理员确认，请点允许。点按钮后会打开修复选项：自动修复、强制重装、导出到桌面或从 Release 下载。这和「虚拟声卡检测与修复」「修复 ATVV 连接」不是一回事。
+                    会弹出 UAC 管理员确认，请点允许。点按钮后会打开修复选项：自动修复、强制重装、导出到桌面或从 Release 下载。仅当 Windows 返回必须重启时才重启；否则再点一次「自动修复」。这和「虚拟声卡修复」「修复 ATVV 连接」不是一回事。
                   </p>
                 </div>
               </Teleport>
@@ -1508,7 +1882,7 @@ async function retryLoadConfig() {
                   @mouseleave="scheduleCloseAtvvTip"
                 >
                   <p class="tip-lead">
-                    修好遥控器到电脑的「语音专用蓝牙通道」（ATVV）。通道正常后，按住语音键才有绿色音频波动，也不会误触发系统 F5 插入日期。
+                    修好遥控器到电脑的「语音专用蓝牙通道」（ATVV）。通道正常后，按住语音键才有绿色音频波动，语音听写才能用。
                   </p>
                   <div class="tip-block tip-on">
                     <div class="tip-badge">会做什么</div>
@@ -1527,7 +1901,7 @@ async function retryLoadConfig() {
                     </ul>
                   </div>
                   <p class="tip-foot">
-                    平时语音和波形都正常就不必点。这和「虚拟声卡检测与修复」不同：那边管电脑声卡，这边管遥控器蓝牙语音通道。
+                    平时语音和波形都正常就不必点。这和「虚拟声卡修复」不同：那边管电脑声卡，这边管遥控器蓝牙语音通道。
                   </p>
                 </div>
               </Teleport>
@@ -1579,34 +1953,38 @@ async function retryLoadConfig() {
                   <div class="tip-block tip-off">
                     <div class="tip-badge">什么时候点</div>
                     <ul>
-                      <li>改了增益、映射等设置后不生效</li>
+                      <li>虚拟声卡、ATVV 或蓝牙连接异常</li>
                       <li>状态显示异常、按键失灵、连上又掉线</li>
                       <li>长时间不用后突然不响应，想快速恢复</li>
                     </ul>
                   </div>
                   <p class="tip-foot">
-                    返回 / 音量专用通道会尽量保持，一般不必为此反复重启。若仍无效，可再试「虚拟声卡检测与修复」，或查看日志。
+                    返回 / 音量专用通道会尽量保持，一般不必为此反复重启。若仍无效，可再试「虚拟声卡修复」，或查看日志。
                   </p>
                 </div>
               </Teleport>
             </div>
-            <button class="btn btn-secondary" type="button" @click="openLogs">
-              日志
-            </button>
-            <button
-              class="btn btn-secondary"
-              type="button"
-              @click="showSetupTips = true"
-            >
-              输入法设置
-            </button>
+            <div class="host-action-group">
+              <button
+                class="btn btn-secondary"
+                type="button"
+                @click="showSetupTips = true"
+              >
+                输入法设置
+              </button>
+            </div>
           </div>
         </section>
       </div>
 
       <aside class="log-aside">
         <section class="card log-card">
-          <p class="card-text">状态日志</p>
+          <div class="log-card-head">
+            <p class="card-text">状态日志</p>
+            <button class="btn btn-tiny btn-secondary" type="button" @click="openLogs">
+              日志
+            </button>
+          </div>
           <div ref="logAreaRef" class="log-area">
             <p v-for="entry in logs" :key="entry.id" class="log-entry">
               <span class="log-time">{{ entry.time }}</span>
@@ -1625,13 +2003,6 @@ async function retryLoadConfig() {
             <h3 id="setup-tips-title">输入法设置</h3>
             <button class="btn btn-secondary" type="button" @click="showSetupTips = false">关闭</button>
           </div>
-          <p class="setup-tips-lead">
-            语音键快捷键要和输入法里设的一样，可先点「快速应用」。
-          </p>
-          <p v-if="setupApplyHint" class="setup-apply-hint setup-apply-hint-global">
-            {{ setupApplyHint }}
-          </p>
-
           <div class="setup-ime-tabs" role="tablist" aria-label="输入法分类">
             <button
               v-for="tab in imeTabs"
@@ -1646,6 +2017,10 @@ async function retryLoadConfig() {
               {{ tab.label }}
             </button>
           </div>
+          <div class="setup-tips-body">
+          <p v-if="setupApplyHint" class="setup-apply-hint setup-apply-hint-global">
+            {{ setupApplyHint }}
+          </p>
 
           <div v-if="setupImeTab === 'faq'" class="setup-ime-panel" role="tabpanel">
             <div class="setup-ime-warn setup-ime-faq-warn" role="note">
@@ -1670,13 +2045,16 @@ async function retryLoadConfig() {
                 <span class="setup-ime-tag">{{ qianwenGuide.tag }}</span>
               </header>
               <ol class="setup-ime-steps">
-                <li v-for="(step, idx) in qianwenGuide.steps" :key="idx">{{ step }}</li>
+                <li v-for="(step, idx) in qianwenGuide.steps" :key="idx">
+                  <span class="setup-ime-step-text">{{ step.text }}</span>
+                  <span v-if="step.aside" class="setup-ime-step-aside">{{ step.aside }}</span>
+                </li>
               </ol>
               <div class="setup-ime-apply setup-ime-apply-row">
                 <button
                   v-for="preset in qianwenPresets"
                   :key="preset.id"
-                  class="btn btn-primary"
+                  class="btn btn-ime-apply"
                   type="button"
                   :disabled="!config"
                   @click="applyImePreset(preset.id)"
@@ -1698,11 +2076,15 @@ async function retryLoadConfig() {
                 <span class="setup-ime-tag">{{ preset.tag }}</span>
               </header>
               <ol class="setup-ime-steps">
-                <li v-for="(step, idx) in preset.steps" :key="idx">{{ step }}</li>
+                <li v-for="(step, idx) in preset.steps" :key="idx">
+                  <span class="setup-ime-step-text">{{ step.text }}</span>
+                  <span v-if="step.aside" class="setup-ime-step-aside">{{ step.aside }}</span>
+                </li>
               </ol>
+              <p v-if="preset.quickTip" class="setup-ime-quick-tip">{{ preset.quickTip }}</p>
               <div class="setup-ime-apply">
                 <button
-                  class="btn btn-primary"
+                  class="btn btn-ime-apply"
                   type="button"
                   :disabled="!config"
                   @click="applyImePreset(preset.id)"
@@ -1711,10 +2093,10 @@ async function retryLoadConfig() {
                 </button>
               </div>
               <figure v-if="isWechatPreset(preset.id)" class="setup-ime-figure">
-                <figcaption>微信 · 「按住说话」快捷键</figcaption>
+                <figcaption>微信 · 「按住说话」须设为「F5 + 本软件快捷键」（例：F5 + 左 Ctrl + 左 Win）</figcaption>
                 <img
                   :src="wechatImeHotkeysImg"
-                  alt="微信输入法按住说话快捷键设置"
+                  alt="微信输入法按住说话：F5 加本软件设置的快捷键"
                   class="setup-ime-img"
                 />
               </figure>
@@ -1727,6 +2109,7 @@ async function retryLoadConfig() {
                 />
               </figure>
             </article>
+          </div>
           </div>
         </div>
       </div>
@@ -1749,17 +2132,79 @@ async function retryLoadConfig() {
           </div>
         </div>
       </div>
-      <div v-if="showVoiceChoice" class="voice-modal-backdrop" @click.self="showVoiceChoice = false">
+      <div
+        v-if="showVoiceChoice"
+        class="voice-modal-backdrop"
+        @click.self="cableDownloadPhase !== 'downloading' && !voiceRepairing && (showVoiceChoice = false)"
+      >
         <div class="voice-modal" role="dialog" aria-modal="true">
-          <h3>未检测到 VB-CABLE</h3>
-          <p>{{ voiceChoiceMsg || "请选择安装方式：" }}</p>
-          <p class="voice-modal-uac-tip">如弹出 Windows 管理员确认（UAC），点同意</p>
-          <p class="voice-modal-reboot-tip">安装完成必须重启系统</p>
+          <h3>虚拟声卡修复</h3>
+          <p>{{ voiceChoiceMsg || "请选择检测 / 安装方式：" }}</p>
+          <p class="voice-modal-uac-tip">安装内嵌驱动时如弹出 Windows 管理员确认（UAC），点同意</p>
+          <p class="voice-modal-reboot-tip">新装驱动完成必须重启系统后才会生效</p>
+          <div class="voice-modal-reboot-followup">
+            <p class="voice-modal-reboot-followup-title">重启后请按下面做一遍：</p>
+            <ol>
+              <li>重新打开本软件</li>
+              <li>再点「虚拟声卡修复」→「自动修复」一次</li>
+              <li>若弹出 UAC，点允许；成功后默认麦克风会设为 CABLE Output</li>
+            </ol>
+            <p>
+              强制重装后同样需要重启，重启后也请再点一次「自动修复」。仅装驱动、不点自动修复，语音通路可能仍未就绪。
+            </p>
+          </div>
+
+          <div
+            v-if="cableDownloadPhase === 'downloading' || cableDownloadPhase === 'error'"
+            class="winuhid-download-progress"
+            role="status"
+            aria-live="polite"
+          >
+            <div class="winuhid-download-head">
+              <span class="winuhid-download-label">
+                {{
+                  cableDownloadPhase === "downloading"
+                    ? "正在下载驱动包…"
+                    : "下载失败"
+                }}
+              </span>
+              <span
+                v-if="cableDownloadPhase === 'downloading'"
+                class="winuhid-download-meta"
+              >
+                {{ cableDownloadProgressLabel }}
+              </span>
+            </div>
+            <div
+              v-if="cableDownloadPhase === 'downloading'"
+              class="winuhid-download-track"
+              :class="{
+                indeterminate: cableDownloadProgress?.percent == null,
+              }"
+            >
+              <div
+                class="winuhid-download-bar"
+                :style="{ width: cableDownloadProgressWidth() }"
+              />
+            </div>
+            <p v-if="cableDownloadMessage" class="winuhid-download-msg">
+              {{ cableDownloadMessage }}
+            </p>
+          </div>
+
           <div class="voice-modal-actions">
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="voiceRepairing"
+              :disabled="voiceRepairing || cableDownloadPhase === 'downloading'"
+              @click="chooseVoiceSource('auto')"
+            >
+              {{ voiceRepairing ? "处理中…" : "自动修复" }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="voiceRepairing || cableDownloadPhase === 'downloading'"
               @click="chooseVoiceSource('embedded')"
             >
               使用内嵌驱动安装
@@ -1767,25 +2212,52 @@ async function retryLoadConfig() {
             <button
               class="btn btn-secondary"
               type="button"
-              :disabled="voiceRepairing"
-              @click="chooseVoiceSource('download_zip')"
+              :disabled="voiceRepairing || cableDownloadPhase === 'downloading'"
+              @click="chooseVoiceSource('embedded_force')"
             >
-              下载最新驱动包手动安装
+              使用内嵌驱动强制重装
             </button>
+            <div class="voice-modal-download-row">
+              <button
+                class="btn btn-secondary"
+                type="button"
+                :disabled="voiceRepairing || cableDownloadPhase === 'downloading'"
+                @click="chooseVoiceSource('download_zip')"
+              >
+                {{
+                  cableDownloadPhase === "downloading"
+                    ? "下载中…"
+                    : "下载最新驱动包手动安装"
+                }}
+              </button>
+              <button
+                v-if="cableDownloadPhase === 'downloading'"
+                class="btn btn-danger"
+                type="button"
+                @click="stopCableZipDownload"
+              >
+                停止下载
+              </button>
+            </div>
             <button
               class="btn btn-secondary"
               type="button"
-              :disabled="voiceRepairing"
+              :disabled="voiceRepairing || cableDownloadPhase === 'downloading'"
               @click="chooseVoiceSource('download_page')"
             >
               打开VB-CABLE官网
             </button>
-            <button class="btn btn-secondary" type="button" @click="showVoiceChoice = false">
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="cableDownloadPhase === 'downloading'"
+              @click="showVoiceChoice = false"
+            >
               取消
             </button>
           </div>
           <p class="voice-modal-note">
-            内嵌为已校验的 VB-CABLE 4.5；安装时会弹出 Windows 管理员确认。官网下载适合需要更新版本时使用。
+            「自动修复」：已就绪则只校正默认麦克风；未安装则回到本窗让你选安装方式。「内嵌安装」在已检测到 CABLE 时不会重装驱动；异常时用「强制重装」。
           </p>
         </div>
       </div>
@@ -1804,6 +2276,15 @@ async function retryLoadConfig() {
           <h3 id="voice-reboot-title">需要重启 Windows</h3>
           <p>{{ voiceRebootMsg || "驱动已安装，必须重启系统后虚拟声卡才会生效。" }}</p>
           <p class="voice-modal-reboot-tip">安装完成必须重启系统</p>
+          <div class="voice-modal-reboot-followup">
+            <p class="voice-modal-reboot-followup-title">重启后请按下面做一遍：</p>
+            <ol>
+              <li>重新打开本软件</li>
+              <li>再点「虚拟声卡修复」→「自动修复」一次</li>
+              <li>若弹出 UAC，点允许；成功后默认麦克风会设为 CABLE Output</li>
+            </ol>
+            <p>不要只重启、不点「自动修复」，否则端点可能仍未校正。</p>
+          </div>
           <div class="voice-modal-actions">
             <button class="btn btn-primary" type="button" @click="showVoiceReboot = false">
               知道了
@@ -1821,10 +2302,10 @@ async function retryLoadConfig() {
           <h3>虚拟键盘修复</h3>
           <p>{{ winuhidChoiceMsg || "请选择修复或安装方式：" }}</p>
           <p class="voice-modal-uac-tip">自动修复会弹出 UAC；导出包请阅读「安装说明.txt」后双击 Run-Install.cmd</p>
-          <p class="voice-modal-reboot-tip">部分电脑安装后必须重启 Windows</p>
+          <p class="voice-modal-reboot-tip">仅在 Windows 明确要求时才必须重启；否则再点一次「自动修复」即可</p>
 
           <div
-            v-if="winuhidDownloadPhase !== 'idle'"
+            v-if="winuhidDownloadPhase === 'downloading' || winuhidDownloadPhase === 'error'"
             class="winuhid-download-progress"
             role="status"
             aria-live="polite"
@@ -1834,9 +2315,7 @@ async function retryLoadConfig() {
                 {{
                   winuhidDownloadPhase === "downloading"
                     ? "正在下载驱动包…"
-                    : winuhidDownloadPhase === "complete"
-                      ? "下载完成"
-                      : "下载失败"
+                    : "下载失败"
                 }}
               </span>
               <span
@@ -1847,11 +2326,10 @@ async function retryLoadConfig() {
               </span>
             </div>
             <div
+              v-if="winuhidDownloadPhase === 'downloading'"
               class="winuhid-download-track"
               :class="{
-                indeterminate:
-                  winuhidDownloadPhase === 'downloading' &&
-                  winuhidDownloadProgress?.percent == null,
+                indeterminate: winuhidDownloadProgress?.percent == null,
               }"
             >
               <div
@@ -1889,18 +2367,28 @@ async function retryLoadConfig() {
             >
               导出到桌面手动安装
             </button>
-            <button
-              class="btn btn-secondary"
-              type="button"
-              :disabled="winuhidRepairing || winuhidDownloadPhase === 'downloading'"
-              @click="chooseWinuhidSource('download_zip')"
-            >
-              {{
-                winuhidDownloadPhase === "downloading"
-                  ? "下载中…"
-                  : "下载驱动包手动安装"
-              }}
-            </button>
+            <div class="voice-modal-download-row">
+              <button
+                class="btn btn-secondary"
+                type="button"
+                :disabled="winuhidRepairing || winuhidDownloadPhase === 'downloading'"
+                @click="chooseWinuhidSource('download_zip')"
+              >
+                {{
+                  winuhidDownloadPhase === "downloading"
+                    ? "下载中…"
+                    : "下载驱动包手动安装"
+                }}
+              </button>
+              <button
+                v-if="winuhidDownloadPhase === 'downloading'"
+                class="btn btn-danger"
+                type="button"
+                @click="stopWinuhidZipDownload"
+              >
+                停止下载
+              </button>
+            </div>
             <button
               class="btn btn-secondary"
               type="button"
@@ -1919,7 +2407,7 @@ async function retryLoadConfig() {
             </button>
           </div>
           <p class="voice-modal-note">
-            导出/下载包内含「安装说明.txt」与 Run-Install.cmd。虚拟键盘已就绪时「自动修复」会跳过；需完整验证请选「强制重装」。
+            导出/下载包内含「安装说明.txt」与 Run-Install.cmd。虚拟键盘已就绪时「自动修复」会跳过；需完整验证请选「强制重装」。未就绪且未要求重启时，再点一次「自动修复」即可。
           </p>
         </div>
       </div>
@@ -2082,7 +2570,7 @@ async function retryLoadConfig() {
                 type="button"
                 class="stepper-btn"
                 aria-label="减小增益"
-                :disabled="gainDb <= GAIN_MIN"
+                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
                 @click="stepGain(-GAIN_STEP)"
               >
                 −
@@ -2094,13 +2582,14 @@ async function retryLoadConfig() {
                 :min="GAIN_MIN"
                 :max="GAIN_MAX"
                 :step="GAIN_STEP"
+                :disabled="configStore.saving || configSectionLoading"
                 @blur="clampGainOnBlur"
               />
               <button
                 type="button"
                 class="stepper-btn"
                 aria-label="增大增益"
-                :disabled="gainDb >= GAIN_MAX"
+                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
                 @click="stepGain(GAIN_STEP)"
               >
                 +
@@ -2145,7 +2634,7 @@ async function retryLoadConfig() {
                 <div class="tip-block tip-off">
                   <div class="tip-badge">注意</div>
                   <ul>
-                    <li>改完后请重新连接遥控器，或点「重启桥接」后生效</li>
+                    <li>保存后立即生效（约 0.3 秒内自动保存），无需重启桥接</li>
                     <li>一次加减 2～4 dB 即可，别一次拉满</li>
                   </ul>
                 </div>
@@ -2158,11 +2647,22 @@ async function retryLoadConfig() {
         </div>
         <KeyMappingStage
           :config="config"
-          @save="(cfg) => configStore.saveConfig(type, cfg)"
+          @save="onKeyMappingSave"
         />
       </section>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="gainToastVisible"
+      class="gain-toast"
+      :class="{ 'gain-toast--error': gainToastError }"
+      role="status"
+    >
+      {{ gainToastMessage }}
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -2170,6 +2670,12 @@ async function retryLoadConfig() {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+  /* 抵消 main-content 底部 padding 的一半（20 → 有效 10） */
+  margin-bottom: -10px;
+}
+.mapping-layout.card {
+  /* 相对 .card 的 10px，下边减半 */
+  padding-bottom: 5px;
 }
 .mapping-heading {
   display: flex;
@@ -2257,7 +2763,7 @@ async function retryLoadConfig() {
 .voice-toolbar-label {
   font-size: 13px;
   line-height: 1.3;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   white-space: nowrap;
 }
@@ -2352,22 +2858,50 @@ async function retryLoadConfig() {
 }
 
 .device-info-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 0.75fr 0.85fr minmax(140px, 1.55fr);
-  gap: 10px 16px;
+  display: flex;
+  gap: 16px;
   margin-bottom: 0;
   padding: 12px 14px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  align-items: start;
+  align-items: stretch;
+}
+.device-info-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.info-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.info-line .info-label {
+  flex-shrink: 0;
+}
+.info-line .info-value {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text, #1e293b);
+}
+.info-value-battery {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 @media (max-width: 720px) {
   .device-info-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-direction: column;
   }
-  .info-item-audio {
-    grid-column: 1 / -1;
+  .info-item-audio,
+  .info-item-cable-vol {
+    width: 100%;
   }
 }
 
@@ -2400,6 +2934,17 @@ async function retryLoadConfig() {
   padding: 5px;
   overflow: hidden;
   box-sizing: border-box;
+}
+.log-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+.log-card-head .card-text {
+  margin: 0;
 }
 .log-card h3 {
   margin: 0 0 6px;
@@ -2477,7 +3022,7 @@ async function retryLoadConfig() {
 }
 .host-item-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text);
   white-space: nowrap;
   flex-shrink: 0;
@@ -2500,39 +3045,11 @@ async function retryLoadConfig() {
 .host-item-state.error {
   color: #b91c1c;
 }
-.host-status-cable {
-  flex-wrap: nowrap;
-}
 @media (min-width: 841px) and (max-width: 980px) {
   /* 侧栏日志并排时内容区偏窄，改为 2×2 避免块内文字挤出 */
   .host-status-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-.cable-meter {
-  flex: 0 1 25%;
-  max-width: 25%;
-  min-width: 12px;
-  display: flex;
-  align-items: center;
-}
-.cable-meter-track {
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: #e2e8f0;
-  overflow: hidden;
-}
-.cable-meter-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  border-radius: 3px;
-  background: #94a3b8;
-  transition: width 70ms linear;
-}
-.cable-meter.active .cable-meter-fill {
-  background: #16a34a;
 }
 .host-detail {
   margin: 0 0 14px;
@@ -2543,13 +3060,22 @@ async function retryLoadConfig() {
 .host-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 .host-action-group {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex: 0 1 auto;
+}
+.host-actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  border-radius: 5px;
 }
 .btn {
   padding: 8px 16px;
@@ -2559,6 +3085,14 @@ async function retryLoadConfig() {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+.btn-tiny {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 .btn:disabled {
   opacity: 0.6;
@@ -2579,6 +3113,26 @@ async function retryLoadConfig() {
 }
 .btn-primary:hover:not(:disabled) {
   filter: brightness(0.95);
+}
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: 1px solid #b91c1c;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.voice-modal-download-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.voice-modal-download-row .btn {
+  flex: 1 1 auto;
+}
+.voice-modal-download-row .btn-danger {
+  flex: 0 0 auto;
 }
 
 .voice-modal-backdrop {
@@ -2675,12 +3229,41 @@ async function retryLoadConfig() {
   line-height: 1.45;
 }
 .voice-modal-reboot-tip {
-  margin: 0 0 16px !important;
+  margin: 0 0 8px !important;
   font-size: 14px !important;
   font-weight: 700;
   color: #dc2626 !important;
   text-align: center;
   line-height: 1.45;
+}
+.voice-modal-reboot-followup {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  font-size: 12px;
+  color: #7f1d1d;
+  line-height: 1.5;
+  text-align: left;
+}
+.voice-modal-reboot-followup-title {
+  margin: 0 0 6px !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  color: #991b1b !important;
+}
+.voice-modal-reboot-followup ol {
+  margin: 0 0 8px;
+  padding-left: 1.25em;
+}
+.voice-modal-reboot-followup li {
+  margin: 0 0 2px;
+}
+.voice-modal-reboot-followup p {
+  margin: 0 !important;
+  font-size: 12px !important;
+  color: #7f1d1d !important;
 }
 .voice-modal-note {
   margin-top: 14px !important;
@@ -2698,25 +3281,33 @@ async function retryLoadConfig() {
 
 .setup-tips-modal {
   width: min(560px, 100%);
-  max-height: min(86vh, 820px);
+  max-height: min(72vh, 560px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 18px 18px;
+}
+.setup-tips-body {
+  flex: 1;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 16px 18px 18px;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  padding-right: 2px;
 }
-.setup-tips-modal::-webkit-scrollbar {
+.setup-tips-body::-webkit-scrollbar {
   width: 8px;
 }
-.setup-tips-modal::-webkit-scrollbar-track {
+.setup-tips-body::-webkit-scrollbar-track {
   background: #f1f5f9;
   border-radius: 4px;
 }
-.setup-tips-modal::-webkit-scrollbar-thumb {
+.setup-tips-body::-webkit-scrollbar-thumb {
   background: #94a3b8;
   border-radius: 4px;
 }
-.setup-tips-modal::-webkit-scrollbar-thumb:hover {
+.setup-tips-body::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
 .setup-tips-head {
@@ -2724,13 +3315,10 @@ async function retryLoadConfig() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 6px;
-  position: sticky;
-  top: -16px;
-  z-index: 1;
-  margin-left: -2px;
-  margin-right: -2px;
-  padding: 2px;
+  margin: 0;
+  padding: 0 0 8px;
+  flex-shrink: 0;
+  z-index: 2;
   background: var(--card-bg, #fff);
 }
 .setup-tips-head h3 {
@@ -2740,21 +3328,14 @@ async function retryLoadConfig() {
   padding: 4px 10px;
   font-size: 12px;
 }
-.setup-tips-lead {
-  margin: 0 0 10px !important;
-  font-size: 12px !important;
-  color: #64748b !important;
-}
 .setup-ime-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 14px;
-  padding-bottom: 10px;
+  flex-shrink: 0;
+  margin: 0 0 10px;
+  padding: 8px 0 10px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 28px;
-  z-index: 1;
   background: var(--card-bg, #fff);
 }
 .setup-ime-tab {
@@ -2869,6 +3450,25 @@ async function retryLoadConfig() {
 .setup-ime-steps li + li {
   margin-top: 4px;
 }
+.setup-ime-step-text {
+  display: block;
+}
+.setup-ime-step-aside {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+  font-weight: 400;
+}
+.setup-ime-quick-tip {
+  margin: 10px 0 16px !important;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #2563eb !important;
+  font-weight: 600;
+}
 .setup-ime-steps code {
   font-size: 12px;
   padding: 1px 5px;
@@ -2880,12 +3480,28 @@ async function retryLoadConfig() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   margin-bottom: 12px;
 }
 .setup-ime-apply .btn {
-  padding: 6px 12px;
+  padding: 6px 14px;
   font-size: 13px;
+  font-weight: 600;
+}
+/* 马卡龙绿：白字仍清晰可读 */
+.btn-ime-apply {
+  background: #4db88a;
+  color: #fff;
+  border: 1px solid #3ea578;
+}
+.btn-ime-apply:hover:not(:disabled) {
+  background: #3ea578;
+  border-color: #35956b;
+}
+.btn-ime-apply:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .setup-ime-apply-row {
   flex-direction: column;
@@ -2958,9 +3574,77 @@ async function retryLoadConfig() {
   min-width: 0;
 }
 
-.info-item-audio {
-  gap: 3px;
+.info-item-audio .audio-label-row {
+  min-height: 18px;
+  align-items: baseline;
 }
+
+.info-item-audio .ble-wave,
+.info-item-cable-vol .cable-vol-ruler {
+  flex-shrink: 0;
+  height: 28px;
+}
+
+.info-item-audio,
+.info-item-cable-vol {
+  gap: 3px;
+  flex: 1.1 1 0;
+  min-width: 120px;
+}
+
+.cable-vol-label-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3em;
+  align-items: center;
+  column-gap: 8px;
+  height: 18px;
+  line-height: 18px;
+}
+
+.cable-vol-label-row .info-label,
+.cable-vol-label-row .cable-vol-fail {
+  line-height: 18px;
+}
+
+.cable-vol-fail {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--danger, #ef4444);
+  white-space: nowrap;
+}
+
+.cable-vol-label-row .cable-vol-state {
+  justify-self: end;
+  width: 3em;
+  min-width: 3em;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cable-vol-label-row .cable-vol-state.is-idle {
+  color: var(--text-secondary);
+}
+
+.cable-vol-label-row .cable-vol-state.is-sending {
+  color: #15803d;
+}
+
+.info-item-cable-vol .cable-vol-state.is-ok {
+  color: #15803d;
+}
+
+.info-item-cable-vol .cable-vol-state.is-low {
+  color: #ca8a04;
+}
+
+.info-item-cable-vol .cable-vol-state.is-high {
+  color: #dc2626;
+}
+
 .audio-label-row {
   display: flex;
   align-items: baseline;
@@ -2991,39 +3675,41 @@ async function retryLoadConfig() {
   color: #15803d;
 }
 .ble-wave {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
   height: 28px;
-  padding: 3px 4px;
+  padding: 0;
   border-radius: 4px;
   background: #f1f5f9;
   border: 1px solid var(--border);
+  color: #94a3b8;
+  overflow: hidden;
+}
+.ble-wave-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ble-wave-fill {
+  fill: currentColor;
+  opacity: 0.22;
+  transition: d 60ms linear;
+}
+.ble-wave-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: points 60ms linear;
 }
 .info-item-audio.is-receiving .ble-wave {
   background: #ecfdf5;
   border-color: #bbf7d0;
+  color: #16a34a;
 }
 .info-item-audio.is-session .ble-wave {
   background: #fffbeb;
   border-color: #fde68a;
-}
-.ble-wave-bar {
-  flex: 1 1 0;
-  min-width: 2px;
-  max-width: 6px;
-  height: 8%;
-  border-radius: 1px;
-  background: #94a3b8;
-  transition: height 60ms linear;
-}
-.info-item-audio.is-receiving .ble-wave-bar {
-  background: #16a34a;
-  /* 有输入时柱子的最小占用高度：远距离小信号也保持可见波动 */
-  min-height: 20%;
-}
-.info-item-audio.is-session .ble-wave-bar {
-  background: #d97706;
+  color: #d97706;
 }
 
 .info-label {
@@ -3032,8 +3718,9 @@ async function retryLoadConfig() {
 }
 
 .info-value {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text, #1e293b);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3212,5 +3899,37 @@ async function retryLoadConfig() {
   color: #94a3b8;
   font-size: 11px;
   line-height: 1.5;
+}
+
+.gain-toast {
+  position: fixed;
+  left: 50%;
+  top: 60px;
+  transform: translateX(-50%);
+  z-index: 4000;
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+  pointer-events: none;
+  animation: gain-toast-in 0.2s ease-out;
+}
+
+.gain-toast--error {
+  background: rgba(127, 29, 29, 0.94);
+}
+
+@keyframes gain-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 </style>

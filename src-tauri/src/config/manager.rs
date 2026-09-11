@@ -149,6 +149,13 @@ pub struct GlobalSettings {
     /// 用户忽略的更新版本（直到更高版本再提示）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ignored_update_version: Option<String>,
+    /// 隐藏开发者菜单（默认隐藏，对齐上游 v1.6.7）
+    #[serde(default = "default_hide_dev_menus")]
+    pub hide_dev_menus: bool,
+}
+
+fn default_hide_dev_menus() -> bool {
+    true
 }
 
 impl Default for GlobalSettings {
@@ -159,6 +166,7 @@ impl Default for GlobalSettings {
             minimize_to_tray: true,
             start_minimized_to_tray: false,
             ignored_update_version: None,
+            hide_dev_menus: true,
         }
     }
 }
@@ -296,6 +304,10 @@ impl ConfigManager {
         }
 
         fs::rename(&tmp_path, &path).map_err(|e| format!("替换配置文件失败: {}", e))?;
+
+        if device == "xiaomi" {
+            crate::bridges::xiaomi::voice_gain::set_gain_db(config.gain_db);
+        }
 
         self.device_cache
             .lock()

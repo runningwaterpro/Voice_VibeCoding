@@ -324,7 +324,7 @@ pub async fn set_autostart(
 ) -> Result<(), String> {
     crate::bridges::xiaomi::autostart::set_autostart_enabled(enable)?;
     let mut settings = config_manager.get_global_settings()?;
-    settings.autostart = enable;
+    settings.autostart = crate::bridges::xiaomi::autostart::is_autostart_enabled();
     config_manager.save_global_settings(&settings)
 }
 
@@ -502,13 +502,13 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
     } else if !cable_ready {
         (
             "语音环境未就绪".into(),
-            "未检测到 VB-CABLE。可点「虚拟声卡检测与修复」安装或修复。".into(),
+            "未检测到 VB-CABLE。可点「虚拟声卡修复」安装或修复。".into(),
             "warn".into(),
         )
     } else if bridge_alive && !audio_alive {
         (
             "语音路由未就绪".into(),
-            "可点「重启桥接」或「虚拟声卡检测与修复」后重试。".into(),
+            "可点「重启桥接」或「虚拟声卡修复」后重试。".into(),
             "warn".into(),
         )
     } else if !bridge_alive {
@@ -520,10 +520,22 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
     } else {
         (
             "部分服务异常".into(),
-            "可点「重启桥接」或「虚拟声卡检测与修复」。".into(),
+            "可点「重启桥接」或「虚拟声卡修复」。".into(),
             "warn".into(),
         )
     };
+
+    let voice_ready =
+        bridge_alive && audio_alive && cable_ready && winuhid_ready && atvv_ok;
+    // 托盘：绿=语音就绪；红=桥接在跑但未完全就绪；黄=尚未起来
+    let tray_kind = if voice_ready {
+        crate::ipc::tray::TrayIconKind::Ready
+    } else if bridge_alive {
+        crate::ipc::tray::TrayIconKind::Error
+    } else {
+        crate::ipc::tray::TrayIconKind::Init
+    };
+    crate::ipc::tray::sync_runtime_icons(app, tray_kind);
 
     XiaomiHostStatus {
         bridge_alive,
@@ -555,6 +567,7 @@ pub fn restart_xiaomi_bridge_inner(
 ) -> Result<(), String> {
     log::info!("XIAOMI host: restart bridge requested");
     append_host_log(config_manager, "bridge restart requested");
+    crate::ipc::tray::sync_runtime_icons(app, crate::ipc::tray::TrayIconKind::Init);
 
     // 仅停 BLE worker；HID Tap 为进程级单例，重启不解绑 30684（避免自占用）
     if let Some(runtime) = app.try_state::<Arc<XiaomiRuntime>>() {
@@ -621,7 +634,7 @@ pub async fn get_xiaomi_voice_env_status() -> Result<crate::audio::vb_cable::Voi
     Ok(crate::audio::vb_cable::voice_env_status_fresh())
 }
 
-/// source: "embedded" | "download_page" | "download_zip"
+/// source: "embedded" | "embedded_force" | "download_page" | "download_zip"
 #[tauri::command]
 pub async fn repair_xiaomi_voice_env(
     source: String,
@@ -629,9 +642,12 @@ pub async fn repair_xiaomi_voice_env(
     let source = source.to_ascii_lowercase();
     tokio::task::spawn_blocking(move || match source.as_str() {
         "embedded" => crate::audio::vb_cable::install_embedded(),
+        "embedded_force" => crate::audio::vb_cable::install_embedded_force(),
         "download_page" => crate::audio::vb_cable::open_download_page(),
         "download_zip" => crate::audio::vb_cable::open_download_zip(),
-        other => Err(format!("未知来源: {other}，可选 embedded / download_page / download_zip")),
+        other => Err(format!(
+            "未知来源: {other}，可选 embedded / embedded_force / download_page / download_zip"
+        )),
     })
     .await
     .map_err(|e| format!("voice repair task: {e}"))?
@@ -644,6 +660,32 @@ pub async fn get_xiaomi_winuhid_status(
     Ok(tokio::task::spawn_blocking(crate::bridges::xiaomi::winuhid_env::env_status)
         .await
         .map_err(|e| format!("winuhid status task: {e}"))?)
+}
+
+/// 应用内下载 VB-CABLE 驱动包（dest_path 由前端 save 对话框选定）
+#[tauri::command]
+pub async fn download_xiaomi_vbcable_zip(
+    app: AppHandle,
+    dest_path: String,
+) -> Result<(), String> {
+    let url = crate::audio::vb_cable::DOWNLOAD_ZIP_URL.to_string();
+    let dest = std::path::PathBuf::from(dest_path.trim());
+    if dest.as_os_str().is_empty() {
+        return Err("保存路径为空".into());
+    }
+    crate::file_download::spawn_vbcable_zip_download(app, url, dest)
+}
+
+#[tauri::command]
+pub fn cancel_xiaomi_vbcable_zip_download() -> Result<(), String> {
+    crate::file_download::request_cancel_vbcable_zip_download();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_xiaomi_winuhid_zip_download() -> Result<(), String> {
+    crate::file_download::request_cancel_winuhid_zip_download();
+    Ok(())
 }
 
 /// 部署 DLL + 提权安装内嵌 WinUHid 驱动；source 可选 embedded / export / download_page / download_zip
@@ -830,7 +872,7 @@ pub async fn repair_xiaomi_atvv(
     })
 }
 
-fn run_atvv_repair_pipeline(
+pub(crate) fn run_atvv_repair_pipeline(
     app: &AppHandle,
     state: &BridgeState,
     config_manager: &ConfigManager,

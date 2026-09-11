@@ -62,6 +62,13 @@ pub fn run() {
             std::env::set_var("REMOTE_BRIDGE_LOG_PATH", &log_path);
             app.manage(config_manager);
 
+            // 麦克风增益 live 值（P1：UI 实时调节；会话内热更新不改按键路径）
+            if let Some(mgr) = app.try_state::<config::manager::ConfigManager>() {
+                if let Ok(cfg) = mgr.get_device_config("xiaomi") {
+                    bridges::xiaomi::voice_gain::set_gain_db(cfg.gain_db);
+                }
+            }
+
             log::info!("Voice VibeCoding starting...");
             #[cfg(debug_assertions)]
             log::info!("build_profile=debug (开发包)");
@@ -240,6 +247,9 @@ pub fn run() {
             ipc::commands::get_xiaomi_winuhid_status,
             ipc::commands::repair_xiaomi_winuhid,
             ipc::commands::download_xiaomi_winuhid_zip,
+            ipc::commands::download_xiaomi_vbcable_zip,
+            ipc::commands::cancel_xiaomi_vbcable_zip_download,
+            ipc::commands::cancel_xiaomi_winuhid_zip_download,
             ipc::commands::open_logs_folder,
             ipc::commands::get_app_log,
             ipc::commands::open_app_log,
