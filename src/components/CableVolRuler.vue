@@ -11,21 +11,31 @@ import {
   cableZoneForDb,
 } from "../utils/cableVolMeter";
 
-const props = defineProps<{
-  level: number;
-  disabled?: boolean;
-  active?: boolean;
-  /** 屏读/aria 用名称，如「输入电平」「送声电平」 */
-  label?: string;
-}>();
-
-const labelText = computed(() => props.label ?? "电平");
+const props = withDefaults(
+  defineProps<{
+    level: number;
+    disabled?: boolean;
+    active?: boolean;
+    label?: string;
+    /** 右侧短提示，与标尺同行 */
+    hint?: string;
+  }>(),
+  {
+    label: "电平",
+    hint: "",
+  }
+);
 
 const db = computed(() => cableLevelToDb(props.level));
 const markerPct = computed(() => cableDbToPct(db.value));
 const zone = computed(() =>
   props.disabled ? "idle" : cableZoneForDb(db.value)
 );
+const dbText = computed(() => {
+  if (props.disabled || !props.active) return "—";
+  return `${Math.round(db.value)}`;
+});
+const clipped = computed(() => props.active && props.level >= 0.995);
 
 const shellState = computed(() => {
   if (props.disabled) return "disabled";
@@ -38,9 +48,9 @@ const zoneOkWidth = cableDbToPct(CABLE_VOL_DB_HIGH) - zoneLowWidth;
 const zoneHighWidth = 100 - cableDbToPct(CABLE_VOL_DB_HIGH);
 
 const ariaLabel = computed(() => {
-  if (props.disabled) return `${labelText.value}标尺（未就绪）`;
-  if (!props.active) return `${labelText.value}标尺：无信号`;
-  return `${labelText.value} ${Math.round(db.value)} dBFS`;
+  if (props.disabled) return `${props.label}标尺（未就绪）`;
+  if (!props.active) return `${props.label}标尺：无信号`;
+  return `${props.label} ${Math.round(db.value)} dBFS${props.hint ? ` ${props.hint}` : ""}`;
 });
 </script>
 
@@ -54,6 +64,7 @@ const ariaLabel = computed(() => {
     :aria-valuemax="CABLE_VOL_DB_MAX"
     :aria-label="ariaLabel"
   >
+    <span class="ruler-caption">{{ label }}</span>
     <div class="ruler-track">
       <div class="ruler-zones" aria-hidden="true">
         <span class="ruler-zone zone-low" :style="{ width: `${zoneLowWidth}%` }" />
@@ -73,30 +84,21 @@ const ariaLabel = computed(() => {
         aria-hidden="true"
       />
     </div>
-    <div class="ruler-labels" aria-hidden="true">
-      <span
-        v-for="(tick, index) in CABLE_VOL_TICKS"
-        :key="`lbl-${tick}`"
-        class="ruler-label"
-        :class="{
-          'at-start': index === 0,
-          'at-end': index === CABLE_VOL_TICKS.length - 1,
-        }"
-        :style="{ left: `${cableDbToPct(tick)}%` }"
-      >{{ tick }}</span>
-    </div>
+    <span v-if="hint" class="ruler-hint" :class="`is-${zone}`">{{ hint }}</span>
+    <span class="ruler-db" :class="{ 'is-clipped': clipped }">{{ dbText }}</span>
   </div>
 </template>
 
 <style scoped>
 .cable-vol-ruler {
   width: 100%;
-  height: 28px;
-  padding: 0 4px 2px;
+  height: 22px;
+  padding: 0 4px;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   border-radius: 4px;
   background: #f1f5f9;
   border: 1px solid var(--border, #e2e8f0);
@@ -108,18 +110,27 @@ const ariaLabel = computed(() => {
   border-color: #bbf7d0;
 }
 
-.cable-vol-ruler.shell-idle .ruler-zone,
-.cable-vol-ruler.shell-disabled .ruler-zone {
-  opacity: 0;
+.ruler-caption {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: #64748b;
+  white-space: nowrap;
 }
 
 .ruler-track {
   position: relative;
-  height: 10px;
+  flex: 1 1 auto;
+  min-width: 48px;
+  height: 8px;
   border-radius: 3px;
   border: 1px solid transparent;
   background: transparent;
-  overflow: visible;
+}
+
+.cable-vol-ruler.shell-idle .ruler-zone,
+.cable-vol-ruler.shell-disabled .ruler-zone {
+  opacity: 0;
 }
 
 .cable-vol-ruler.shell-idle .ruler-track,
@@ -193,27 +204,41 @@ const ariaLabel = computed(() => {
   background: #dc2626;
 }
 
-.ruler-labels {
-  position: relative;
-  height: 14px;
-  margin-top: 2px;
-}
-
-.ruler-label {
-  position: absolute;
-  transform: translateX(-50%);
-  font-size: 9px;
+.ruler-hint {
+  flex: 0 1 auto;
+  font-size: 11px;
   line-height: 1;
-  color: #94a3b8;
-  font-variant-numeric: tabular-nums;
+  color: #64748b;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42%;
 }
 
-.ruler-label.at-start {
-  transform: translateX(0);
+.ruler-hint.is-low {
+  color: #a16207;
 }
 
-.ruler-label.at-end {
-  transform: translateX(-100%);
+.ruler-hint.is-ok {
+  color: #15803d;
+}
+
+.ruler-hint.is-high {
+  color: #dc2626;
+}
+
+.ruler-db {
+  flex: 0 0 auto;
+  min-width: 2.2em;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.ruler-db.is-clipped {
+  color: #dc2626;
+  font-weight: 600;
 }
 </style>

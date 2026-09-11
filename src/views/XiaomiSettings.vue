@@ -193,7 +193,7 @@ const cableVolHint = computed(() => {
     case "low":
       return "偏低";
     case "high":
-      return "偏高·削波风险";
+      return "偏高削波";
     case "ok":
       return "正常";
     default:
@@ -210,9 +210,9 @@ const inputVolHint = computed(() => {
   if (voiceMeter.value.bleState !== "receiving") return "待命";
   switch (inputVolZone.value) {
     case "low":
-      return "偏低·可加增益";
+      return "偏低可加";
     case "high":
-      return "偏高·勿再加";
+      return "偏高勿加";
     case "ok":
       return "合适";
     default:
@@ -1699,55 +1699,21 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-        <!-- 双电平宽轨：输入=增益前，送声=增益后 -->
-        <div
-          class="vol-meters-card"
-          :class="[
-            { 'is-active': voiceMeter.bleState !== 'idle' || voiceMeter.cableActive },
-          ]"
-        >
-          <div class="vol-meter-block">
-            <div class="cable-vol-label-row">
-              <span class="info-label">输入电平（增益前）</span>
-              <span
-                class="cable-vol-state"
-                :class="{
-                  'is-low': inputVolZone === 'low',
-                  'is-high': inputVolZone === 'high',
-                  'is-ok': inputVolZone === 'ok',
-                  'is-idle': inputVolZone === 'idle',
-                }"
-              >{{ inputVolHint }}</span>
-            </div>
-            <CableVolRuler
-              :level="voiceMeter.bleLevel"
-              :active="voiceMeter.bleState === 'receiving'"
-              label="输入电平"
-            />
-          </div>
-          <div class="vol-meter-block">
-            <div class="cable-vol-label-row">
-              <span class="info-label">送声电平（增益后）</span>
-              <span
-                class="cable-vol-state"
-                :class="{
-                  'is-low': cableReady && cableVolZone === 'low',
-                  'is-high': cableReady && cableVolZone === 'high',
-                  'is-ok': cableReady && cableVolZone === 'ok',
-                  'is-idle': !cableReady || !voiceMeter.cableActive,
-                }"
-              >{{ cableReady ? cableVolHint : '虚拟声卡未就绪' }}</span>
-            </div>
-            <CableVolRuler
-              :level="voiceMeter.cableLevel"
-              :disabled="!cableReady"
-              :active="cableReady && voiceMeter.cableActive"
-              label="送声电平"
-            />
-          </div>
-          <p class="vol-meters-help">
-            看「输入」决定要不要加增益；看「送声」避免顶满削波。
-          </p>
+        <!-- 双电平：同行紧凑布局，省垂直空间给下方遥控器 -->
+        <div class="vol-meters-card">
+          <CableVolRuler
+            :level="voiceMeter.bleLevel"
+            :active="voiceMeter.bleState === 'receiving'"
+            label="输入·增益前"
+            :hint="inputVolHint"
+          />
+          <CableVolRuler
+            :level="voiceMeter.cableLevel"
+            :disabled="!cableReady"
+            :active="cableReady && voiceMeter.cableActive"
+            label="送声·增益后"
+            :hint="cableReady ? cableVolHint : '声卡未就绪'"
+          />
         </div>
 
         <section class="card host-card">
@@ -3634,9 +3600,9 @@ async function retryLoadConfig() {
 .vol-meters-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 12px 14px;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 10px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
