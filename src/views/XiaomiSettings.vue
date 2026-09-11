@@ -1651,65 +1651,7 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
-    <!-- 标题与连接已在顶栏，页内不再重复大标题 -->
-    <header class="page-header page-header-slim" aria-hidden="true"></header>
-
-    <div class="overview-row">
-      <div class="overview-left">
-        <div class="device-info-row">
-          <div class="device-info-col">
-            <div class="info-line">
-              <span class="info-label">设备名称</span>
-              <span class="info-value">{{ device.device_name || "—" }}</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">蓝牙地址</span>
-              <span class="info-value">{{ device.device_address || "—" }}</span>
-            </div>
-          </div>
-          <div class="device-info-col">
-            <div class="info-line">
-              <span class="info-label">剩余电量</span>
-              <span class="info-value info-value-battery">
-                <BatteryLevelIcon :level="device.battery_level" />
-                {{ device.battery_level != null ? device.battery_level + "%" : "—" }}
-              </span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">连接方式</span>
-              <span class="info-value">蓝牙 BLE</span>
-            </div>
-          </div>
-          <div
-            class="info-item info-item-audio"
-            :class="{
-              'is-session': voiceMeter.bleState === 'session',
-              'is-receiving': voiceMeter.bleState === 'receiving',
-            }"
-            title="遥控器 BLE 解码后的 PCM"
-          >
-            <div class="audio-label-row">
-              <span class="info-label">音频信号</span>
-              <span
-                v-if="showAtvvFailLabel"
-                class="audio-atvv-fail"
-              >ATVV 未连接</span>
-              <span
-                v-else-if="voiceMeter.bleState !== 'idle'"
-                class="audio-state"
-              >{{ bleSignalLabel }}</span>
-            </div>
-            <div class="ble-wave" aria-hidden="true">
-              <svg class="ble-wave-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <path class="ble-wave-fill" :d="waveAreaPath" />
-                <polyline class="ble-wave-line" :points="waveLinePoints" />
-              </svg>
-            </div>
-          </div>
-        </div>
-
-        <!-- 双电平：整行全宽，与 Demo 一致 -->
-        <div class="vol-meters-card vol-meters-full">
+    <div class="vol-meters-card vol-meters-full">
           <CableVolRuler
             :level="voiceMeter.bleLevel"
             :active="voiceMeter.bleState === 'receiving'"
@@ -1759,31 +1701,10 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-        
-      </div>
-
-      <aside class="log-aside">
-        <section class="card log-card">
-          <div class="log-card-head">
-            <p class="card-text">状态日志</p>
-            <button class="btn btn-tiny btn-secondary" type="button" @click="openLogs">
-              日志
-            </button>
-          </div>
-          <div ref="logAreaRef" class="log-area">
-            <p v-for="entry in logs" :key="entry.id" class="log-entry">
-              <span class="log-time">{{ entry.time }}</span>
-              <span class="log-text">{{ entry.text }}</span>
-            </p>
-          </div>
-        </section>
-      </aside>
-    </div>
-
-    <div class="page-body stage-grid">
+<div class="page-body stage-grid">
       <aside class="status-col" aria-label="运行状态">
         <section class="card host-card">
-          <div class="host-status-row" role="list" aria-label="运行状态">
+          <div class="host-status-row host-status-stack" role="list" aria-label="服务状态">
             <div
               v-for="item in host.items"
               :key="item.id"
@@ -1803,7 +1724,7 @@ async function retryLoadConfig() {
           </div>
           <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
           <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
-          <div v-if="anyRepairNeed" class="host-actions">
+          <div v-if="anyRepairNeed" class="host-actions host-actions-stack">
             <div v-if="repairNeed.cable" class="host-action-group">
               <button
                 class="btn btn-secondary"
@@ -3969,28 +3890,55 @@ async function retryLoadConfig() {
   }
 }
 
-.stage-grid {
-  display: grid;
+.page-body.stage-grid {
+  display: grid !important;
   grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+  flex-direction: unset;
 }
 @media (max-width: 960px) {
-  .stage-grid { grid-template-columns: 1fr; }
+  .page-body.stage-grid { grid-template-columns: 1fr; }
 }
-.device-info-row { display: none !important; }
+.device-info-row,
 .log-aside { display: none !important; }
-.status-col .host-card { height: auto; }
-.host-status-stack { flex-direction: column; align-items: flex-start; gap: 6px; }
-.host-actions-stack { flex-direction: column; align-items: stretch; }
+.status-col .host-card { height: 100%; }
+.rail-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.status-col .host-status-row {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.status-col .host-status-item { width: 100%; }
+.host-actions-stack {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+}
 .host-actions-stack .host-action-group { width: 100%; }
 .host-actions-stack .btn { width: 100%; }
 .vol-meters-full { width: 100%; margin-bottom: 12px; }
-.voice-quick-setup {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+/* keep voice-quick dark in mapping */
+.mapping-layout .voice-quick-setup {
+  background: var(--card-bg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+.mapping-layout .voice-quick-btn {
+  background: var(--panel-2) !important;
+  border-color: var(--border) !important;
+}
+.mapping-layout .key-cap-chip {
+  background: var(--panel-2) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
 }
 
 </style>
