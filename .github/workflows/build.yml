@@ -62,11 +62,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           $tag = $env:GITHUB_REF_NAME
-          if ($tag -notmatch '^v\d+\.\d+\.\d+') {
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
             throw "Release tag must look like vX.Y.Z, got: '$tag'"
           }
           $version = $tag.Substring(1)
-          Write-Host "Tag=$tag ExpectedVersion=$version"
+          # Tauri NSIS names embed version as a delimited token: Name_version_arch-setup.exe
+          $versionToken = '_' + $version + '_'
+          Write-Host "Tag=$tag ExpectedVersion=$version Token=$versionToken"
 
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
@@ -84,8 +86,8 @@ jobs:
             throw "Expected exactly 1 NSIS exe in $nsisDir, found $($exes.Count): $($exes.Name -join ', ')"
           }
           $installer = $exes[0].Name
-          if ($installer -notmatch [regex]::Escape($version)) {
-            throw "Installer filename '$installer' does not contain version '$version'"
+          if ($installer -notlike "*$versionToken*") {
+            throw "Installer filename '$installer' does not contain version token '$versionToken'"
           }
           Write-Host "Installer OK: $installer"
 
@@ -96,7 +98,7 @@ jobs:
           } else {
             $release = $releaseJson | ConvertFrom-Json
             foreach ($asset in @($release.assets)) {
-              if ($asset.name -like '*-setup.exe' -and $asset.name -notmatch [regex]::Escape($version)) {
+              if ($asset.name -like '*-setup.exe' -and $asset.name -notlike "*$versionToken*") {
                 Write-Host "Deleting stale mismatched asset: $($asset.name)"
                 gh release delete-asset $tag $asset.name --yes
                 if ($LASTEXITCODE -ne 0) {
