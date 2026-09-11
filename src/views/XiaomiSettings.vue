@@ -1655,11 +1655,7 @@ async function retryLoadConfig() {
       <div class="title-row">
         <h2>小米遥控器 2 Pro</h2>
       </div>
-      <DeviceStatus
-        :status="device.status"
-        :loading="bridge.loading[type]"
-        @toggle="toggleConnection"
-      />
+      <!-- 连接/断开已上移到顶栏 SideNav，此处不再重复 -->
     </header>
 
     <div class="overview-row">
@@ -1716,79 +1712,80 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-        <!-- 双电平：等宽两轨；增益贴在送声下方独立行，不挤轨道 -->
-        <div class="vol-meters-card">
-          <CableVolRuler
-            :level="voiceMeter.bleLevel"
-            :active="voiceMeter.bleState === 'receiving'"
-            label="输入·增益前"
-            :hint="inputVolHint"
-          />
-          <CableVolRuler
-            :level="voiceMeter.cableLevel"
-            :disabled="!cableReady"
-            :active="cableReady && voiceMeter.cableActive"
-            label="送声·增益后"
-            :hint="cableReady ? cableVolHint : '声卡未就绪'"
-          />
-          <div class="gain-inline">
-            <span class="gain-inline-label">增益</span>
-            <div class="number-stepper" role="group" aria-label="增益分贝">
-              <button
-                type="button"
-                class="stepper-btn"
-                aria-label="减小增益"
-                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
-                @click="stepGain(-GAIN_STEP)"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                class="gain-input"
-                v-model.number="gainDb"
-                :min="GAIN_MIN"
-                :max="GAIN_MAX"
-                :step="GAIN_STEP"
-                :disabled="configStore.saving || configSectionLoading"
-                @blur="clampGainOnBlur"
-              />
-              <button
-                type="button"
-                class="stepper-btn"
-                aria-label="增大增益"
-                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
-                @click="stepGain(GAIN_STEP)"
-              >
-                +
-              </button>
+        <!-- 双电平 + 运行状态：宽屏左右并排，减少纵向堆叠 -->
+        <div class="status-meters-row">
+          <div class="vol-meters-card">
+            <CableVolRuler
+              :level="voiceMeter.bleLevel"
+              :active="voiceMeter.bleState === 'receiving'"
+              label="输入·增益前"
+              :hint="inputVolHint"
+            />
+            <CableVolRuler
+              :level="voiceMeter.cableLevel"
+              :disabled="!cableReady"
+              :active="cableReady && voiceMeter.cableActive"
+              label="送声·增益后"
+              :hint="cableReady ? cableVolHint : '声卡未就绪'"
+            />
+            <div class="gain-inline">
+              <span class="gain-inline-label">增益</span>
+              <div class="number-stepper" role="group" aria-label="增益分贝">
+                <button
+                  type="button"
+                  class="stepper-btn"
+                  aria-label="减小增益"
+                  :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
+                  @click="stepGain(-GAIN_STEP)"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  class="gain-input"
+                  v-model.number="gainDb"
+                  :min="GAIN_MIN"
+                  :max="GAIN_MAX"
+                  :step="GAIN_STEP"
+                  :disabled="configStore.saving || configSectionLoading"
+                  @blur="clampGainOnBlur"
+                />
+                <button
+                  type="button"
+                  class="stepper-btn"
+                  aria-label="增大增益"
+                  :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
+                  @click="stepGain(GAIN_STEP)"
+                >
+                  +
+                </button>
+              </div>
+              <span class="gain-inline-hint">只影响送声</span>
             </div>
-            <span class="gain-inline-hint">只影响送声</span>
           </div>
-        </div>
 
-        <section class="card host-card">
-          <div class="host-status-row" role="list" aria-label="运行状态">
-            <div
-              v-for="item in host.items"
-              :key="item.id"
-              class="host-status-item"
-              role="listitem"
-            >
-              <span
-                class="host-dot"
-                :class="itemToneClass(item.tone)"
-                aria-hidden="true"
-              />
-              <span class="host-item-label">{{ item.label }}</span>
-              <span class="host-item-state" :class="itemToneClass(item.tone)">
-                {{ item.state_label }}
-              </span>
+          <section class="card host-card">
+            <div class="host-status-row" role="list" aria-label="运行状态">
+              <div
+                v-for="item in host.items"
+                :key="item.id"
+                class="host-status-item"
+                role="listitem"
+              >
+                <span
+                  class="host-dot"
+                  :class="itemToneClass(item.tone)"
+                  aria-hidden="true"
+                />
+                <span class="host-item-label">{{ item.label }}</span>
+                <span class="host-item-state" :class="itemToneClass(item.tone)">
+                  {{ item.state_label }}
+                </span>
+              </div>
             </div>
-          </div>
-          <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
-          <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
-          <div v-if="anyRepairNeed" class="host-actions">
+            <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
+            <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
+            <div v-if="anyRepairNeed" class="host-actions">
             <div v-if="repairNeed.cable" class="host-action-group">
               <button
                 class="btn btn-secondary"
@@ -2032,6 +2029,7 @@ async function retryLoadConfig() {
             </div>
           </div>
         </section>
+        </div>
       </div>
 
       <aside class="log-aside">
@@ -3571,11 +3569,22 @@ async function retryLoadConfig() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 0;
   padding: 6px 10px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+.status-meters-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .status-meters-row {
+    grid-template-columns: 1fr;
+  }
 }
 .gain-inline {
   display: flex;
