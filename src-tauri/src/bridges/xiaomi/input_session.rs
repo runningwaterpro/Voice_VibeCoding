@@ -1322,8 +1322,10 @@ fn handle_atvv_audio(state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
         if let Some((pred, idx)) = st.pending_sync.take() {
             st.decoder.reset_with(pred, idx);
         }
-        let samples = st.decoder.decode_bytes(&frame);
-        let samples = postprocess(&samples, st.gain_db);
+        let raw = st.decoder.decode_bytes(&frame);
+        // 输入电平：增益前，供 UI 判断是否需要加增益
+        crate::bridges::xiaomi::voice_meter::on_input_pcm(&raw);
+        let samples = postprocess(&raw, st.gain_db);
         voice_pcm::push_16k(&samples);
         st.frames += 1;
         if st.frames == 1 || st.frames == 10 || st.frames % 200 == 0 {

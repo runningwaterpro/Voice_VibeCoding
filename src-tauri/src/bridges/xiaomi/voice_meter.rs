@@ -1,4 +1,8 @@
 //! 语音电平 / 波形：BLE 解码 PCM + UDP 输送活动（供 UI 轻量指示，不采声卡）
+//!
+//! 电平语义：
+//! - `ble_level`：增益前「输入」RMS（0..1，UI 换算 dBFS）
+//! - `cable_level`：增益后「送声」RMS（UDP 成功时写入）
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -25,10 +29,12 @@ pub enum BleMeterState {
 pub struct VoiceMeterSnapshot {
     /// idle | session | receiving
     pub ble_state: BleMeterState,
+    /// 增益前输入 RMS（0..1）
     pub ble_level: f32,
     pub waveform: Vec<f32>,
     /// 虚拟声卡侧：近期是否有 UDP PCM 送出
     pub cable_active: bool,
+    /// 增益后送声 RMS（0..1）
     pub cable_level: f32,
     /// ATVV 控制/音频 GATT 是否已订阅
     pub atvv_ok: bool,
@@ -138,27 +144,42 @@ pub fn force_emit_atvv_change() {
     emit_if_needed(true);
 }
 
-/// BLE 解码 PCM 到达；`udp_ok` 表示本帧已成功 UDP 送出
-pub fn on_pcm(samples: &[i16], udp_ok: bool) {
+/// 增益前输入 PCM；`udp_ok` 表示本帧对应送声是否成功（送声电平在 push 路径单独记）
+pub fn on_input_pcm(samples: &[i16]) {
     if samples.is_empty() {
         return;
     }
     let now = Instant::now();
     let (level, bins) = analyze(samples);
     if let Ok(mut g) = METER.lock() {
-        // 有 PCM 即视为会话中（含隐式开流）
         g.session = true;
         g.last_pcm = Some(now);
         g.ble_level = level;
         g.waveform = bins;
-        if udp_ok {
-            g.last_udp = Some(now);
-            g.cable_level = level;
-        }
     }
     emit_if_needed(false);
 }
 
+/// 增益后送声 PCM（由 voice_pcm 在 UDP 发送路径调用）
+pub fn on_output_pcm(samples: &[i16], udp_ok: bool) {
+    if samples.is_empty() || !udp_ok {
+        return;
+    }
+    let now = Instant::now();
+    let (level, _) = analyze(samples);
+    if let Ok(mut g) = METER.lock() {
+        g.last_udp = Some(now);
+        g.cable_level = level;
+    }
+    emit_if_needed(false);
+}
+
+/// 兼容旧调用：整段 samples 视为增益后送声
+pub fn on_pcm(samples: &[i16], udp_ok: bool) {
+    on_output_pcm(samples, udp_ok);
+}
+
+/// RMS 为主（诚实反映响度）；峰值仅 15% 权重，避免瞬时尖刺抬满标尺
 fn analyze(samples: &[i16]) -> (f32, [f32; WAVE_BINS]) {
     let mut peak = 0i32;
     let mut sum_sq: f64 = 0.0;
@@ -172,7 +193,7 @@ fn analyze(samples: &[i16]) -> (f32, [f32; WAVE_BINS]) {
     }
     let rms = ((sum_sq / samples.len().max(1) as f64).sqrt()) as f32;
     let peak_n = (peak as f32 / 32768.0).min(1.0);
-    let level = (rms * 1.6 + peak_n * 0.45).min(1.0);
+    let level = (rms * 0.85 + peak_n * 0.15).min(1.0);
 
     let mut bins = [0.0f32; WAVE_BINS];
     let chunk = (samples.len() / WAVE_BINS).max(1);

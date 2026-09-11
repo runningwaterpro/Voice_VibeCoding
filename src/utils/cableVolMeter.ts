@@ -1,9 +1,9 @@
-/** 虚拟声卡送声标尺：输出电平 dBFS（已含 live 增益） */
+/** 送声/输入标尺：电平 0..1 → dBFS（RMS 为主，量程 -42..0） */
 
 export const CABLE_VOL_DB_MIN = -42;
 export const CABLE_VOL_DB_MAX = 0;
-export const CABLE_VOL_DB_LOW = -20;
-export const CABLE_VOL_DB_HIGH = -4;
+export const CABLE_VOL_DB_LOW = -28;
+export const CABLE_VOL_DB_HIGH = -6;
 
 export const CABLE_VOL_TICKS = [-36, -24, -12, -6, 0] as const;
 

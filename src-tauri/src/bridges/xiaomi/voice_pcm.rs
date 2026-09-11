@@ -189,7 +189,8 @@ pub fn push_16k(samples: &[i16]) {
         }
     };
     drop(guard);
-    crate::bridges::xiaomi::voice_meter::on_pcm(samples, udp_ok);
+    // 增益后送声电平（仅 UDP 成功）
+    crate::bridges::xiaomi::voice_meter::on_output_pcm(samples, udp_ok);
 }
 
 pub fn stop() {

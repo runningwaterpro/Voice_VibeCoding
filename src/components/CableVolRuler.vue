@@ -15,7 +15,11 @@ const props = defineProps<{
   level: number;
   disabled?: boolean;
   active?: boolean;
+  /** 屏读/aria 用名称，如「输入电平」「送声电平」 */
+  label?: string;
 }>();
+
+const labelText = computed(() => props.label ?? "电平");
 
 const db = computed(() => cableLevelToDb(props.level));
 const markerPct = computed(() => cableDbToPct(db.value));
@@ -34,9 +38,9 @@ const zoneOkWidth = cableDbToPct(CABLE_VOL_DB_HIGH) - zoneLowWidth;
 const zoneHighWidth = 100 - cableDbToPct(CABLE_VOL_DB_HIGH);
 
 const ariaLabel = computed(() => {
-  if (props.disabled) return "虚拟声卡音量标尺（未就绪）";
-  if (!props.active) return "虚拟声卡音量标尺：无信号";
-  return `虚拟声卡音量 ${Math.round(db.value)} dBFS`;
+  if (props.disabled) return `${labelText.value}标尺（未就绪）`;
+  if (!props.active) return `${labelText.value}标尺：无信号`;
+  return `${labelText.value} ${Math.round(db.value)} dBFS`;
 });
 </script>
 
