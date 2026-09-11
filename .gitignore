@@ -41,3 +41,5 @@ credentials.json
 # Accidental installer copies in repo root
 /*.msi
 /*-setup.exe
+
+ci-artifacts/
