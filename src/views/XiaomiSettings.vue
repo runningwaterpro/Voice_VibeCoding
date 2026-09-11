@@ -1708,80 +1708,79 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-        <!-- 双电平 + 运行状态：宽屏左右并排，减少纵向堆叠 -->
-        <div class="status-meters-row">
-          <div class="vol-meters-card">
-            <CableVolRuler
-              :level="voiceMeter.bleLevel"
-              :active="voiceMeter.bleState === 'receiving'"
-              label="输入·增益前"
-              :hint="inputVolHint"
-            />
-            <CableVolRuler
-              :level="voiceMeter.cableLevel"
-              :disabled="!cableReady"
-              :active="cableReady && voiceMeter.cableActive"
-              label="送声·增益后"
-              :hint="cableReady ? cableVolHint : '声卡未就绪'"
-            />
-            <div class="gain-inline">
-              <span class="gain-inline-label">增益</span>
-              <div class="number-stepper" role="group" aria-label="增益分贝">
-                <button
-                  type="button"
-                  class="stepper-btn"
-                  aria-label="减小增益"
-                  :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
-                  @click="stepGain(-GAIN_STEP)"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  class="gain-input"
-                  v-model.number="gainDb"
-                  :min="GAIN_MIN"
-                  :max="GAIN_MAX"
-                  :step="GAIN_STEP"
-                  :disabled="configStore.saving || configSectionLoading"
-                  @blur="clampGainOnBlur"
-                />
-                <button
-                  type="button"
-                  class="stepper-btn"
-                  aria-label="增大增益"
-                  :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
-                  @click="stepGain(GAIN_STEP)"
-                >
-                  +
-                </button>
-              </div>
-              <span class="gain-inline-hint">只影响送声</span>
+        <!-- 双电平：整行全宽，与 Demo 一致 -->
+        <div class="vol-meters-card vol-meters-full">
+          <CableVolRuler
+            :level="voiceMeter.bleLevel"
+            :active="voiceMeter.bleState === 'receiving'"
+            label="输入·增益前"
+            :hint="inputVolHint"
+          />
+          <CableVolRuler
+            :level="voiceMeter.cableLevel"
+            :disabled="!cableReady"
+            :active="cableReady && voiceMeter.cableActive"
+            label="送声·增益后"
+            :hint="cableReady ? cableVolHint : '声卡未就绪'"
+          />
+          <div class="gain-inline">
+            <span class="gain-inline-label">增益</span>
+            <div class="number-stepper" role="group" aria-label="增益分贝">
+              <button
+                type="button"
+                class="stepper-btn"
+                aria-label="减小增益"
+                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
+                @click="stepGain(-GAIN_STEP)"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                class="gain-input"
+                v-model.number="gainDb"
+                :min="GAIN_MIN"
+                :max="GAIN_MAX"
+                :step="GAIN_STEP"
+                :disabled="configStore.saving || configSectionLoading"
+                @blur="clampGainOnBlur"
+              />
+              <button
+                type="button"
+                class="stepper-btn"
+                aria-label="增大增益"
+                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
+                @click="stepGain(GAIN_STEP)"
+              >
+                +
+              </button>
+            </div>
+            <span class="gain-inline-hint">只影响送声</span>
+          </div>
+        </div>
+
+        <section class="card host-card">
+          <div class="host-status-row" role="list" aria-label="运行状态">
+            <div
+              v-for="item in host.items"
+              :key="item.id"
+              class="host-status-item"
+              role="listitem"
+            >
+              <span
+                class="host-dot"
+                :class="itemToneClass(item.tone)"
+                aria-hidden="true"
+              />
+              <span class="host-item-label">{{ item.label }}</span>
+              <span class="host-item-state" :class="itemToneClass(item.tone)">
+                {{ item.state_label }}
+              </span>
             </div>
           </div>
-
-          <section class="card host-card">
-            <div class="host-status-row" role="list" aria-label="运行状态">
-              <div
-                v-for="item in host.items"
-                :key="item.id"
-                class="host-status-item"
-                role="listitem"
-              >
-                <span
-                  class="host-dot"
-                  :class="itemToneClass(item.tone)"
-                  aria-hidden="true"
-                />
-                <span class="host-item-label">{{ item.label }}</span>
-                <span class="host-item-state" :class="itemToneClass(item.tone)">
-                  {{ item.state_label }}
-                </span>
-              </div>
-            </div>
-            <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
-            <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
-            <div v-if="anyRepairNeed" class="host-actions">
+          <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
+          <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
+          <div v-if="anyRepairNeed" class="host-actions">
             <div v-if="repairNeed.cable" class="host-action-group">
               <button
                 class="btn btn-secondary"
@@ -2727,7 +2726,7 @@ async function retryLoadConfig() {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--card-bg);
 }
 .voice-toolbar-label {
   font-size: 13px;
@@ -2765,7 +2764,7 @@ async function retryLoadConfig() {
   border: 1.5px solid #94a3b8;
   border-radius: 50%;
   background: transparent;
-  color: #64748b;
+  color: var(--text-secondary);
   cursor: help;
   display: inline-flex;
   align-items: center;
@@ -2773,8 +2772,8 @@ async function retryLoadConfig() {
 }
 .title-info:hover,
 .title-info:focus-visible {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: var(--primary);
+  color: var(--primary);
   outline: none;
 }
 .title-info-icon {
@@ -2814,12 +2813,12 @@ async function retryLoadConfig() {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--card-bg);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
   transition: transform 0.15s ease;
 }
 .switch input:checked + .switch-slider {
-  background: var(--primary, #2563eb);
+  background: var(--primary);
 }
 .switch input:checked + .switch-slider::before {
   transform: translateX(18px);
@@ -2974,7 +2973,7 @@ async function retryLoadConfig() {
   padding: 10px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--card-bg);
 }
 .host-dot {
   width: 8px;
@@ -2984,13 +2983,13 @@ async function retryLoadConfig() {
   background: #94a3b8;
 }
 .host-dot.ok {
-  background: var(--success, #22c55e);
+  background: var(--success);
 }
 .host-dot.warn {
-  background: var(--warning, #f59e0b);
+  background: var(--warning);
 }
 .host-dot.error {
-  background: var(--danger, #ef4444);
+  background: var(--danger);
 }
 .host-item-label {
   font-size: 13px;
@@ -3071,7 +3070,7 @@ async function retryLoadConfig() {
   cursor: not-allowed;
 }
 .btn-secondary {
-  background: #f1f5f9;
+  background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -3079,7 +3078,7 @@ async function retryLoadConfig() {
   background: #e2e8f0;
 }
 .btn-primary {
-  background: var(--primary, #2563eb);
+  background: var(--primary);
   color: #fff;
   border: 1px solid transparent;
 }
@@ -3272,7 +3271,7 @@ async function retryLoadConfig() {
   width: 8px;
 }
 .setup-tips-body::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--panel-2);
   border-radius: 4px;
 }
 .setup-tips-body::-webkit-scrollbar-thumb {
@@ -3314,8 +3313,8 @@ async function retryLoadConfig() {
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--panel-2);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -3325,12 +3324,12 @@ async function retryLoadConfig() {
     color 0.15s;
 }
 .setup-ime-tab:hover {
-  background: #f1f5f9;
+  background: var(--panel-2);
   border-color: #cbd5e1;
 }
 .setup-ime-tab.active {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: var(--surface-selected);
+  border-color: var(--primary);
   color: #1d4ed8;
 }
 .setup-ime-panel {
@@ -3355,7 +3354,7 @@ async function retryLoadConfig() {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px 14px;
-  background: #fafbfc;
+  background: var(--panel);
 }
 .setup-ime-card + .setup-ime-card {
   margin-top: 12px;
@@ -3376,8 +3375,8 @@ async function retryLoadConfig() {
 .setup-ime-tag {
   flex-shrink: 0;
   font-size: 11px;
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--primary);
+  background: var(--surface-selected);
   border: 1px solid #bfdbfe;
   border-radius: 4px;
   padding: 2px 6px;
@@ -3417,7 +3416,7 @@ async function retryLoadConfig() {
   padding-left: 1.25em;
   font-size: 13px;
   line-height: 1.55;
-  color: #334155;
+  color: var(--text);
 }
 .setup-ime-steps li + li {
   margin-top: 4px;
@@ -3430,7 +3429,7 @@ async function retryLoadConfig() {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 400;
 }
 .setup-ime-quick-tip {
@@ -3446,7 +3445,7 @@ async function retryLoadConfig() {
   padding: 1px 5px;
   border-radius: 3px;
   background: #e2e8f0;
-  color: #0f172a;
+  color: var(--text);
 }
 .setup-ime-apply {
   display: flex;
@@ -3502,7 +3501,7 @@ async function retryLoadConfig() {
   max-width: 100%;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
 }
 .setup-ime-figure figcaption {
   margin-top: 6px;
@@ -3573,6 +3572,10 @@ async function retryLoadConfig() {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+.vol-meters-full {
+  width: 100%;
+  margin-bottom: 10px;
 }
 .status-meters-row {
   display: grid;
@@ -3708,7 +3711,7 @@ async function retryLoadConfig() {
   height: 28px;
   padding: 0;
   border-radius: 4px;
-  background: #f1f5f9;
+  background: var(--panel-2);
   border: 1px solid var(--border);
   color: #94a3b8;
   overflow: hidden;
@@ -3777,7 +3780,7 @@ async function retryLoadConfig() {
   width: 30px;
   padding: 0;
   border: none;
-  background: #f1f5f9;
+  background: var(--panel-2);
   color: var(--text);
   font-size: 16px;
   line-height: 1;
@@ -3820,11 +3823,11 @@ async function retryLoadConfig() {
 
 .gain-input:focus {
   outline: none;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .log-area {
-  background: #f1f5f9;
+  background: var(--panel-2);
   border-radius: 4px;
   padding: 6px 10px;
   flex: 1;

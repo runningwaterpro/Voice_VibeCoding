@@ -100,21 +100,21 @@ const ariaLabel = computed(() => {
   align-items: center;
   gap: 8px;
   border-radius: 4px;
-  background: #f1f5f9;
+  background: var(--panel-2);
   border: 1px solid var(--border, #e2e8f0);
   overflow: hidden;
 }
 
 .cable-vol-ruler.shell-active {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
+  background: #1a2e2a;
+  border-color: #2f6a5f;
 }
 
 .ruler-caption {
   flex: 0 0 auto;
   font-size: 11px;
   line-height: 1;
-  color: #64748b;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
@@ -140,8 +140,8 @@ const ariaLabel = computed(() => {
 }
 
 .cable-vol-ruler.shell-active .ruler-track {
-  border-color: rgba(187, 247, 208, 0.9);
-  background: rgba(255, 255, 255, 0.35);
+  border-color: rgba(77, 182, 164, 0.45);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .ruler-zones {
@@ -158,15 +158,15 @@ const ariaLabel = computed(() => {
 }
 
 .zone-low {
-  background: #fde68a;
+  background: #d4a84b;
 }
 
 .zone-ok {
-  background: #bbf7d0;
+  background: #4db6a4;
 }
 
 .zone-high {
-  background: #fecaca;
+  background: #e06b6b;
 }
 
 .ruler-tick {
@@ -186,29 +186,29 @@ const ariaLabel = computed(() => {
   width: 2px;
   margin-left: -1px;
   border-radius: 1px;
-  background: #94a3b8;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  background: #8b95a3;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
   transition: left 70ms linear, background-color 120ms ease;
   pointer-events: none;
 }
 
 .shell-active.zone-low .ruler-marker {
-  background: #ca8a04;
+  background: #d4a84b;
 }
 
 .shell-active.zone-ok .ruler-marker {
-  background: #16a34a;
+  background: #4db6a4;
 }
 
 .shell-active.zone-high .ruler-marker {
-  background: #dc2626;
+  background: #e06b6b;
 }
 
 .ruler-hint {
   flex: 0 1 auto;
   font-size: 11px;
   line-height: 1;
-  color: #64748b;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -216,15 +216,15 @@ const ariaLabel = computed(() => {
 }
 
 .ruler-hint.is-low {
-  color: #a16207;
+  color: #d4a84b;
 }
 
 .ruler-hint.is-ok {
-  color: #15803d;
+  color: #4db6a4;
 }
 
 .ruler-hint.is-high {
-  color: #dc2626;
+  color: #e06b6b;
 }
 
 .ruler-db {
@@ -233,12 +233,12 @@ const ariaLabel = computed(() => {
   text-align: right;
   font-size: 11px;
   line-height: 1;
-  color: #64748b;
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .ruler-db.is-clipped {
-  color: #dc2626;
+  color: #e06b6b;
   font-weight: 600;
 }
 </style>

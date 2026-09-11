@@ -245,20 +245,77 @@ onUnmounted(() => {
 
 <style>
 :root {
-  --primary: #1a73e8;
-  --primary-dark: #1557b0;
-  --bg: #f8f9fa;
-  --sidebar-bg: #1e293b;
-  --sidebar-text: #cbd5e1;
-  --sidebar-active: #3b82f6;
-  --card-bg: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --text-secondary: #64748b;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --radius: 8px;
+  --primary: #4db6a4;
+  --primary-dark: #3a9a8a;
+  --chassis: #171a1f;
+  --panel: #1f242b;
+  --panel-2: #262c35;
+  --edge: #343b46;
+  --bg: #171a1f;
+  --sidebar-bg: #14171c;
+  --sidebar-text: #e8ecf1;
+  --sidebar-active: #4db6a4;
+  --card-bg: #1f242b;
+  --border: #343b46;
+  --text: #e8ecf1;
+  --text-secondary: #8b95a3;
+  --success: #4db6a4;
+  --warning: #d4a84b;
+  --danger: #e06b6b;
+  --radius: 10px;
+  --surface-hover: #2a313b;
+  --surface-muted: #262c35;
+  --surface-selected: #243044;
+  --focus-ring: rgba(59, 130, 246, 0.25);
+  color-scheme: dark;
+}
+
+/* Dark form controls — overrides light component defaults */
+input,
+select,
+textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  color: var(--text);
+  border-radius: 6px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+input::placeholder {
+  color: var(--dim, #5c6673);
+}
+
+input[type="number"] {
+  color: var(--text);
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  opacity: 0.4;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a4250;
+  border-radius: 6px;
+  border: 2px solid var(--chassis);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a5565;
 }
 
 * {
@@ -290,7 +347,8 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 20px 28px;
+  padding: 12px 14px 16px;
+  background: var(--chassis);
 }
 
 .conflict-backdrop {
@@ -301,15 +359,16 @@ body {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(0, 0, 0, 0.55);
 }
 
 .conflict-dialog {
   width: min(480px, 100%);
   padding: 18px 18px 14px;
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   color: var(--text);
 }
 
@@ -393,13 +452,13 @@ body {
 }
 
 .conflict-btn-ghost {
-  background: #fff;
+  background: var(--panel-2);
   border-color: var(--border);
   color: var(--text);
 }
 
 .conflict-btn-ghost:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: var(--surface-hover);
 }
 
 .conflict-btn-danger {
@@ -415,7 +474,7 @@ body {
   flex-shrink: 0;
   height: 28px;
   padding: 0 10px;
-  background: #fff;
+  background: var(--panel-2);
   border-color: var(--border);
   color: var(--text);
 }

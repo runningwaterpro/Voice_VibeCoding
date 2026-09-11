@@ -194,8 +194,8 @@ const isVolume = computed(() =>
   border-radius: 50%;
   flex-shrink: 0;
   box-sizing: border-box;
-  background: #fff;
-  color: #64748b;
+  background: var(--card-bg);
+  color: var(--text-secondary);
   border: 1px solid #cbd5e1;
 }
 
@@ -209,7 +209,7 @@ const isVolume = computed(() =>
   height: 10px;
   border-radius: 50%;
   border: 1px solid #94a3b8;
-  background: #fff;
+  background: var(--card-bg);
 }
 
 .key-glyph {

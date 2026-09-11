@@ -868,8 +868,8 @@ onUnmounted(() => {
 }
 
 .map-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
   cursor: pointer;
@@ -879,14 +879,14 @@ onUnmounted(() => {
 
 .map-card:hover,
 .map-card.hover {
-  border-color: #93c5fd;
-  background: #f8fbff;
+  border-color: var(--primary);
+  background: var(--surface-hover);
 }
 
 .map-card.active {
-  border-color: #2563eb;
+  border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-  background: #eff6ff;
+  background: var(--surface-selected);
 }
 
 .map-card-main {
@@ -903,7 +903,7 @@ onUnmounted(() => {
   gap: 6px;
   font-size: 13px;
   font-weight: 400;
-  color: #0f172a;
+  color: var(--text);
   flex-shrink: 0;
   min-width: 0;
 }
@@ -911,8 +911,8 @@ onUnmounted(() => {
 .map-bind {
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: #f1f5f9;
-  color: #334155;
+  background: var(--panel-2);
+  color: var(--text);
   padding: 2px 8px;
   border-radius: 4px;
   min-width: 0;
@@ -932,8 +932,8 @@ onUnmounted(() => {
 @keyframes mic-bind-flash {
   0%,
   100% {
-    background: #f1f5f9;
-    color: #334155;
+    background: var(--panel-2);
+    color: var(--text);
     box-shadow: none;
   }
   33% {
@@ -942,8 +942,8 @@ onUnmounted(() => {
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.22);
   }
   66% {
-    background: #eff6ff;
-    color: #2563eb;
+    background: var(--surface-selected);
+    color: var(--primary);
     box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
   }
 }
@@ -956,7 +956,7 @@ onUnmounted(() => {
   margin-top: 4px;
   padding: 10px 10px 11px;
   border-radius: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   background: linear-gradient(180deg, #fafbfd 0%, #f8fafc 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
@@ -965,7 +965,7 @@ onUnmounted(() => {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-secondary);
   letter-spacing: 0.01em;
 }
 
@@ -995,7 +995,7 @@ onUnmounted(() => {
 
 .voice-quick-btn:hover {
   background: #dbeafe;
-  border-color: #93c5fd;
+  border-color: var(--primary);
 }
 
 .voice-quick-btn:focus {
@@ -1040,8 +1040,8 @@ onUnmounted(() => {
   padding: 2px 7px;
   border-radius: 6px;
   border: 1px solid #d5dee9;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--panel-2);
+  color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10.5px;
   font-weight: 600;
@@ -1056,8 +1056,8 @@ onUnmounted(() => {
 }
 
 .voice-quick-btn:hover .key-cap-chip {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: var(--surface-selected);
+  border-color: var(--primary);
 }
 
 .voice-quick-btn:active .key-cap-chip,
@@ -1084,16 +1084,16 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
-  background: #fff;
-  color: #334155;
+  background: var(--card-bg);
+  color: var(--text);
 }
 
 .btn-edit {
-  color: #2563eb;
-  border-color: #2563eb;
+  color: var(--primary);
+  border-color: var(--primary);
 }
 .btn-edit:hover:not(:disabled) {
-  background: #eff6ff;
+  background: var(--surface-selected);
 }
 .btn-clear {
   color: #dc2626;
@@ -1111,7 +1111,7 @@ onUnmounted(() => {
   width: 100%;
   margin: 4px 0 0;
   font-size: 12px;
-  color: #2563eb;
+  color: var(--primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -1143,7 +1143,7 @@ onUnmounted(() => {
 
 .media-pick-label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 

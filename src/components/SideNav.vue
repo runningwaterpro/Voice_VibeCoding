@@ -434,7 +434,7 @@ async function confirmQuit() {
   width: min(360px, 100%);
   padding: 18px 18px 14px;
   border-radius: 10px;
-  background: #fff;
+  background: var(--card-bg);
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
   color: var(--text, #1e293b);
 }
@@ -474,17 +474,17 @@ async function confirmQuit() {
 }
 
 .quit-btn-ghost {
-  background: #fff;
+  background: var(--card-bg);
   border-color: var(--border, #e2e8f0);
   color: var(--text, #1e293b);
 }
 
 .quit-btn-ghost:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .quit-btn-danger {
-  background: var(--danger, #ef4444);
+  background: var(--danger);
   color: #fff;
 }
 

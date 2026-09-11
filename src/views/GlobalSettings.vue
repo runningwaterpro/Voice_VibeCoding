@@ -405,12 +405,12 @@ async function checkUpdate() {
   color: #fff;
 }
 .btn-secondary {
-  background: #fff;
+  background: var(--card-bg);
   border-color: var(--border, #e2e8f0);
   color: var(--text, #1e293b);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .credit-card h3 {
