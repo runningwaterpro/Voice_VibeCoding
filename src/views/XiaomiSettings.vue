@@ -1704,6 +1704,7 @@ async function retryLoadConfig() {
 <div class="page-body stage-grid">
       <aside class="status-col" aria-label="运行状态">
         <section class="card host-card">
+          <h3 class="rail-title">运行状态</h3>
           <div class="host-status-row host-status-stack" role="list" aria-label="服务状态">
             <div
               v-for="item in host.items"
