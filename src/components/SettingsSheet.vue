@@ -108,6 +108,7 @@ onMounted(async () => {
   padding: 48px 16px;
   background: rgba(0, 0, 0, 0.55);
   overflow: auto;
+  animation: sheet-backdrop-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .settings-sheet {
   width: min(520px, 100%);
@@ -116,6 +117,37 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 16px 18px 14px;
   color: var(--text);
+  transform-origin: center;
+  animation: sheet-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes sheet-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-backdrop,
+  .settings-sheet,
+  .switch,
+  .switch-knob,
+  .settings-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }
 .settings-head {
   display: flex;

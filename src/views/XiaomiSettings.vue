@@ -3239,6 +3239,7 @@ async function retryLoadConfig() {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  animation: voice-bd-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .voice-modal {
   width: min(440px, 100%);
@@ -3247,6 +3248,38 @@ async function retryLoadConfig() {
   border-radius: var(--radius, 8px);
   padding: 20px 22px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  transform-origin: center;
+  animation: voice-modal-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes voice-bd-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes voice-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-modal-backdrop,
+  .voice-modal,
+  .setup-tips-modal,
+  .btn,
+  .stepper-btn,
+  .more-ops > summary,
+  .ruler-marker,
+  .mapping-flash {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .voice-modal-backdrop { opacity: 1 !important; }
 }
 .voice-modal h3 {
   margin: 0 0 10px;

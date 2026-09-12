@@ -1074,6 +1074,43 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
+.btn-sm {
+  padding: 4px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--panel-2);
+  color: var(--text);
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.btn-sm:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-edit {
+  color: var(--primary);
+  border-color: #2f6a5f;
+}
+.btn-edit:hover:not(:disabled) {
+  background: var(--surface-selected);
+}
+.btn-clear {
+  color: var(--danger);
+  border-color: #6a3a3a;
+}
+.btn-clear:hover:not(:disabled) {
+  background: #3a2424;
+  border-color: var(--danger);
+}
+.btn-sm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .map-card-actions {
   display: flex;
   flex-wrap: nowrap;
@@ -1082,35 +1119,17 @@ onUnmounted(() => {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: card-actions-in 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
-
-.btn-sm {
-  padding: 4px 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  background: var(--card-bg);
-  color: var(--text);
-}
-
-.btn-edit {
-  color: var(--primary);
-  border-color: var(--primary);
-}
-.btn-edit:hover:not(:disabled) {
-  background: var(--surface-selected);
-}
-.btn-clear {
-  color: #dc2626;
-  border-color: #fecaca;
-}
-.btn-clear:hover:not(:disabled) {
-  background: #fef2f2;
-}
-.btn-sm:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+@keyframes card-actions-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .capture-live {
@@ -1154,19 +1173,34 @@ onUnmounted(() => {
 }
 
 .btn-media {
-  color: #0f766e;
-  border-color: #99f6e4;
-  background: #f0fdfa;
+  color: var(--primary);
+  border-color: #2f6a5f;
+  background: #1a2c29;
   padding: 3px 8px;
 }
 .btn-media:hover:not(:disabled) {
-  background: #ccfbf1;
+  background: #1e3d38;
 }
 
 .capture-err {
   width: 100%;
   margin: 2px 0 0;
   font-size: 12px;
-  color: #dc2626;
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-sm,
+  .btn-sm:active:not(:disabled),
+  .map-card-actions,
+  .capture-live.capture-hint-blink,
+  .map-card,
+  .voice-quick-btn,
+  .key-cap {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
 }
 </style>

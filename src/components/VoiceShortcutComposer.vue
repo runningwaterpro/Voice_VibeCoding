@@ -240,9 +240,16 @@ watch(() => props.initialKeys, resetFromKeys, { immediate: true });
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .selection-action:hover:not(:disabled) {
   background: var(--surface-hover, #2a313b);
+}
+.selection-action:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .selection-action.primary {
   border-color: var(--primary, #4db6a4);
@@ -255,6 +262,16 @@ watch(() => props.initialKeys, resetFromKeys, { immediate: true });
 .selection-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shortcut-composer,
+  .selection-action,
+  .shortcut-composer-close,
+  .shortcut-composer-fields select {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }
 @media (max-width: 760px) {
   .shortcut-composer-fields {

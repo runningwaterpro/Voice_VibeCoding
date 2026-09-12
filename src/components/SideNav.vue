@@ -422,12 +422,18 @@ async function confirmQuit() {
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s cubic-bezier(0.23, 1, 0.32, 1),
+    color 0.15s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
+}
+
+.nav-item:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .nav-item.active {
@@ -535,5 +541,21 @@ async function confirmQuit() {
 
 .quit-btn-danger:hover:not(:disabled) {
   filter: brightness(0.95);
+}
+
+.quit-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item,
+  .nav-item:active,
+  .nav-btn,
+  .battery-chip,
+  .quit-btn,
+  .quit-btn:active {
+    transition: none !important;
+    transform: none !important;
+  }
 }
 </style>
