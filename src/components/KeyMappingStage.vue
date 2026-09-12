@@ -14,11 +14,6 @@ import RemoteHotspot from "./RemoteHotspot.vue";
 import RemoteKeyIcon from "./RemoteKeyIcon.vue";
 import VoiceShortcutComposer from "./VoiceShortcutComposer.vue";
 import { MEDIA_PICK_KEYS, vkDisplayName } from "../utils/vkDisplay";
-import {
-  applyImePresetConfig,
-  VOICE_QUICK_PRESETS,
-  type VoiceQuickPreset,
-} from "../utils/imePreset";
 
 const props = defineProps<{
   config: DeviceConfig;
@@ -113,9 +108,7 @@ let resizeObs: ResizeObserver | null = null;
 let lineRaf: number | null = null;
 let micFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
-const voiceQuickPresets = VOICE_QUICK_PRESETS;
 const micBindFlash = ref(false);
-const voiceQuickPressedId = ref<string | null>(null);
 
 function actionToVks(action: KeyAction): number[] | null {
   if (!action || action.type === "None") return null;
@@ -136,19 +129,6 @@ function triggerMicBindFlash() {
       micFlashTimer = null;
     }, 1200);
   });
-}
-
-function applyVoiceQuick(item: VoiceQuickPreset, e: MouseEvent) {
-  voiceQuickPressedId.value = item.id;
-  window.setTimeout(() => {
-    if (voiceQuickPressedId.value === item.id) voiceQuickPressedId.value = null;
-  }, 160);
-  const next = applyImePresetConfig(props.config, item.presetId);
-  emit("save", next);
-  (e.currentTarget as HTMLButtonElement).blur();
-  if (selectedId.value === "mic" || hoverId.value === "mic") {
-    void nextTick().then(scheduleUpdateLine);
-  }
 }
 
 function micBindingSignature(): string {
@@ -785,28 +765,6 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-
-        <div class="voice-quick-setup" aria-label="语音键快速设置">
-          <p class="voice-quick-label">将语音键设置为：</p>
-          <div class="voice-quick-grid">
-            <button
-              v-for="item in voiceQuickPresets"
-              :key="item.id"
-              type="button"
-              class="voice-quick-btn"
-              :class="{ pressed: voiceQuickPressedId === item.id }"
-              :aria-label="`将语音键设置为 ${item.segments.join(' 加 ')}`"
-              @click="applyVoiceQuick(item, $event)"
-            >
-              <span class="voice-quick-chord">
-                <template v-for="(seg, segIdx) in item.segments" :key="seg">
-                  <span v-if="segIdx > 0" class="chord-plus" aria-hidden="true">+</span>
-                  <kbd class="key-cap-chip">{{ seg }}</kbd>
-                </template>
-              </span>
-            </button>
-          </div>
-        </div>
       </aside>
     </div>
   </div>
@@ -962,122 +920,6 @@ onUnmounted(() => {
   animation: mic-bind-flash 0.38s ease-in-out 3;
 }
 
-.voice-quick-setup {
-  margin-top: 4px;
-  padding: 10px 10px 11px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, #fafbfd 0%, #f8fafc 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-}
-
-.voice-quick-label {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.01em;
-}
-
-.voice-quick-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-
-.voice-quick-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 6px 8px;
-  border: 1px solid #c5d0de;
-  border-radius: 9px;
-  background: #f3f6fa;
-  cursor: pointer;
-  transition:
-    background 0.14s ease,
-    border-color 0.14s ease,
-    box-shadow 0.14s ease,
-    transform 0.1s ease;
-  box-shadow: none;
-}
-
-.voice-quick-btn:hover {
-  background: #dbeafe;
-  border-color: var(--primary);
-}
-
-.voice-quick-btn:focus {
-  outline: none;
-}
-
-.voice-quick-btn:focus-visible {
-  outline: 2px solid #60a5fa;
-  outline-offset: 2px;
-}
-
-.voice-quick-btn:active,
-.voice-quick-btn.pressed {
-  transform: translateY(1px);
-  background: #bfdbfe;
-  border-color: #60a5fa;
-  box-shadow: none;
-}
-
-.voice-quick-chord {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 3px;
-  max-width: 100%;
-}
-
-.chord-plus {
-  font-size: 11px;
-  font-weight: 600;
-  color: #94a3b8;
-  line-height: 1;
-  user-select: none;
-}
-
-.key-cap-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  border: 1px solid #d5dee9;
-  background: var(--panel-2);
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-  box-shadow: none;
-  transition:
-    transform 0.1s ease,
-    box-shadow 0.1s ease,
-    background 0.14s ease,
-    border-color 0.14s ease;
-}
-
-.voice-quick-btn:hover .key-cap-chip {
-  background: var(--surface-selected);
-  border-color: var(--primary);
-}
-
-.voice-quick-btn:active .key-cap-chip,
-.voice-quick-btn.pressed .key-cap-chip {
-  transform: translateY(1px);
-  background: #dbeafe;
-  border-color: #60a5fa;
-  box-shadow: none;
-}
-
 .btn-sm {
   padding: 4px 10px;
   border: 1px solid var(--edge);
@@ -1207,7 +1049,6 @@ onUnmounted(() => {
   .map-card-actions-inner,
   .capture-live.capture-hint-blink,
   .map-card,
-  .voice-quick-btn,
   .key-cap {
     transition: none !important;
     animation: none !important;

@@ -39,21 +39,24 @@ fn load_tray_png(bytes: &'static [u8]) -> Result<Image<'static>, tauri::Error> {
 
 fn load_tray_icon(kind: TrayIconKind) -> Result<Image<'static>, tauri::Error> {
     // Prefer 32px: Windows tray is ~16–20px; 128 downscale looks mushy.
+    // 用户提供的原始 PNG（未改尺寸）：Ready=蓝 / Error=红 / Init=橙
     match kind {
-        TrayIconKind::Ready => load_tray_png(include_bytes!("../../icons/tray-icon-32.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon.png"))),
-        TrayIconKind::Init => load_tray_png(include_bytes!("../../icons/tray-icon-init-32.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-init.png"))),
-        TrayIconKind::Error => load_tray_png(include_bytes!("../../icons/tray-icon-error-32.png"))
-            .or_else(|_| load_tray_png(include_bytes!("../../icons/tray-icon-error.png"))),
+        TrayIconKind::Ready => load_tray_png(include_bytes!(
+            "../../icons/user-brand/blue.png"
+        )),
+        TrayIconKind::Init => load_tray_png(include_bytes!(
+            "../../icons/user-brand/orange.png"
+        )),
+        TrayIconKind::Error => load_tray_png(include_bytes!(
+            "../../icons/user-brand/red.png"
+        )),
     }
 }
 
 fn load_window_icon(_app: &AppHandle) -> Result<Image<'static>, tauri::Error> {
-    // 任务栏/标题栏：用清晰的 128 PNG（不要用多尺寸 ICO——Tauri 常只取第一帧，
-    // 若第一帧是 16x16 会糊细节，看起来像“旧图标/糊图”）。
-    Image::from_bytes(include_bytes!("../../icons/128x128.png"))
-        .or_else(|_| Image::from_bytes(include_bytes!("../../icons/icon.png")))
+    // 任务栏/标题栏：用户 blue.png（保持原始文件，未缩放）
+    Image::from_bytes(include_bytes!("../../icons/user-brand/blue.png"))
+        .or_else(|_| Image::from_bytes(include_bytes!("../../icons/128x128.png")))
         .or_else(|_| Image::from_bytes(include_bytes!("../../icons/32x32.png")))
 }
 

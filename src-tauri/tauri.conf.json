@@ -37,6 +37,8 @@
       "assets/winuhid/driver/*"
     ],
     "icon": [
+      "icons/user-brand/blue.ico",
+      "icons/user-brand/blue.png",
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",

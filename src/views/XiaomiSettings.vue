@@ -279,7 +279,7 @@ const railFocus = computed<RailFocus>(() => {
         connLabel: connBusy.value ? "连接中…" : "重新连接",
         connCls: "primary",
         primary: "conn",
-        secondary: "restart",
+        secondary: null,
         showRepairs: true,
         healthyText: null,
       };
@@ -391,13 +391,6 @@ const showRepairBtn = (key: RepairKey) =>
 const repairBtnClass = (key: RepairKey) => {
   const { primary, secondary } = railFocus.value;
   if (primary === key) return "btn btn-attention";
-  // 桥接未运行：重启与重新连接同级琥珀，避免隐蔽灰钮
-  if (
-    secondary === key &&
-    (railState.value === "err_bridge" || railState.value === "idle")
-  ) {
-    return "btn btn-attention";
-  }
   if (secondary === key) return "btn btn-attention-sec";
   return "btn";
 };
@@ -1878,7 +1871,6 @@ async function retryLoadConfig() {
                 +
               </button>
             </div>
-            <span class="gain-inline-hint">只影响送声</span>
           </div>
         </div>
 
@@ -1903,7 +1895,12 @@ async function retryLoadConfig() {
             {{ railFocus.connLabel }}
           </button>
 
-          <div class="status-line" role="status" aria-live="polite">
+          <div
+            v-if="railState !== 'ready'"
+            class="status-line"
+            role="status"
+            aria-live="polite"
+          >
             <b>{{ railFocus.qHeadline }}</b>
             <span>{{ railFocus.qSub }}</span>
           </div>
@@ -2617,12 +2614,12 @@ async function retryLoadConfig() {
         </div>
         <div class="voice-toolbar" role="group" aria-label="语音听写设置">
           <div class="voice-toolbar-item">
-            <span class="voice-toolbar-label">点击语音键是否发送映射按键</span>
-            <label class="switch" title="点击语音键是否发送映射按键">
+            <span class="voice-toolbar-label">点击语音键：发送映射</span>
+            <label class="switch" title="点击语音键：发送映射">
               <input
                 type="checkbox"
                 v-model="voiceShortcutEnabled"
-                aria-label="点击语音键是否发送映射按键"
+                aria-label="点击语音键：发送映射"
               />
               <span class="switch-slider" aria-hidden="true"></span>
             </label>
