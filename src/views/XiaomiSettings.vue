@@ -2671,7 +2671,7 @@ async function retryLoadConfig() {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   min-height: 1.3em;
 }
 /* 与 rail-title 同一盒模型：字号/行高/下边距一致，保证左右标题水平对齐 */
@@ -2679,7 +2679,7 @@ async function retryLoadConfig() {
 .mapping-placeholder h3,
 .mapping-error h3,
 .rail-title {
-  margin: 0;
+  margin: 0 0 12px;
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
@@ -2985,7 +2985,7 @@ async function retryLoadConfig() {
 }
 
 .host-card {
-  padding: 16px 18px;
+  padding: 12px;
 }
 .host-status-row {
   display: grid;
@@ -3650,7 +3650,7 @@ async function retryLoadConfig() {
 /* V4 left-rail */
 .rail-conn {
   width: 100%;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 .status-line {
   display: flex;
@@ -4167,11 +4167,10 @@ async function retryLoadConfig() {
   .page-body.stage-grid { grid-template-columns: 1fr; }
 }
 .status-col { min-height: 0; display: flex; flex-direction: column; }
-.status-col .host-card { height: 100%; display: flex; flex-direction: column; }
+.status-col .host-card { height: 100%; display: flex; flex-direction: column; padding: 12px; }
 .status-col .host-actions-stack { margin-top: auto; }
 .device-info-row,
 .log-aside { display: none !important; }
-.status-col .host-card { height: 100%; }
 /* rail-title 规则已并入 mapping-heading 附近统一选择器 */
 .status-col .host-status-row {
   display: flex !important;

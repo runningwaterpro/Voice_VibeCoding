@@ -28,7 +28,6 @@ const LEFT_IDS = [
   "up",
   "left",
   "ok",
-  "down",
   "back",
   "home",
   "menu",
@@ -36,6 +35,7 @@ const LEFT_IDS = [
 const RIGHT_IDS = [
   "mic",
   "right",
+  "down",
   "volume_up",
   "volume_down",
   "tv",
@@ -208,6 +208,14 @@ function vksToHotkeyNames(vks: number[]): string[] {
   });
 }
 
+type RightCard = {
+  id: string;
+  label: string;
+  action: ReturnType<typeof actionOf>;
+  side: "right";
+  ghost: boolean;
+};
+
 const leftButtons = computed(() =>
   LEFT_IDS.map((id) => ({
     id,
@@ -217,14 +225,27 @@ const leftButtons = computed(() =>
   }))
 );
 
-const rightButtons = computed(() =>
-  RIGHT_IDS.map((id) => ({
+/** 右列：语音后插入空槽（对齐 V4.2，保持左右等距） */
+const rightButtons = computed<RightCard[]>(() => {
+  const cards: RightCard[] = RIGHT_IDS.map((id) => ({
     id,
     label: labelOf(id),
     action: actionOf(id),
-    side: "right" as const,
-  }))
-);
+    side: "right",
+    ghost: false,
+  }));
+  const micIdx = cards.findIndex((c) => c.id === "mic");
+  if (micIdx >= 0) {
+    cards.splice(micIdx + 1, 0, {
+      id: "_spacer",
+      label: "",
+      action: actionOf("tv"),
+      side: "right",
+      ghost: true,
+    });
+  }
+  return cards;
+});
 
 const activeLineId = computed(
   () => selectedId.value || hoverId.value || null
@@ -679,92 +700,98 @@ onUnmounted(() => {
           @apply="applyManualShortcut"
           @cancel="closeManualShortcutEditor"
         />
-        <div
-          v-for="btn in rightButtons"
-          :key="btn.id"
-          :ref="(el) => setCardRef(btn.id, el)"
-          class="map-card"
-          :class="{
-            active: selectedId === btn.id,
-            hover: hoverId === btn.id && selectedId !== btn.id,
-          }"
-          @mouseenter="onCardHover(btn.id)"
-          @mouseleave="onCardHover(null)"
-          @click="selectButton(btn.id)"
-        >
-          <div class="map-card-main">
-            <span class="map-name">
-              <RemoteKeyIcon :key-id="btn.id" />
-              {{ btn.label }}
-            </span>
-            <span
-              :class="[
-                'map-bind',
-                {
-                  unbound: btn.action.type === 'None',
-                  'mic-bind-flash': btn.id === 'mic' && micBindFlash,
-                },
-              ]"
-            >
-              {{ actionLabel(btn.action) }}
-            </span>
-          </div>
-          <div class="map-card-actions" @click.stop>
-            <div class="map-card-actions-inner">
-              <button
-                type="button"
-                class="btn-sm btn-edit"
-                :disabled="capturing && selectedId !== btn.id"
-                @click="startCapture"
+        <template v-for="btn in rightButtons" :key="btn.id">
+          <div
+            v-if="btn.ghost"
+            class="map-card-spacer"
+            aria-hidden="true"
+          />
+          <div
+            v-else
+            :ref="(el) => setCardRef(btn.id, el)"
+            class="map-card"
+            :class="{
+              active: selectedId === btn.id,
+              hover: hoverId === btn.id && selectedId !== btn.id,
+            }"
+            @mouseenter="onCardHover(btn.id)"
+            @mouseleave="onCardHover(null)"
+            @click="selectButton(btn.id)"
+          >
+            <div class="map-card-main">
+              <span class="map-name">
+                <RemoteKeyIcon :key-id="btn.id" />
+                {{ btn.label }}
+              </span>
+              <span
+                :class="[
+                  'map-bind',
+                  {
+                    unbound: btn.action.type === 'None',
+                    'mic-bind-flash': btn.id === 'mic' && micBindFlash,
+                  },
+                ]"
               >
-                {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
-              </button>
-              <button
-                type="button"
-                class="btn-sm btn-edit"
-                @click.stop="openManualShortcutEditor"
-              >手动组合</button>
-              <button
-                v-if="btn.action.type !== 'None'"
-                type="button"
-                class="btn-sm btn-clear"
-                :disabled="capturing"
-                @click="clearBinding(btn.id)"
-              >
-                清除
-              </button>
-              <p
-                v-if="capturing && selectedId === btn.id"
-                class="capture-live"
-                :class="{ 'capture-hint-blink': !liveLabels.length }"
-              >
-                {{
-                  liveLabels.length
-                    ? liveLabels.join(" + ") + " …"
-                    : "请按目标键或组合键"
-                }}
-              </p>
-              <div
-                v-if="capturing && selectedId === btn.id"
-                class="media-pick"
-              >
-                <span class="media-pick-label">设置为：</span>
+                {{ actionLabel(btn.action) }}
+              </span>
+            </div>
+            <div class="map-card-actions" @click.stop>
+              <div class="map-card-actions-inner">
                 <button
-                  v-for="k in MEDIA_PICK_KEYS"
-                  :key="k.vk"
                   type="button"
-                  class="btn-sm btn-media"
-                  @click="pickMediaKey(k.vk)"
+                  class="btn-sm btn-edit"
+                  :disabled="capturing && selectedId !== btn.id"
+                  @click="startCapture"
                 >
-                  {{ k.label }}
+                  {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
                 </button>
+                <button
+                  type="button"
+                  class="btn-sm btn-edit"
+                  @click.stop="openManualShortcutEditor"
+                >手动组合</button>
+                <button
+                  v-if="btn.action.type !== 'None'"
+                  type="button"
+                  class="btn-sm btn-clear"
+                  :disabled="capturing"
+                  @click="clearBinding(btn.id)"
+                >
+                  清除
+                </button>
+                <p
+                  v-if="capturing && selectedId === btn.id"
+                  class="capture-live"
+                  :class="{ 'capture-hint-blink': !liveLabels.length }"
+                >
+                  {{
+                    liveLabels.length
+                      ? liveLabels.join(" + ") + " …"
+                      : "请按目标键或组合键"
+                  }}
+                </p>
+                <div
+                  v-if="capturing && selectedId === btn.id"
+                  class="media-pick"
+                >
+                  <span class="media-pick-label">设置为：</span>
+                  <button
+                    v-for="k in MEDIA_PICK_KEYS"
+                    :key="k.vk"
+                    type="button"
+                    class="btn-sm btn-media"
+                    @click="pickMediaKey(k.vk)"
+                  >
+                    {{ k.label }}
+                  </button>
+                </div>
+                <p v-if="captureError && selectedId === btn.id" class="capture-err">
+                  {{ captureError }}
+                </p>
               </div>
-              <p v-if="captureError && selectedId === btn.id" class="capture-err">
-                {{ captureError }}
-              </p>
             </div>
           </div>
-        </div>
+        </template>
       </aside>
     </div>
   </div>
@@ -780,12 +807,11 @@ onUnmounted(() => {
 .mapping-stage {
   position: relative;
   display: grid;
-  /* 左右平分剩余宽度；单侧最小宽度 100px（原 200 的一半） */
-  grid-template-columns: 200px auto 200px;
+  grid-template-columns: 224px auto 224px;
   gap: 10px 14px;
   align-items: start;
   justify-content: center;
-  max-width: 640px;
+  max-width: 720px;
   margin: 0 auto;
   min-width: 560px;
   width: 100%;
@@ -806,10 +832,10 @@ onUnmounted(() => {
 .side-col {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   z-index: 2;
   min-width: 0;
-  width: 200px;
+  width: 224px;
   padding-top: 0;
 }
 
@@ -840,9 +866,22 @@ onUnmounted(() => {
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   min-width: 0;
-  width: 200px;
-  max-width: 200px;
+  width: 224px;
+  max-width: 224px;
   box-sizing: border-box;
+}
+
+/* 右列空槽：同尺寸虚线框，不可点（V4.2） */
+.map-card-spacer {
+  width: 224px;
+  max-width: 224px;
+  min-height: 38px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  border: 1px dashed rgba(52, 59, 70, 0.9);
+  border-radius: 8px;
+  background: transparent;
+  pointer-events: none;
 }
 
 .map-card:hover,
@@ -884,8 +923,8 @@ onUnmounted(() => {
   padding: 2px 8px;
   border-radius: 4px;
   min-width: 0;
-  max-width: none;
-  flex: 1;
+  max-width: 55%;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
