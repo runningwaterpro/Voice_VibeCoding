@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Voice VibeCoding",
-        "width": 1080,
-        "height": 760,
+        "width": 900,
+        "height": 900,
         "minWidth": 880,
         "minHeight": 720,
         "resizable": true,

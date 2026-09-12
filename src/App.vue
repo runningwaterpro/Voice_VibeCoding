@@ -331,6 +331,8 @@ body {
   overflow: auto;
   min-height: 100vh;
   height: auto;
+  /* 与机身 margin 对称，下方不空一块 */
+  padding-bottom: 12px;
 }
 
 #app {
@@ -344,7 +346,7 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: 820px;
-  margin: 20px auto;
+  margin: 12px auto;
   background: var(--chassis);
   border: 1px solid var(--edge);
   border-radius: 12px;

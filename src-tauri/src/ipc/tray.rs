@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use tauri::{
     image::Image,
-    menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
+    menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
@@ -152,38 +152,13 @@ pub fn quit_app_public(app: &AppHandle) {
 }
 
 fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    // 对齐 Python xiaomi_main 托盘：打开状态 / 按键与语音设置 / 重启桥接 / 退出
-    let restore = MenuItemBuilder::with_id("restore", "打开状态").build(app)?;
+    // 显示主界面 / 按键与语音设置 / 重启桥接 / 刷新 / 重启软件 / 退出
+    let restore = MenuItemBuilder::with_id("restore", "显示主界面").build(app)?;
     let settings = MenuItemBuilder::with_id("xiaomi_settings", "按键与语音设置").build(app)?;
     let restart = MenuItemBuilder::with_id("restart_bridge", "重启桥接").build(app)?;
     let refresh = MenuItemBuilder::with_id("refresh_ui", "刷新界面（白屏自救）").build(app)?;
     let restart_app = MenuItemBuilder::with_id("restart_app", "重启软件").build(app)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
-
-    let xiaomi_connect = MenuItemBuilder::with_id("xiaomi_connect", "连接小米遥控器").build(app)?;
-    let xiaomi_disconnect =
-        MenuItemBuilder::with_id("xiaomi_disconnect", "断开小米遥控器").build(app)?;
-    let xiaomi_submenu = SubmenuBuilder::new(app, "小米遥控器")
-        .item(&xiaomi_connect)
-        .item(&xiaomi_disconnect)
-        .build()?;
-
-    let t1_connect = MenuItemBuilder::with_id("t1_connect", "连接 T1 遥控器").build(app)?;
-    let t1_disconnect = MenuItemBuilder::with_id("t1_disconnect", "断开 T1 遥控器").build(app)?;
-    let t1_submenu = SubmenuBuilder::new(app, "T1 遥控器")
-        .item(&t1_connect)
-        .item(&t1_disconnect)
-        .build()?;
-
-    let v60_connect = MenuItemBuilder::with_id("hanvon_connect", "连接 V60 语音笔").build(app)?;
-    let v60_disconnect =
-        MenuItemBuilder::with_id("hanvon_disconnect", "断开 V60 语音笔").build(app)?;
-    let v60_submenu = SubmenuBuilder::new(app, "汉王 V60")
-        .item(&v60_connect)
-        .item(&v60_disconnect)
-        .build()?;
-
-    let separator2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
     MenuBuilder::new(app)
@@ -193,10 +168,6 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .item(&refresh)
         .item(&restart_app)
         .item(&separator1)
-        .item(&xiaomi_submenu)
-        .item(&t1_submenu)
-        .item(&v60_submenu)
-        .item(&separator2)
         .item(&quit)
         .build()
 }
@@ -231,46 +202,6 @@ fn on_menu_event(app: &AppHandle, id: &str) {
             });
         }
         "quit" => quit_app(app),
-        "xiaomi_connect" => {
-            log::info!("Tray: connecting Xiaomi");
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let Some(state) = app.try_state::<crate::bridges::BridgeState>() else {
-                    return;
-                };
-                let Some(config_manager) =
-                    app.try_state::<crate::config::manager::ConfigManager>()
-                else {
-                    return;
-                };
-                crate::ipc::tray::sync_runtime_icons(&app, TrayIconKind::Init);
-                if let Err(e) =
-                    crate::ipc::commands::restart_xiaomi_bridge_inner(&app, &state, &config_manager)
-                {
-                    log::warn!("Tray connect (restart) failed: {e}");
-                }
-            });
-        }
-        "xiaomi_disconnect" => {
-            log::info!("Tray: disconnecting Xiaomi");
-            if let Some(runtime) =
-                app.try_state::<std::sync::Arc<crate::bridges::xiaomi::connect::XiaomiRuntime>>()
-            {
-                runtime.request_stop();
-            }
-            if let Some(state) = app.try_state::<crate::bridges::BridgeState>() {
-                state.update_status(
-                    crate::bridges::BridgeType::Xiaomi,
-                    crate::bridges::BridgeStatus::Disconnected,
-                );
-            }
-            // 断开后回到「初始化中」黄标，避免仍显示已就绪
-            sync_runtime_icons(app, TrayIconKind::Init);
-        }
-        "t1_connect" => log::info!("Tray: connecting T1"),
-        "t1_disconnect" => log::info!("Tray: disconnecting T1"),
-        "hanvon_connect" => log::info!("Tray: connecting V60"),
-        "hanvon_disconnect" => log::info!("Tray: disconnecting V60"),
         _ => {}
     }
 }

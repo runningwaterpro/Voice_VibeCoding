@@ -40,9 +40,9 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 }
 
 .app{width:100%;max-width:820px;margin:0 auto;display:flex;flex-direction:column;background:var(--chassis);border-inline:1px solid var(--edge);min-height:0}
-@media(min-width:1200px){
-  /* 无左栏：再收一档，减少映射两侧空白但不挤 */
-  .app{max-width:820px;margin:20px auto;border-radius:12px;box-shadow:0 0 0 1px #343b46}
+@media(min-width:960px){
+  /* 对齐 App：机身外边距上下左右一致，减少窗口大片空白感 */
+  .app{max-width:820px;margin:12px auto;border-radius:12px;box-shadow:0 0 0 1px #343b46}
 }
 
 .topnav{
@@ -174,6 +174,23 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 /* 无主操作：只留一句 + 更多，不占空按钮列 */
 .action-bar.no-primary{grid-template-columns:minmax(0,1fr) auto}
 .action-bar.no-primary .repair-group{display:none}
+/* 启动中：中性进度条，区别于琥珀异常 */
+.action-bar.booting{
+  border-color:#2a4a6a;
+  background:#15202b;
+}
+.action-bar.booting .status-line b{color:#7dd3fc}
+.action-bar.booting .status-line span{color:#94a3b8}
+.booting-pulse{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  background:#38bdf8;box-shadow:0 0 0 0 rgba(56,189,248,.55);
+  animation:boot-pulse 1.4s ease-out infinite;
+}
+@keyframes boot-pulse{
+  0%{box-shadow:0 0 0 0 rgba(56,189,248,.55)}
+  70%{box-shadow:0 0 0 8px rgba(56,189,248,0)}
+  100%{box-shadow:0 0 0 0 rgba(56,189,248,0)}
+}
 .status-line{
   display:flex;flex-direction:row;align-items:center;gap:8px;
   margin:0;padding:0;min-width:0;overflow:hidden;height:34px;
@@ -538,7 +555,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 <body>
 <!-- 预览控制：机身外，不进入 .app -->
 <div class="demo-bar" role="region" aria-label="预览控制">
-  <span>预览控制 · v4.3（机身外）：健康无横条 · 异常才一句+主操作</span>
+  <span>预览控制 · v4.3（机身外）：健康无横条 · 异常才一句+主操作 · 启动中可看动态</span>
+  <button type="button" data-state="booting">启动中</button>
   <button type="button" data-state="idle">未连接</button>
   <button type="button" data-state="connecting">连接中</button>
   <button type="button" data-state="ready" class="on">就绪</button>
@@ -601,6 +619,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
       <!-- 异常才出现：单行说明 + 固定槽主操作 + 更多；健康时整条隐藏 -->
       <section class="action-bar" id="actionBar" aria-label="异常处理" hidden>
         <div class="status-line" id="statusLine">
+          <span class="booting-pulse" id="bootPulse" hidden></span>
           <b id="qHeadline"></b>
           <span id="qSub"></span>
         </div>
@@ -725,6 +744,15 @@ const KEYS=[
 const MEDIA=[{vk:0xb0,label:"上一曲"},{vk:0xb3,label:"播放/暂停"},{vk:0xb1,label:"下一曲"},{vk:0xad,label:"静音"}];
 
 const STATES={
+  booting:{
+    led:"",headline:"正在启动桥接…",sub:"首次连接可能需要几秒",
+    qH:"正在启动…",qS:"桥接与语音通道初始化中",
+    chips:{ble:["warn","蓝牙连接中"],atvv:["warn","语音通道订阅中"],cable:["warn","虚拟声卡检测中"],hid:["warn","虚拟键盘检测中"]},
+    conn:"取消连接",connCls:"ghost",primary:null,secondary:[],booting:true,
+    inMark:6,outMark:4,hintIn:"…",hintOut:"…",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","启动中","warn"],["蓝牙","连接中","warn"],["语音通道","订阅中","warn"],["虚拟声卡","检测中","warn"],["虚拟键盘","检测中","warn"]],
+    detail:"正在启动桥接与语音通道，无需操作。"
+  },
   idle:{
     led:"",headline:"未连接遥控器",sub:"启动会自动连接；也可点「重新连接」",
     qH:"未连接",qS:"点「重新连接」或等待自动重连",
@@ -1032,6 +1060,9 @@ function applyState(name){
   const healthy=["ready","voice"].includes(name);
   const bar=$("actionBar");
   if(bar) bar.hidden=healthy;
+  if(bar) bar.classList.toggle("booting",!!s.booting);
+  const pulse=$("bootPulse");
+  if(pulse) pulse.hidden=!s.booting;
   // 单行：标题 + 次要说明同行
   $("qHeadline").textContent=s.qH;
   $("qSub").textContent=s.qS;
@@ -1074,9 +1105,21 @@ function applyState(name){
   updateLink();
 }
 
-renderMaps();applyState("ready");
+renderMaps();
+/* 启动动态演示：booting → ~2.8s → ready（可点「启动中」重播） */
+let bootSeqTimer=null;
+function playBootSeq(){
+  if(bootSeqTimer){clearTimeout(bootSeqTimer);bootSeqTimer=null}
+  applyState("booting");
+  bootSeqTimer=setTimeout(()=>{applyState("ready");bootSeqTimer=null},2800);
+}
+playBootSeq();
 
-document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.addEventListener("click",()=>applyState(b.dataset.state)));
+document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.state==="booting"){playBootSeq();return}
+  if(bootSeqTimer){clearTimeout(bootSeqTimer);bootSeqTimer=null}
+  applyState(b.dataset.state);
+}));
 
 $("remote").addEventListener("mouseover",e=>{const t=e.target.closest("[data-key-id]");if(t)setHover(t.dataset.keyId)});
 $("remote").addEventListener("mouseleave",()=>setHover(selectedKey));
