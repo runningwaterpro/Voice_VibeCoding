@@ -169,27 +169,57 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   min-height:42px;
   padding:8px 12px;
   background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);
+  /* 进出场只动 opacity/transform；退出更干脆 */
+  transition:opacity 180ms var(--ease-out),transform 180ms var(--ease-out);
+  will-change:opacity,transform;
 }
 .action-bar[hidden]{display:none!important}
+.action-bar.is-enter{opacity:0;transform:translateY(-4px) scale(0.98)}
+.action-bar.is-exit{opacity:0;transform:translateY(-4px) scale(0.98);pointer-events:none}
 /* 无主操作：只留一句 + 更多，不占空按钮列 */
 .action-bar.no-primary{grid-template-columns:minmax(0,1fr) auto}
 .action-bar.no-primary .repair-group{display:none}
-/* 启动中：中性进度条，区别于琥珀异常 */
+/* 启动中：轻量语音波形指示，区别于琥珀异常 */
 .action-bar.booting{
-  border-color:#2a4a6a;
-  background:#15202b;
+  border-color:#24384c;
+  background:#141c26;
 }
-.action-bar.booting .status-line b{color:#7dd3fc}
-.action-bar.booting .status-line span{color:#94a3b8}
-.booting-pulse{
-  width:8px;height:8px;border-radius:50%;flex-shrink:0;
-  background:#38bdf8;box-shadow:0 0 0 0 rgba(56,189,248,.55);
-  animation:boot-pulse 1.4s ease-out infinite;
+.action-bar.booting .status-line b{color:#93c5fd;font-weight:500}
+.booting-wave{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:2px;
+  width:22px;
+  height:16px;
+  flex:0 0 auto;
+  flex-shrink:0;
 }
-@keyframes boot-pulse{
-  0%{box-shadow:0 0 0 0 rgba(56,189,248,.55)}
-  70%{box-shadow:0 0 0 8px rgba(56,189,248,0)}
-  100%{box-shadow:0 0 0 0 rgba(56,189,248,0)}
+.booting-wave i{
+  display:block;
+  width:2px;
+  height:4px;
+  border-radius:1px;
+  background:#7dd3fc;
+  opacity:.75;
+  transform-origin:center bottom;
+  animation:boot-wave 1.05s ease-in-out infinite;
+}
+.booting-wave i:nth-child(1){animation-delay:0ms}
+.booting-wave i:nth-child(2){animation-delay:90ms}
+.booting-wave i:nth-child(3){animation-delay:180ms}
+.booting-wave i:nth-child(4){animation-delay:90ms}
+.booting-wave i:nth-child(5){animation-delay:0ms}
+@keyframes boot-wave{
+  0%,100%{height:4px;opacity:.45}
+  50%{height:14px;opacity:1}
+}
+@media (prefers-reduced-motion:reduce){
+  .action-bar{transition:opacity 120ms linear}
+  .action-bar.is-enter,.action-bar.is-exit{transform:none}
+  .booting-wave i{animation:none;height:8px;opacity:.55}
+  .booting-wave i:nth-child(2),
+  .booting-wave i:nth-child(4){height:12px;opacity:.75}
 }
 .status-line{
   display:flex;flex-direction:row;align-items:center;gap:8px;
@@ -199,11 +229,28 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   font-size:12.5px;font-weight:600;color:var(--ink);
   white-space:nowrap;flex:0 0 auto;
 }
-.status-line span{
+/* 仅说明文案可伸展；波形容器必须贴左侧固定宽 */
+.status-line > span:not(.booting-wave){
   font-size:12px;color:var(--muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;
 }
 .status-line[hidden]{display:none!important}
+/* 启动中：波形 + 标题 + 说明 成组贴左，组内紧凑 */
+.action-bar.booting .status-line{
+  gap:10px;
+}
+.action-bar.booting .booting-wave{
+  flex:0 0 auto;
+}
+.action-bar.booting .status-line b{
+  font-weight:500;
+}
+.action-bar.booting .status-line > span:not(.booting-wave){
+  flex:0 1 auto;
+  color:#8b9bb0;
+  padding-left:10px;
+  border-left:1px solid #2a3a4d;
+}
 .action-bar .repair-group{display:flex;gap:6px;margin:0;min-width:112px;align-items:center}
 .action-bar .repair-group .btn{
   width:auto;min-width:112px;white-space:nowrap;height:34px;padding:0 12px;
@@ -619,7 +666,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
       <!-- 异常才出现：单行说明 + 固定槽主操作 + 更多；健康时整条隐藏 -->
       <section class="action-bar" id="actionBar" aria-label="异常处理" hidden>
         <div class="status-line" id="statusLine">
-          <span class="booting-pulse" id="bootPulse" hidden></span>
+          <span class="booting-wave" id="bootPulse" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
           <b id="qHeadline"></b>
           <span id="qSub"></span>
         </div>
@@ -1051,6 +1098,31 @@ function log(cls,msg){
   if(LOGS.length>50)LOGS.pop();
 }
 
+/* 横条进出场：opacity + 轻微位移；退出 180ms ease-out 后再 display:none */
+let barHideTimer=null;
+function setActionBarVisible(bar,show){
+  if(!bar) return;
+  if(barHideTimer){clearTimeout(barHideTimer);barHideTimer=null}
+  if(show){
+    const wasHidden=bar.hidden;
+    bar.hidden=false;
+    bar.classList.remove("is-exit");
+    if(wasHidden){
+      bar.classList.add("is-enter");
+      void bar.offsetWidth;
+      bar.classList.remove("is-enter");
+    }
+    return;
+  }
+  if(bar.hidden) return;
+  bar.classList.add("is-exit");
+  barHideTimer=setTimeout(()=>{
+    bar.hidden=true;
+    bar.classList.remove("is-exit");
+    barHideTimer=null;
+  },180);
+}
+
 function applyState(name){
   current=name;const s=STATES[name];
   $("led").className="led "+(s.led||"");
@@ -1059,7 +1131,7 @@ function applyState(name){
   if(s.sub){sub.hidden=false;sub.textContent=s.sub;} else {sub.hidden=true;sub.textContent="";}
   const healthy=["ready","voice"].includes(name);
   const bar=$("actionBar");
-  if(bar) bar.hidden=healthy;
+  setActionBarVisible(bar,!healthy);
   if(bar) bar.classList.toggle("booting",!!s.booting);
   const pulse=$("bootPulse");
   if(pulse) pulse.hidden=!s.booting;

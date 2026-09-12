@@ -178,6 +178,7 @@ const cableReady = computed(() => host.value.cable_ready);
 /* ── V4.3 状态机：健康隐藏异常条；异常时一句 + 主操作 + 更多 ── */
 type RepairKey = "cable" | "winuhid" | "atvv" | "restart" | "conn";
 type RailState =
+  | "booting"
   | "idle"
   | "connecting"
   | "ready"
@@ -190,6 +191,11 @@ type RailState =
 
 const connBusy = ref(false);
 
+/** 启动宽限：桥接尚未起来时先展示波形启动态，超时后再落到真实异常 */
+const BOOT_GRACE_MS = 12_000;
+const inBootGrace = ref(true);
+let bootGraceTimer: ReturnType<typeof setTimeout> | null = null;
+
 const connectingNow = computed(
   () =>
     connBusy.value ||
@@ -199,7 +205,7 @@ const connectingNow = computed(
 
 const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
 
-const railState = computed<RailState>(() => {
+const railStateRaw = computed<RailState>(() => {
   const h = host.value;
   if (connectingNow.value) return "connecting";
   if (!h.bridge_alive) return "err_bridge";
@@ -209,6 +215,18 @@ const railState = computed<RailState>(() => {
   if (!h.audio_alive) return "err_route";
   if (receivingNow.value) return "voice";
   return "ready";
+});
+
+const railState = computed<RailState>(() => {
+  const raw = railStateRaw.value;
+  // 宽限期内：未连接/桥接未起/连接中 → 启动中（波形），不抢琥珀异常
+  if (
+    inBootGrace.value &&
+    (raw === "err_bridge" || raw === "connecting" || raw === "idle")
+  ) {
+    return "booting";
+  }
+  return raw;
 });
 
 type ChipTone = "" | "warn" | "fail" | "idle";
@@ -230,6 +248,20 @@ interface RailFocus {
 const railFocus = computed<RailFocus>(() => {
   const st = railState.value;
   switch (st) {
+    case "booting":
+      return {
+        led: "idle",
+        headline: "正在启动桥接…",
+        sub: "首次连接可能需要几秒",
+        qHeadline: "正在启动…",
+        qSub: "桥接与语音通道初始化中",
+        connLabel: "取消连接",
+        connCls: "ghost",
+        primary: null,
+        secondary: null,
+        showRepairs: false,
+        healthyText: null,
+      };
     case "idle":
     case "err_bridge":
       return {
@@ -1631,6 +1663,23 @@ onMounted(async () => {
       .catch(() => undefined),
   ]);
   hostPollTimer = setInterval(refreshHost, 1000);
+  // 启动宽限：桥接起来或超时后结束 booting 展示
+  bootGraceTimer = setTimeout(() => {
+    inBootGrace.value = false;
+  }, BOOT_GRACE_MS);
+  watch(
+    railStateRaw,
+    (st) => {
+      if (st === "ready" || st === "voice") {
+        inBootGrace.value = false;
+        if (bootGraceTimer) {
+          clearTimeout(bootGraceTimer);
+          bootGraceTimer = null;
+        }
+      }
+    },
+    { immediate: true },
+  );
   // 持续拉取设备信息（含电量），避免必须切页才刷新
   devicePollTimer = setInterval(() => {
     void bridge.refreshStatus(type);
@@ -1820,6 +1869,7 @@ onUnmounted(() => {
   unlistenCableComplete?.();
   unlistenCableError?.();
   if (hostPollTimer) clearInterval(hostPollTimer);
+  if (bootGraceTimer) clearTimeout(bootGraceTimer);
   if (devicePollTimer) clearInterval(devicePollTimer);
   if (voiceTipCloseTimer) clearTimeout(voiceTipCloseTimer);
   if (gainTipCloseTimer) clearTimeout(gainTipCloseTimer);
@@ -1928,16 +1978,27 @@ async function retryLoadConfig() {
 
 <div class="page-body stage-stack">
       <!-- V4.3：仅异常出现；健康态整条隐藏 -->
-      <section
-        v-if="showActionBar"
-        class="card action-bar"
-        :class="{ 'no-primary': !primaryLabel }"
-        aria-label="异常处理"
-      >
-        <div class="status-line" role="status" aria-live="polite">
-          <b>{{ railFocus.qHeadline }}</b>
-          <span>{{ railFocus.qSub }}</span>
-        </div>
+      <Transition name="action-bar">
+        <section
+          v-if="showActionBar"
+          class="card action-bar"
+          :class="{
+            'no-primary': !primaryLabel,
+            booting: railState === 'booting',
+          }"
+          aria-label="异常处理"
+        >
+          <div class="status-line" role="status" aria-live="polite">
+            <span
+              v-if="railState === 'booting'"
+              class="booting-wave"
+              aria-hidden="true"
+            >
+              <i></i><i></i><i></i><i></i><i></i>
+            </span>
+            <b>{{ railFocus.qHeadline }}</b>
+            <span class="status-sub">{{ railFocus.qSub }}</span>
+          </div>
         <div v-if="primaryLabel" class="repair-group">
           <button
             type="button"
@@ -1971,7 +2032,8 @@ async function retryLoadConfig() {
             </button>
           </div>
         </details>
-      </section>
+        </section>
+      </Transition>
 
       <!-- 小米专用运行状态弹层等 -->
       <div v-if="showSetupTips" class="voice-modal-backdrop" @click.self="showSetupTips = false">
@@ -3401,6 +3463,7 @@ async function retryLoadConfig() {
   min-height: 0;
   flex: 0 0 auto;
   height: auto;
+  position: relative;
 }
 .action-bar {
   display: grid;
@@ -3410,9 +3473,36 @@ async function retryLoadConfig() {
   min-height: 42px;
   padding: 8px 12px;
 }
+/* 进出场：仅 opacity/transform，180ms strong ease-out */
+.action-bar-enter-active,
+.action-bar-leave-active {
+  transition:
+    opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.action-bar-enter-from,
+.action-bar-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+.action-bar-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: auto;
+  pointer-events: none;
+}
 /* 无主操作：一句 + 更多，不占空按钮列 */
 .action-bar.no-primary {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+.action-bar.booting {
+  border-color: #24384c;
+  background: #141c26;
+}
+.action-bar.booting .status-line b {
+  color: #93c5fd;
+  font-weight: 500;
 }
 .action-bar .status-line {
   display: flex;
@@ -3435,7 +3525,7 @@ async function retryLoadConfig() {
   white-space: nowrap;
   flex: 0 0 auto;
 }
-.action-bar .status-line span {
+.action-bar .status-line > .status-sub {
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -3443,6 +3533,84 @@ async function retryLoadConfig() {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1 1 auto;
+}
+.action-bar.booting .status-line {
+  gap: 10px;
+}
+.action-bar.booting .booting-wave {
+  flex: 0 0 auto;
+}
+.action-bar.booting .status-line > .status-sub {
+  flex: 0 1 auto;
+  color: #8b9bb0;
+  padding-left: 10px;
+  border-left: 1px solid #2a3a4d;
+}
+.booting-wave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  width: 22px;
+  height: 16px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+}
+.booting-wave i {
+  display: block;
+  width: 2px;
+  height: 4px;
+  border-radius: 1px;
+  background: #7dd3fc;
+  opacity: 0.75;
+  transform-origin: center bottom;
+  animation: boot-wave 1.05s ease-in-out infinite;
+}
+.booting-wave i:nth-child(1) {
+  animation-delay: 0ms;
+}
+.booting-wave i:nth-child(2) {
+  animation-delay: 90ms;
+}
+.booting-wave i:nth-child(3) {
+  animation-delay: 180ms;
+}
+.booting-wave i:nth-child(4) {
+  animation-delay: 90ms;
+}
+.booting-wave i:nth-child(5) {
+  animation-delay: 0ms;
+}
+@keyframes boot-wave {
+  0%,
+  100% {
+    height: 4px;
+    opacity: 0.45;
+  }
+  50% {
+    height: 14px;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-bar-enter-active,
+  .action-bar-leave-active {
+    transition: opacity 120ms linear;
+  }
+  .action-bar-enter-from,
+  .action-bar-leave-to {
+    transform: none;
+  }
+  .booting-wave i {
+    animation: none;
+    height: 8px;
+    opacity: 0.55;
+  }
+  .booting-wave i:nth-child(2),
+  .booting-wave i:nth-child(4) {
+    height: 12px;
+    opacity: 0.75;
+  }
 }
 .action-bar .repair-group {
   display: flex;
