@@ -343,7 +343,7 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 1120px;
+  max-width: 820px;
   margin: 20px auto;
   background: var(--chassis);
   border: 1px solid var(--edge);

@@ -175,7 +175,7 @@ const waveLinePoints = computed(() => {
 
 const cableReady = computed(() => host.value.cable_ready);
 
-/* ── V4 状态机：左栏连接钮 + 主/次修复高亮 + 四芯片 ── */
+/* ── V4.3 状态机：健康隐藏异常条；异常时一句 + 主操作 + 更多 ── */
 type RepairKey = "cable" | "winuhid" | "atvv" | "restart" | "conn";
 type RailState =
   | "idle"
@@ -212,44 +212,6 @@ const railState = computed<RailState>(() => {
 });
 
 type ChipTone = "" | "warn" | "fail" | "idle";
-interface RailChip {
-  tone: ChipTone;
-  label: string;
-}
-
-const railChips = computed<Record<"ble" | "atvv" | "cable" | "hid", RailChip>>(() => {
-  const h = host.value;
-  const bridgeDown = !h.bridge_alive;
-  const receiving = receivingNow.value;
-  const st = railState.value;
-  const atvvDegraded = st === "err_hid" || st === "err_cable" || st === "err_route";
-  return {
-    ble: bridgeDown
-      ? { tone: "fail", label: "蓝牙未连接" }
-      : { tone: "", label: "蓝牙已连接" },
-    atvv: bridgeDown
-      ? { tone: "idle", label: "语音通道未就绪" }
-      : h.atvv_ok
-        ? atvvDegraded
-          ? { tone: "warn", label: "语音通道待恢复" }
-          : { tone: "", label: receiving ? "语音通道采音中" : "语音通道正常" }
-        : atvvDegraded
-          ? { tone: "warn", label: "语音通道待恢复" }
-          : { tone: "fail", label: "语音通道未就绪" },
-    cable: bridgeDown
-      ? { tone: "idle", label: "虚拟声卡待命" }
-      : h.cable_ready
-        ? st === "err_route"
-          ? { tone: "warn", label: "虚拟声卡检测中" }
-          : { tone: "", label: receiving && h.audio_alive ? "虚拟声卡送声中" : "虚拟声卡正常" }
-        : { tone: "fail", label: "虚拟声卡未就绪" },
-    hid: bridgeDown
-      ? { tone: "idle", label: "虚拟键盘待命" }
-      : h.winuhid_ready
-        ? { tone: "", label: "虚拟键盘正常" }
-        : { tone: "fail", label: "虚拟键盘未就绪" },
-  };
-});
 
 interface RailFocus {
   led: ChipTone;
@@ -384,16 +346,82 @@ const railFocus = computed<RailFocus>(() => {
   }
 });
 
-const showRepairBtn = (key: RepairKey) =>
-  railFocus.value.showRepairs &&
-  (railFocus.value.primary === key || railFocus.value.secondary === key);
+const showActionBar = computed(
+  () => railState.value !== "ready" && railState.value !== "voice",
+);
 
-const repairBtnClass = (key: RepairKey) => {
-  const { primary, secondary } = railFocus.value;
-  if (primary === key) return "btn btn-attention";
-  if (secondary === key) return "btn btn-attention-sec";
-  return "btn";
-};
+const primaryLabel = computed(() => {
+  const p = railFocus.value.primary;
+  if (!p) return null;
+  switch (p) {
+    case "conn":
+      return connBusy.value ? "连接中…" : "重新连接";
+    case "cable":
+      return voiceRepairing.value ? "处理中..." : "虚拟声卡修复";
+    case "winuhid":
+      return winuhidRepairing.value ? "修复中..." : "修复虚拟键盘";
+    case "atvv":
+      return atvvRepairing.value ? "修复中..." : "修复 ATVV 连接";
+    case "restart":
+      return restarting.value ? "重启中..." : "重启桥接";
+    default:
+      return null;
+  }
+});
+
+const primaryDisabled = computed(() => {
+  switch (railFocus.value.primary) {
+    case "conn":
+      return connBusy.value;
+    case "cable":
+      return voiceRepairing.value || restarting.value || connBusy.value;
+    case "winuhid":
+      return (
+        winuhidRepairing.value ||
+        voiceRepairing.value ||
+        atvvRepairing.value ||
+        restarting.value ||
+        connBusy.value
+      );
+    case "atvv":
+      return (
+        atvvRepairing.value ||
+        restarting.value ||
+        voiceRepairing.value ||
+        winuhidRepairing.value ||
+        connBusy.value
+      );
+    case "restart":
+      return (
+        restarting.value ||
+        voiceRepairing.value ||
+        atvvRepairing.value ||
+        connBusy.value
+      );
+    default:
+      return false;
+  }
+});
+
+function runPrimary() {
+  switch (railFocus.value.primary) {
+    case "conn":
+      void toggleRailConnect();
+      break;
+    case "cable":
+      void voiceDetectAndRepair();
+      break;
+    case "winuhid":
+      void repairWinUHid();
+      break;
+    case "atvv":
+      void repairAtvv();
+      break;
+    case "restart":
+      void restartBridge();
+      break;
+  }
+}
 
 async function toggleRailConnect() {
   if (connBusy.value) return;
@@ -1898,309 +1926,52 @@ async function retryLoadConfig() {
           </div>
         </div>
 
-<div class="page-body stage-grid">
-      <aside class="status-col" aria-label="运行状态">
-        <section class="card host-card">
-          <h3 class="rail-title">运行状态</h3>
-
+<div class="page-body stage-stack">
+      <!-- V4.3：仅异常出现；健康态整条隐藏 -->
+      <section
+        v-if="showActionBar"
+        class="card action-bar"
+        aria-label="异常处理"
+      >
+        <div class="status-line" role="status" aria-live="polite">
+          <b>{{ railFocus.qHeadline }}</b>
+          <span>{{ railFocus.qSub }}</span>
+        </div>
+        <div class="repair-group">
           <button
+            v-if="primaryLabel"
             type="button"
-            class="btn rail-conn"
-            :class="
-              railFocus.primary === 'conn'
-                ? 'btn-attention'
-                : railFocus.connCls === 'primary'
-                  ? 'btn-primary'
-                  : 'btn-secondary'
-            "
-            :disabled="connBusy && railState !== 'connecting'"
-            @click="toggleRailConnect"
+            class="btn btn-attention action-primary"
+            :disabled="primaryDisabled"
+            @click="runPrimary"
           >
-            {{ railFocus.connLabel }}
+            {{ primaryLabel }}
           </button>
-
-          <div
-            v-if="railState !== 'ready'"
-            class="status-line"
-            role="status"
-            aria-live="polite"
-          >
-            <b>{{ railFocus.qHeadline }}</b>
-            <span>{{ railFocus.qSub }}</span>
+        </div>
+        <details class="more-ops">
+          <summary>更多</summary>
+          <div class="ops-body">
+            <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
+              虚拟声卡修复
+            </button>
+            <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
+              修复虚拟键盘
+            </button>
+            <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
+              修复 ATVV 连接
+            </button>
+            <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
+              重启桥接
+            </button>
+            <button type="button" class="btn" :disabled="connBusy || railState === 'connecting'" @click="toggleRailConnect">
+              {{ railFocus.connLabel }}
+            </button>
+            <button type="button" class="btn" @click="showSetupTips = true">
+              输入法设置
+            </button>
           </div>
-
-          <div class="chip-row" role="list" aria-label="服务状态">
-            <span class="chip" :class="railChips.ble.tone" role="listitem">{{ railChips.ble.label }}</span>
-            <span class="chip" :class="railChips.atvv.tone" role="listitem">{{ railChips.atvv.label }}</span>
-            <span class="chip" :class="railChips.cable.tone" role="listitem">{{ railChips.cable.label }}</span>
-            <span class="chip" :class="railChips.hid.tone" role="listitem">{{ railChips.hid.label }}</span>
-          </div>
-
-          <div v-if="railFocus.showRepairs" class="repair-group">
-            <div v-if="showRepairBtn('cable')" class="host-action-group">
-              <button
-                :class="repairBtnClass('cable')"
-                type="button"
-                :disabled="voiceRepairing || restarting || connBusy"
-                @click="voiceDetectAndRepair"
-              >
-                {{ voiceRepairing ? "处理中..." : "虚拟声卡修复" }}
-              </button>
-              <button
-                ref="repairInfoBtn"
-                type="button"
-                class="title-info"
-                :aria-expanded="showRepairTip"
-                aria-label="虚拟声卡修复说明"
-                @mouseenter="openRepairTip"
-                @mouseleave="scheduleCloseRepairTip"
-                @focus="openRepairTip"
-                @blur="scheduleCloseRepairTip"
-                @click.stop="toggleRepairTip"
-              >
-                <span class="title-info-icon" aria-hidden="true">i</span>
-              </button>
-              <Teleport to="body">
-                <div
-                  v-if="showRepairTip"
-                  ref="repairTipEl"
-                  class="floating-info-tip voice-info-tip"
-                  role="tooltip"
-                  :style="repairTipStyle"
-                  @mouseenter="openRepairTip"
-                  @mouseleave="scheduleCloseRepairTip"
-                >
-                  <p class="tip-lead">
-                    用来检查并修好电脑上的语音通路（VB-CABLE 虚拟声卡），让遥控器麦克风声音能进系统、供输入法听写。
-                  </p>
-                  <div class="tip-block tip-on">
-                    <div class="tip-badge">会做什么</div>
-                    <ul>
-                      <li>检测 VB-CABLE 是否已安装、是否可用</li>
-                      <li>已装好则尝试自动修复配置</li>
-                      <li>未安装时可选用内嵌驱动，或下载官网最新版</li>
-                    </ul>
-                  </div>
-                  <div class="tip-block tip-off">
-                    <div class="tip-badge">什么时候点</div>
-                    <ul>
-                      <li>首次使用语音，或重装系统 / 换电脑后</li>
-                      <li>按语音键没声音、输入法听不到遥控器</li>
-                      <li>提示未检测到 VB-CABLE、语音环境异常时</li>
-                    </ul>
-                  </div>
-                  <p class="tip-foot">
-                    点按钮会先弹出选项：默认选「自动修复」即可；也可用下载包 / 官网自测。若提示必须重启电脑，按提示重启后再试。结果会写在右侧状态日志。
-                  </p>
-                </div>
-              </Teleport>
-            </div>
-            <div v-if="showRepairBtn('winuhid')" class="host-action-group">
-              <button
-                :class="repairBtnClass('winuhid')"
-                type="button"
-                :disabled="winuhidRepairing || voiceRepairing || atvvRepairing || restarting || connBusy"
-                @click="repairWinUHid"
-              >
-                {{ winuhidRepairing ? "修复中..." : "修复虚拟键盘" }}
-              </button>
-              <button
-                ref="winuhidInfoBtn"
-                type="button"
-                class="title-info"
-                :aria-expanded="showWinuhidTip"
-                aria-label="修复虚拟键盘说明"
-                @mouseenter="openWinuhidTip"
-                @mouseleave="scheduleCloseWinuhidTip"
-                @focus="openWinuhidTip"
-                @blur="scheduleCloseWinuhidTip"
-                @click.stop="toggleWinuhidTip"
-              >
-                <span class="title-info-icon" aria-hidden="true">i</span>
-              </button>
-              <Teleport to="body">
-                <div
-                  v-if="showWinuhidTip"
-                  ref="winuhidTipEl"
-                  class="floating-info-tip voice-info-tip"
-                  role="tooltip"
-                  :style="winuhidTipStyle"
-                  @mouseenter="openWinuhidTip"
-                  @mouseleave="scheduleCloseWinuhidTip"
-                >
-                  <p class="tip-lead">
-                    在电脑里装一块「虚拟键盘」，让豆包、千问等输入法把遥控器的语音键当成真键盘按键，而不是普通模拟点击（那种方式常被输入法忽略）。
-                  </p>
-                  <div class="tip-block tip-on">
-                    <div class="tip-badge">会做什么</div>
-                    <ul>
-                      <li>部署 WinUHid 组件，并安装内嵌的虚拟键盘驱动</li>
-                      <li>在系统里注册并启动虚拟键盘设备，让语音组合键按硬件方式注入</li>
-                      <li>完成后状态栏「虚拟键盘」应显示就绪；仍不行可选导出安装包</li>
-                    </ul>
-                  </div>
-                  <div class="tip-block tip-off">
-                    <div class="tip-badge">什么时候点</div>
-                    <ul>
-                      <li>首次用豆包 / 千问语音，或重装系统、换电脑后</li>
-                      <li>状态里「虚拟键盘」未就绪，或按语音键唤不醒输入法</li>
-                      <li>日志提示需要 WinUHid、语音键被拦截时</li>
-                    </ul>
-                  </div>
-                  <p class="tip-foot">
-                    会弹出 UAC 管理员确认，请点允许。点按钮后会打开修复选项：自动修复、强制重装、导出到桌面或从 Release 下载。仅当 Windows 返回必须重启时才重启；否则再点一次「自动修复」。这和「虚拟声卡修复」「修复 ATVV 连接」不是一回事。
-                  </p>
-                </div>
-              </Teleport>
-            </div>
-            <div v-if="showRepairBtn('atvv')" class="host-action-group">
-              <button
-                :class="repairBtnClass('atvv')"
-                type="button"
-                :disabled="atvvRepairing || restarting || voiceRepairing || winuhidRepairing || connBusy"
-                @click="repairAtvv"
-              >
-                {{ atvvRepairing ? "修复中..." : "修复 ATVV 连接" }}
-              </button>
-              <button
-                ref="atvvInfoBtn"
-                type="button"
-                class="title-info"
-                :aria-expanded="showAtvvTip"
-                aria-label="修复 ATVV 连接说明"
-                @mouseenter="openAtvvTip"
-                @mouseleave="scheduleCloseAtvvTip"
-                @focus="openAtvvTip"
-                @blur="scheduleCloseAtvvTip"
-                @click.stop="toggleAtvvTip"
-              >
-                <span class="title-info-icon" aria-hidden="true">i</span>
-              </button>
-              <Teleport to="body">
-                <div
-                  v-if="showAtvvTip"
-                  ref="atvvTipEl"
-                  class="floating-info-tip voice-info-tip"
-                  role="tooltip"
-                  :style="atvvTipStyle"
-                  @mouseenter="openAtvvTip"
-                  @mouseleave="scheduleCloseAtvvTip"
-                >
-                  <p class="tip-lead">
-                    修好遥控器到电脑的「语音专用蓝牙通道」（ATVV）。通道正常后，按住语音键才有绿色音频波动，语音听写才能用。
-                  </p>
-                  <div class="tip-block tip-on">
-                    <div class="tip-badge">会做什么</div>
-                    <ul>
-                      <li>检查是否有其它遥控桥接软件占用</li>
-                      <li>暂停 HID Tap 后软重启连接，并重新订阅语音通道</li>
-                      <li>有占用时会先弹窗让你结束相关进程，再继续修复</li>
-                    </ul>
-                  </div>
-                  <div class="tip-block tip-off">
-                    <div class="tip-badge">什么时候点</div>
-                    <ul>
-                      <li>「音频信号」旁出现红字「ATVV 未连接」</li>
-                      <li>按住语音键说话，绿色波形一直不动</li>
-                      <li>按语音键后记事本等处插入了日期时间</li>
-                    </ul>
-                  </div>
-                  <p class="tip-foot">
-                    平时语音和波形都正常就不必点。这和「虚拟声卡修复」不同：那边管电脑声卡，这边管遥控器蓝牙语音通道。
-                  </p>
-                </div>
-              </Teleport>
-            </div>
-            <div v-if="showRepairBtn('restart')" class="host-action-group">
-              <button
-                :class="repairBtnClass('restart')"
-                type="button"
-                :disabled="restarting || voiceRepairing || atvvRepairing || connBusy"
-                @click="restartBridge"
-              >
-                {{ restarting ? "重启中..." : "重启桥接" }}
-              </button>
-              <button
-                ref="restartInfoBtn"
-                type="button"
-                class="title-info"
-                :aria-expanded="showRestartTip"
-                aria-label="重启桥接说明"
-                @mouseenter="openRestartTip"
-                @mouseleave="scheduleCloseRestartTip"
-                @focus="openRestartTip"
-                @blur="scheduleCloseRestartTip"
-                @click.stop="toggleRestartTip"
-              >
-                <span class="title-info-icon" aria-hidden="true">i</span>
-              </button>
-              <Teleport to="body">
-                <div
-                  v-if="showRestartTip"
-                  ref="restartTipEl"
-                  class="floating-info-tip voice-info-tip"
-                  role="tooltip"
-                  :style="restartTipStyle"
-                  @mouseenter="openRestartTip"
-                  @mouseleave="scheduleCloseRestartTip"
-                >
-                  <p class="tip-lead">
-                    软重启「与遥控器的蓝牙连接」，按最新配置重新连上；无需退出整个应用。
-                  </p>
-                  <div class="tip-block tip-on">
-                    <div class="tip-badge">会做什么</div>
-                    <ul>
-                      <li>停止并重新拉起蓝牙 / ATVV 连接</li>
-                      <li>按当前映射、增益等配置重新尝试连接遥控器</li>
-                      <li>语音路由异常时也会顺带尝试拉起</li>
-                    </ul>
-                  </div>
-                  <div class="tip-block tip-off">
-                    <div class="tip-badge">什么时候点</div>
-                    <ul>
-                      <li>虚拟声卡、ATVV 或蓝牙连接异常</li>
-                      <li>状态显示异常、按键失灵、连上又掉线</li>
-                      <li>长时间不用后突然不响应，想快速恢复</li>
-                    </ul>
-                  </div>
-                  <p class="tip-foot">
-                    返回 / 音量专用通道会尽量保持，一般不必为此反复重启。若仍无效，可再试「虚拟声卡修复」，或查看日志。
-                  </p>
-                </div>
-              </Teleport>
-            </div>
-          </div>
-
-          <p v-if="railFocus.healthyText" class="healthy-note">{{ railFocus.healthyText }}</p>
-
-          <details class="more-ops">
-            <summary>更多操作</summary>
-            <div class="ops-body">
-              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
-                虚拟声卡修复
-              </button>
-              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
-                修复虚拟键盘
-              </button>
-              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
-                修复 ATVV 连接
-              </button>
-              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
-                重启桥接
-              </button>
-              <button type="button" class="btn" @click="showSetupTips = true">
-                输入法设置
-              </button>
-            </div>
-          </details>
-
-          <p class="credit-line">
-            基于上游
-            <a href="https://github.com/mwlt/Voice_VibeCoding" target="_blank" rel="noreferrer">mwlt/Voice_VibeCoding</a>
-            ，作者 <strong>mwlt</strong>
-          </p>
-        </section>
-      </aside>
+        </details>
+      </section>
 
       <!-- 小米专用运行状态弹层等 -->
       <div v-if="showSetupTips" class="voice-modal-backdrop" @click.self="showSetupTips = false">
@@ -2601,12 +2372,10 @@ async function retryLoadConfig() {
       </div>
 
       <section v-if="configSectionLoading" class="card mapping-layout mapping-placeholder">
-        <h3>按键映射</h3>
         <p class="mapping-placeholder-text">正在加载按键映射…</p>
       </section>
 
       <section v-else-if="configLoadState === 'error'" class="card mapping-layout mapping-error">
-        <h3>按键映射</h3>
         <p class="mapping-error-text">
           配置未能加载，按键映射区域无法显示。
           <span v-if="configLoadError">（{{ configLoadError }}）</span>
@@ -2617,10 +2386,8 @@ async function retryLoadConfig() {
       </section>
 
       <section v-else-if="config" class="card mapping-layout">
-        <div class="mapping-heading">
-          <h3>按键映射</h3>
+        <div v-if="lastMappingFlash" class="mapping-heading">
           <p
-            v-if="lastMappingFlash"
             :key="lastMappingFlash.seq"
             class="mapping-flash"
             role="status"
@@ -2671,20 +2438,8 @@ async function retryLoadConfig() {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 0 0 12px;
-  min-height: 1.3em;
-}
-/* 与 rail-title 同一盒模型：字号/行高/下边距一致，保证左右标题水平对齐 */
-.mapping-layout h3,
-.mapping-placeholder h3,
-.mapping-error h3,
-.rail-title {
-  margin: 0 0 12px;
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  line-height: 1.3;
+  margin: 0 0 8px;
+  min-height: 0;
 }
 .mapping-placeholder,
 .mapping-error {
@@ -2984,9 +2739,6 @@ async function retryLoadConfig() {
   color: var(--text);
 }
 
-.host-card {
-  padding: 12px;
-}
 .host-status-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3641,77 +3393,69 @@ async function retryLoadConfig() {
   color: var(--text-secondary);
   opacity: 0.75;
 }
-.healthy-note {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--success);
-}
-
-/* V4 left-rail */
-.rail-conn {
-  width: 100%;
-  margin-bottom: 0;
-}
-.status-line {
-  display: flex;
+/* V4.3 异常操作条：一句 + 固定主操作槽 + 更多 */
+.page-body.stage-stack {
+  display: flex !important;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--edge);
-  margin-bottom: 8px;
+  gap: 12px;
+  min-height: 0;
+  flex: 0 0 auto;
+  height: auto;
 }
-.status-line b {
-  font-size: 13.5px;
+.action-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 12px;
+}
+.action-bar .status-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  height: 34px;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+.action-bar .status-line b {
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--text);
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
-.status-line span {
+.action-bar .status-line span {
   font-size: 12px;
   color: var(--text-secondary);
-}
-.chip-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px;
-  margin-top: 10px;
-  margin-bottom: 8px;
-}
-.chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 6px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  background: #2a4a46;
-  color: var(--success);
-  width: 100%;
-  box-sizing: border-box;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
-.chip.warn {
-  background: #3d3220;
-  color: var(--warning);
-}
-.chip.fail {
-  background: #3d2424;
-  color: var(--danger);
-}
-.chip.idle {
-  background: var(--panel-2);
-  color: var(--text-secondary);
-}
-.repair-group {
+.action-bar .repair-group {
   display: flex;
-  flex-direction: column;
   gap: 6px;
+  margin: 0;
+  min-width: 112px;
+  align-items: center;
 }
-.repair-group .btn {
-  width: 100%;
+.action-bar .repair-group .action-primary {
+  width: auto;
+  min-width: 112px;
+  white-space: nowrap;
+  height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-attention {
   border-color: var(--warning) !important;
@@ -3719,26 +3463,27 @@ async function retryLoadConfig() {
   background: #3d3220 !important;
   font-weight: 600;
 }
-.btn-attention-sec {
-  border-color: #8a6d2f !important;
-  color: var(--warning) !important;
-  background: transparent !important;
-  font-weight: 500;
-}
-.btn-attention-sec:hover:not(:disabled) {
-  border-color: var(--warning) !important;
-  background: #3d3220 !important;
-}
 .more-ops {
-  margin-top: auto;
-  border-top: 1px solid #2a3038;
-  padding-top: 8px;
+  position: relative;
+  margin: 0;
+  border: none;
+  padding: 0;
+  justify-self: end;
 }
 .more-ops > summary {
   cursor: pointer;
   font-size: 12px;
   color: var(--text-secondary);
   list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--panel-2);
+  white-space: nowrap;
   transition: color 150ms cubic-bezier(0.23, 1, 0.32, 1),
     transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
@@ -3759,10 +3504,20 @@ async function retryLoadConfig() {
   content: "▾ ";
 }
 .more-ops .ops-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
+  min-width: 160px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  margin-top: 0;
 }
 .more-ops .ops-body .btn {
   width: 100%;
@@ -3777,21 +3532,6 @@ async function retryLoadConfig() {
   border-color: var(--text-secondary);
   background: var(--surface-hover);
   color: var(--text);
-}
-.credit-line {
-  margin: 12px 0 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.credit-line a {
-  color: #60a5fa;
-  text-decoration: none;
-}
-.credit-line a:hover {
-  text-decoration: underline;
 }
 
 .vol-meter-block {
@@ -4154,41 +3894,9 @@ async function retryLoadConfig() {
   }
 }
 
-.page-body.stage-grid {
-  display: grid !important;
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
-  flex-direction: unset;
-  min-height: 0;
-  flex: 0 0 auto;
-  height: auto;
-}
-@media (max-width: 960px) {
-  .page-body.stage-grid { grid-template-columns: 1fr; }
-}
-.status-col { min-height: 0; display: flex; flex-direction: column; }
-.status-col .host-card { height: 100%; display: flex; flex-direction: column; padding: 12px; }
-.status-col .host-actions-stack { margin-top: auto; }
 .device-info-row,
 .log-aside { display: none !important; }
-/* rail-title 规则已并入 mapping-heading 附近统一选择器 */
-.status-col .host-status-row {
-  display: flex !important;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.status-col .host-status-item { width: 100%; }
-.host-actions-stack {
-  display: flex !important;
-  flex-direction: column;
-  align-items: stretch;
-}
-.host-actions-stack .host-action-group { width: 100%; }
-.host-actions-stack .btn { width: 100%; }
-.vol-meters-full { width: 100%; margin-bottom: 12px; }
+.vol-meters-full { width: 100%; }
 /* keep voice-quick dark in mapping */
 .mapping-layout .voice-quick-setup {
   background: var(--card-bg) !important;
