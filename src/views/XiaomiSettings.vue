@@ -2544,6 +2544,46 @@ async function retryLoadConfig() {
         />
       </section>
     </div>
+
+    <details class="adv-drawer">
+      <summary class="adv-summary">
+        <b>高级诊断</b>
+        <span>主机状态 · 日志</span>
+        <span class="adv-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="adv-body">
+        <div class="adv-grid">
+          <div class="adv-block">
+            <h4>主机状态</h4>
+            <div
+              v-for="item in host.items"
+              :key="item.id"
+              class="adv-row"
+            >
+              <span class="adv-dot" :class="itemToneClass(item.tone)" />
+              <span>{{ item.label }}</span>
+              <span class="adv-st">{{ item.state_label }}</span>
+            </div>
+            <p v-if="host.detail" class="adv-detail">{{ host.detail }}</p>
+          </div>
+          <div class="adv-block">
+            <h4>日志</h4>
+            <div class="adv-actions">
+              <button type="button" class="btn btn-secondary" @click="openLogs">
+                打开完整日志
+              </button>
+            </div>
+            <div class="adv-log-preview">
+              <p v-for="entry in logs.slice(0, 12)" :key="entry.id" class="adv-log-line">
+                <span class="adv-log-time">{{ entry.time }}</span>
+                <span>{{ entry.text }}</span>
+              </p>
+              <p v-if="!logs.length" class="adv-log-empty">暂无新日志</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
   </div>
 
   <Teleport to="body">
@@ -3895,12 +3935,72 @@ async function retryLoadConfig() {
   display: grid !important;
   grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
   flex-direction: unset;
+  min-height: min(560px, calc(100vh - 160px));
+  flex: 1;
 }
 @media (max-width: 960px) {
   .page-body.stage-grid { grid-template-columns: 1fr; }
 }
+.status-col { min-height: 0; display: flex; flex-direction: column; }
+.status-col .host-card { height: 100%; display: flex; flex-direction: column; }
+.status-col .host-actions-stack { margin-top: auto; }
+.adv-drawer {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.adv-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.adv-summary::-webkit-details-marker { display: none; }
+.adv-summary b { font-weight: 600; }
+.adv-summary span { color: var(--text-secondary); }
+.adv-chevron { margin-left: auto; color: var(--text-secondary); }
+.adv-drawer[open] .adv-chevron { transform: rotate(180deg); }
+.adv-body { padding: 0 12px 12px; }
+.adv-grid { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 800px) {
+  .adv-grid { grid-template-columns: 1fr 1.2fr; }
+}
+.adv-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel-2);
+}
+.adv-block h4 { margin: 0 0 8px; font-size: 12px; color: var(--text-secondary); }
+.adv-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; }
+.adv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.adv-dot.ok { background: var(--success); }
+.adv-dot.warn { background: var(--warning); }
+.adv-dot.error { background: var(--danger); }
+.adv-st { margin-left: auto; color: var(--text-secondary); font-size: 12px; }
+.adv-detail { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
+.adv-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.adv-log-preview {
+  max-height: 120px;
+  overflow: auto;
+  background: #0f1218;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.adv-log-line { margin: 0 0 2px; color: #b6c0cc; }
+.adv-log-time { color: var(--dim); margin-right: 6px; }
+.adv-log-empty { margin: 0; color: var(--dim); }
 .device-info-row,
 .log-aside { display: none !important; }
 .status-col .host-card { height: 100%; }
