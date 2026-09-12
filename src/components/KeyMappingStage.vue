@@ -622,58 +622,60 @@ onUnmounted(() => {
               {{ actionLabel(btn.action) }}
             </span>
           </div>
-          <div v-if="selectedId === btn.id" class="map-card-actions" @click.stop>
-            <button
-              type="button"
-              class="btn-sm btn-edit"
-              :disabled="capturing && selectedId !== btn.id"
-              @click="startCapture"
-            >
-              {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
-            </button>
-            <button
-              type="button"
-              class="btn-sm btn-edit"
-              @click.stop="openManualShortcutEditor"
-            >手动组合</button>
-            <button
-              v-if="btn.action.type !== 'None'"
-              type="button"
-              class="btn-sm btn-clear"
-              :disabled="capturing"
-              @click="clearBinding(btn.id)"
-            >
-              清除
-            </button>
-            <p
-              v-if="capturing && selectedId === btn.id"
-              class="capture-live"
-              :class="{ 'capture-hint-blink': !liveLabels.length }"
-            >
-              {{
-                liveLabels.length
-                  ? liveLabels.join(" + ") + " …"
-                  : "请按目标键或组合键"
-              }}
-            </p>
-            <div
-              v-if="capturing && selectedId === btn.id"
-              class="media-pick"
-            >
-              <span class="media-pick-label">设置为：</span>
+          <div class="map-card-actions" @click.stop>
+            <div class="map-card-actions-inner">
               <button
-                v-for="k in MEDIA_PICK_KEYS"
-                :key="k.vk"
                 type="button"
-                class="btn-sm btn-media"
-                @click="pickMediaKey(k.vk)"
+                class="btn-sm btn-edit"
+                :disabled="capturing && selectedId !== btn.id"
+                @click="startCapture"
               >
-                {{ k.label }}
+                {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
               </button>
+              <button
+                type="button"
+                class="btn-sm btn-edit"
+                @click.stop="openManualShortcutEditor"
+              >手动组合</button>
+              <button
+                v-if="btn.action.type !== 'None'"
+                type="button"
+                class="btn-sm btn-clear"
+                :disabled="capturing"
+                @click="clearBinding(btn.id)"
+              >
+                清除
+              </button>
+              <p
+                v-if="capturing && selectedId === btn.id"
+                class="capture-live"
+                :class="{ 'capture-hint-blink': !liveLabels.length }"
+              >
+                {{
+                  liveLabels.length
+                    ? liveLabels.join(" + ") + " …"
+                    : "请按目标键或组合键"
+                }}
+              </p>
+              <div
+                v-if="capturing && selectedId === btn.id"
+                class="media-pick"
+              >
+                <span class="media-pick-label">设置为：</span>
+                <button
+                  v-for="k in MEDIA_PICK_KEYS"
+                  :key="k.vk"
+                  type="button"
+                  class="btn-sm btn-media"
+                  @click="pickMediaKey(k.vk)"
+                >
+                  {{ k.label }}
+                </button>
+              </div>
+              <p v-if="captureError && selectedId === btn.id" class="capture-err">
+                {{ captureError }}
+              </p>
             </div>
-            <p v-if="captureError && selectedId === btn.id" class="capture-err">
-              {{ captureError }}
-            </p>
           </div>
         </div>
       </aside>
@@ -727,58 +729,60 @@ onUnmounted(() => {
               {{ actionLabel(btn.action) }}
             </span>
           </div>
-          <div v-if="selectedId === btn.id" class="map-card-actions" @click.stop>
-            <button
-              type="button"
-              class="btn-sm btn-edit"
-              :disabled="capturing && selectedId !== btn.id"
-              @click="startCapture"
-            >
-              {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
-            </button>
-            <button
-              type="button"
-              class="btn-sm btn-edit"
-              @click.stop="openManualShortcutEditor"
-            >手动组合</button>
-            <button
-              v-if="btn.action.type !== 'None'"
-              type="button"
-              class="btn-sm btn-clear"
-              :disabled="capturing"
-              @click="clearBinding(btn.id)"
-            >
-              清除
-            </button>
-            <p
-              v-if="capturing && selectedId === btn.id"
-              class="capture-live"
-              :class="{ 'capture-hint-blink': !liveLabels.length }"
-            >
-              {{
-                liveLabels.length
-                  ? liveLabels.join(" + ") + " …"
-                  : "请按目标键或组合键"
-              }}
-            </p>
-            <div
-              v-if="capturing && selectedId === btn.id"
-              class="media-pick"
-            >
-              <span class="media-pick-label">设置为：</span>
+          <div class="map-card-actions" @click.stop>
+            <div class="map-card-actions-inner">
               <button
-                v-for="k in MEDIA_PICK_KEYS"
-                :key="k.vk"
                 type="button"
-                class="btn-sm btn-media"
-                @click="pickMediaKey(k.vk)"
+                class="btn-sm btn-edit"
+                :disabled="capturing && selectedId !== btn.id"
+                @click="startCapture"
               >
-                {{ k.label }}
+                {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
               </button>
+              <button
+                type="button"
+                class="btn-sm btn-edit"
+                @click.stop="openManualShortcutEditor"
+              >手动组合</button>
+              <button
+                v-if="btn.action.type !== 'None'"
+                type="button"
+                class="btn-sm btn-clear"
+                :disabled="capturing"
+                @click="clearBinding(btn.id)"
+              >
+                清除
+              </button>
+              <p
+                v-if="capturing && selectedId === btn.id"
+                class="capture-live"
+                :class="{ 'capture-hint-blink': !liveLabels.length }"
+              >
+                {{
+                  liveLabels.length
+                    ? liveLabels.join(" + ") + " …"
+                    : "请按目标键或组合键"
+                }}
+              </p>
+              <div
+                v-if="capturing && selectedId === btn.id"
+                class="media-pick"
+              >
+                <span class="media-pick-label">设置为：</span>
+                <button
+                  v-for="k in MEDIA_PICK_KEYS"
+                  :key="k.vk"
+                  type="button"
+                  class="btn-sm btn-media"
+                  @click="pickMediaKey(k.vk)"
+                >
+                  {{ k.label }}
+                </button>
+              </div>
+              <p v-if="captureError && selectedId === btn.id" class="capture-err">
+                {{ captureError }}
+              </p>
             </div>
-            <p v-if="captureError && selectedId === btn.id" class="capture-err">
-              {{ captureError }}
-            </p>
           </div>
         </div>
 
@@ -1112,24 +1116,31 @@ onUnmounted(() => {
 }
 
 .map-card-actions {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.map-card.active .map-card-actions {
+  grid-template-rows: 1fr;
+}
+.map-card-actions-inner {
+  overflow: hidden;
+  min-height: 0;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+  padding: 0;
+  border-top: 1px solid transparent;
+  transition: padding 180ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 180ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
   opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
-  animation: card-actions-in 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
-@keyframes card-actions-in {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.map-card.active .map-card-actions-inner {
+  padding: 8px 0;
+  border-top-color: var(--border);
+  opacity: 1;
 }
 
 .capture-live {
@@ -1193,6 +1204,7 @@ onUnmounted(() => {
   .btn-sm,
   .btn-sm:active:not(:disabled),
   .map-card-actions,
+  .map-card-actions-inner,
   .capture-live.capture-hint-blink,
   .map-card,
   .voice-quick-btn,
@@ -1200,7 +1212,12 @@ onUnmounted(() => {
     transition: none !important;
     animation: none !important;
     transform: none !important;
-    opacity: 1 !important;
+  }
+  .map-card.active .map-card-actions-inner {
+    opacity: 1;
+  }
+  .map-card-actions-inner {
+    opacity: 1;
   }
 }
 </style>
