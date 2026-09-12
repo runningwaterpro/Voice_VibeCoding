@@ -42,6 +42,22 @@ onMounted(async () => {
         </label>
         <label class="setting-row">
           <span class="setting-lab">
+            <b>启动后最小化到托盘</b>
+            <span>不显示主窗口，托盘图标就绪</span>
+          </span>
+          <button
+            type="button"
+            class="switch"
+            :class="{ on: settings.start_minimized_to_tray }"
+            :aria-pressed="settings.start_minimized_to_tray"
+            aria-label="启动后最小化到托盘"
+            @click.prevent="settings.start_minimized_to_tray = !settings.start_minimized_to_tray; globalSettings.save()"
+          >
+            <span class="switch-knob" />
+          </button>
+        </label>
+        <label class="setting-row">
+          <span class="setting-lab">
             <b>点击关闭最小化到托盘</b>
             <span>点关闭时进托盘，而不是退出</span>
           </span>
@@ -52,22 +68,6 @@ onMounted(async () => {
             :aria-pressed="settings.minimize_to_tray"
             aria-label="点击关闭最小化到托盘"
             @click.prevent="settings.minimize_to_tray = !settings.minimize_to_tray; globalSettings.save()"
-          >
-            <span class="switch-knob" />
-          </button>
-        </label>
-        <label class="setting-row">
-          <span class="setting-lab">
-            <b>隐藏开发中项目菜单</b>
-            <span>仅显示小米遥控器</span>
-          </span>
-          <button
-            type="button"
-            class="switch"
-            :class="{ on: settings.hide_dev_menus }"
-            :aria-pressed="settings.hide_dev_menus"
-            aria-label="隐藏开发中项目菜单"
-            @click.prevent="settings.hide_dev_menus = !settings.hide_dev_menus; globalSettings.save()"
           >
             <span class="switch-knob" />
           </button>
