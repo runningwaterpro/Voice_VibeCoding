@@ -4,7 +4,7 @@
 **原作者**：**mwlt**（亦见 [Gitee](https://gitee.com/mwlt/remote-voice-vibe-coding)）  
 本仓库为其 **Fork**，在此致谢。上游后续版本请看原仓库。
 
-**手动组合快捷键**：交互与实现思路借鉴并行项目 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) 中的快捷键组合器（修饰键 + 主键选择、不依赖系统键盘钩子的录入方式）。本仓库已按小米遥控与 Tauri/Vue 结构落地，致谢原实现。
+**手动组合快捷键**：交互与实现思路借鉴并行项目 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) 中的快捷键组合器。本仓库已按小米遥控与 Tauri/Vue 结构落地，致谢原实现。
 
 ---
 
