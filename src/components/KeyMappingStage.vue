@@ -819,9 +819,12 @@ onUnmounted(() => {
   position: relative;
   display: grid;
   /* 左右平分剩余宽度；单侧最小宽度 100px（原 200 的一半） */
-  grid-template-columns: minmax(100px, 1fr) auto minmax(100px, 1fr);
-  gap: 10px 12px;
+  grid-template-columns: 200px auto 200px;
+  gap: 10px 14px;
   align-items: start;
+  justify-content: center;
+  max-width: 640px;
+  margin: 0 auto;
   min-width: 560px;
   width: 100%;
   padding: 4px 0 8px;
@@ -844,7 +847,7 @@ onUnmounted(() => {
   gap: 6px;
   z-index: 2;
   min-width: 0;
-  width: 100%;
+  width: 200px;
   padding-top: 0;
 }
 
@@ -875,6 +878,9 @@ onUnmounted(() => {
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   min-width: 0;
+  width: 200px;
+  max-width: 200px;
+  box-sizing: border-box;
 }
 
 .map-card:hover,
@@ -1070,12 +1076,12 @@ onUnmounted(() => {
 
 .map-card-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 4px;
+  margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border);
 }
 
 .btn-sm {

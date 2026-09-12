@@ -340,6 +340,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 
 .main-content {

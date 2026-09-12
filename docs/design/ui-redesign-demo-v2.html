@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice VibeCoding · 完整界面 Demo v2</title>
+<style>
+:root {
+  --chassis: #171a1f;
+  --panel: #1f242b;
+  --panel-2: #262c35;
+  --edge: #343b46;
+  --ink: #e8ecf1;
+  --muted: #8b95a3;
+  --dim: #5c6673;
+  --signal: #4db6a4;
+  --signal-dim: #2a4a46;
+  --warn: #d4a84b;
+  --fail: #e06b6b;
+  --line: #3b82f6;
+  --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  --r: 10px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background: #0e1014;
+  line-height: 1.45;
+  font-size: 13.5px;
+}
+button { font: inherit; cursor: pointer; color: inherit; }
+button:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--signal); outline-offset: 2px;
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ── page frame simulating app window ── */
+.app {
+  min-height: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--chassis);
+  border-left: 1px solid var(--edge);
+  border-right: 1px solid var(--edge);
+}
+@media (min-width: 1300px) {
+  .app { max-width: none; }
+}
+
+/* top nav — replaces device rail */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 48px;
+  padding: 0 16px;
+  background: #14171c;
+  border-bottom: 1px solid var(--edge);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand b { font-size: 13.5px; font-weight: 600; }
+.brand span { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.nav-status {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0; flex: 1;
+  color: var(--muted); font-size: 12.5px;
+}
+.led {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dim); flex-shrink: 0;
+}
+.led.ok { background: var(--signal); box-shadow: 0 0 8px var(--signal); }
+.led.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.led.fail { background: var(--fail); box-shadow: 0 0 8px var(--fail); }
+.nav-status strong { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-actions { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.nav-btn {
+  border: 1px solid var(--edge); background: var(--panel);
+  color: var(--muted); border-radius: 6px; padding: 5px 12px; font-size: 12.5px;
+}
+.nav-btn:hover, .nav-btn.on { color: var(--ink); border-color: var(--muted); }
+.nav-btn.primary {
+  background: #1e3d38; border-color: #2f6a5f; color: var(--signal);
+}
+
+/* workspace */
+.work {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 16px;
+  min-width: 0;
+}
+
+/* meters band */
+.meters {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  flex-shrink: 0;
+}
+.meter {
+  display: grid;
+  grid-template-columns: 7.2em minmax(80px, 1fr) 5.2em 2.6em;
+  gap: 10px; align-items: center; height: 24px; font-size: 12px;
+}
+.meter .cap { color: var(--muted); white-space: nowrap; }
+.meter .track {
+  position: relative; height: 8px; border-radius: 99px;
+  background: linear-gradient(90deg,#2a2e24 0 33%,#1e2e2a 33% 78%,#2e2424 78% 100%);
+  border: 1px solid var(--edge);
+}
+.meter .mark {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px;
+  background: var(--ink); left: 10%;
+}
+.meter.ok .mark { background: var(--signal); }
+.meter.high .mark { background: var(--fail); }
+.meter .hint { color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter .db { font-family: var(--mono); font-size: 11px; color: var(--dim); text-align: right; }
+.meter.high .db { color: var(--fail); }
+
+/* main grid: remote | mapping | utility */
+.stage {
+  flex: 1;
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+@media (min-width: 860px) {
+  .stage { grid-template-columns: minmax(150px, 180px) minmax(0, 1fr); }
+}
+@media (min-width: 1100px) {
+  .stage { grid-template-columns: minmax(160px, 190px) minmax(280px, 1fr) minmax(220px, 280px); }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  min-width: 0;
+}
+.panel h2 {
+  margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.panel h2 em { font-style: normal; color: var(--ink); font-weight: 600; }
+
+/* ── Xiaomi remote schematic (aligned with RemoteHotspot.vue) ── */
+.remote-wrap {
+  display: flex; justify-content: center;
+  padding: 4px 0 2px;
+}
+.remote-schematic {
+  --body-hi: #f6f7f9;
+  --body-mid: #eef0f3;
+  --body-lo: #e4e7ec;
+  --key: #1c1d1f;
+  --ink-key: #d7dbe0;
+  width: 130px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  user-select: none;
+  padding: 18px 6px 16px;
+  border-radius: 14px;
+  border: 1px solid #c5cad1;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.03) 0%, transparent 14%, transparent 86%, rgba(0,0,0,.03) 100%),
+    linear-gradient(180deg, var(--body-hi) 0%, var(--body-mid) 42%, var(--body-lo) 100%);
+}
+.top-row {
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px;
+  width: 100%; padding: 0 4px; justify-items: center; align-items: start;
+}
+.well {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: transparent;
+}
+.well-sm { width: 32px; height: 32px; }
+.well-md { width: 40px; height: 40px; }
+.well-vol { width: 40px; height: 88px; border-radius: 20px; }
+.well-dpad { width: 116px; height: 116px; border-radius: 50%; }
+.key-icon { width: 18px; height: 18px; display: block; pointer-events: none; }
+.key-icon-tv { width: 21px; height: 21px; }
+.key-cap {
+  width: 100%; height: 100%; padding: 0; border: none; border-radius: 50%;
+  background: var(--key); color: var(--ink-key);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, box-shadow .15s, color .15s;
+}
+.key-cap-sm { background: #f0f2f5; color: #1a1b1d; border: 1px solid #5c6370; }
+.key-cap:hover, .key-cap.hover,
+.dpad-dir:hover, .dpad-dir.hover,
+.key-ok:hover, .key-ok.hover,
+.vol-half:hover .vol-hit, .vol-half.hover .vol-hit {
+  color: #eaf2ff; background: rgba(37,99,235,.9);
+  box-shadow: inset 0 0 0 1.5px rgba(147,197,253,.95);
+}
+.key-cap-sm:hover, .key-cap-sm.hover {
+  color: #eaf2ff; border-color: #93c5fd; box-shadow: none;
+  background: rgba(37,99,235,.9);
+}
+.key-cap.active, .dpad-dir.active, .key-ok.active,
+.vol-half.active .vol-hit, .key-cap-sm.active {
+  color: #eaf2ff; background: rgba(37,99,235,.9);
+  box-shadow: inset 0 0 0 1.5px rgba(147,197,253,.95);
+}
+.dpad {
+  position: relative; width: 100%; height: 100%;
+  border-radius: 50%; background: var(--key); overflow: hidden;
+}
+.dpad-dir {
+  position: absolute; z-index: 2; border: none; background: transparent;
+  color: #c9ced4; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  border-radius: 999px;
+}
+.dpad-dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .85; }
+.key-ok {
+  position: absolute; left: 50%; top: 50%; z-index: 1;
+  transform: translate(-50%,-50%);
+  width: 44px; height: 44px; border-radius: 50%; border: none; padding: 0;
+  background: #242628; box-shadow: 0 0 0 1px #0f1011;
+}
+.dpad-up { left: 50%; top: 2px; transform: translateX(-50%); width: 46px; height: 28px; }
+.dpad-down { left: 50%; bottom: 2px; transform: translateX(-50%); width: 46px; height: 28px; }
+.dpad-left { left: 2px; top: 50%; transform: translateY(-50%); width: 28px; height: 46px; }
+.dpad-right { right: 2px; top: 50%; transform: translateY(-50%); width: 28px; height: 46px; }
+.lower-keys {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px;
+  width: 100%; align-items: start; justify-items: center; padding: 0 4px;
+}
+.lower-left, .lower-right { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.vol-rocker {
+  width: 100%; height: 100%; border-radius: 18px; overflow: hidden;
+  display: flex; flex-direction: column; background: var(--key);
+}
+.vol-half {
+  flex: 1; border: none; background: transparent; color: var(--ink-key);
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.vol-half + .vol-half { box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+.vol-hit {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, box-shadow .15s, color .15s;
+}
+.remote-footer {
+  margin-top: 6px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: #7a8088;
+}
+.remote-footer .brand-x { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: #6d737b; }
+
+/* mapping stage + connector lines */
+.map-stage {
+  position: relative;
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 0;
+}
+.map-toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  background: var(--signal-dim); color: var(--signal);
+}
+.chip.warn { background: #3d3220; color: var(--warn); }
+.chip.fail { background: #3d2424; color: var(--fail); }
+.chip.idle { background: var(--panel-2); color: var(--muted); }
+
+.map-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+@media (min-width: 700px) {
+  .map-body { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 1100px) {
+  .map-body { grid-template-columns: 1fr; }
+}
+.map-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; z-index: 1; }
+.map-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 10px; align-items: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  font-size: 13px;
+  cursor: default;
+}
+.map-card:hover, .map-card.hot, .map-card.selected {
+  border-color: var(--line);
+  background: #243044;
+}
+.map-card .ico {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #1a1f26; border: 1px solid #2e3640;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted);
+}
+.map-card .ico svg { width: 14px; height: 14px; }
+.map-card .name { min-width: 0; }
+.map-card .name b { display: block; font-weight: 500; color: var(--ink); }
+.map-card .name span { font-size: 11px; color: var(--dim); }
+.map-card .bind {
+  font-family: var(--mono); font-size: 12px; color: var(--muted);
+  white-space: nowrap;
+}
+.map-card .act {
+  border: 1px solid var(--edge); background: transparent; color: var(--muted);
+  border-radius: 6px; padding: 2px 8px; font-size: 12px;
+}
+.map-card .act:hover { color: var(--ink); border-color: var(--muted); }
+.map-card .act.danger { color: var(--fail); }
+.map-svg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 5; overflow: visible;
+}
+.map-svg path {
+  fill: none; stroke: var(--line); stroke-width: 1.5;
+  stroke-linecap: round; opacity: 0;
+  transition: opacity .12s;
+}
+.map-svg circle { fill: var(--line); opacity: 0; transition: opacity .12s; }
+.map-svg.show path, .map-svg.show circle { opacity: 1; }
+.map-svg.strong path { stroke-width: 2; }
+
+/* utility side */
+.util { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+@media (max-width: 1099px) {
+  .util { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+}
+@media (max-width: 700px) {
+  .util { grid-template-columns: 1fr; }
+}
+.row {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 12.5px; padding: 3px 0;
+}
+.row span:first-child { color: var(--muted); }
+.row span:last-child { font-family: var(--mono); color: var(--ink); }
+.btn {
+  border-radius: 8px; padding: 7px 12px;
+  border: 1px solid var(--edge); background: var(--panel-2); color: var(--ink);
+  font-size: 13px;
+}
+.btn.primary { background: #1e3d38; border-color: #2f6a5f; color: var(--signal); }
+.btn.danger { background: #3a2424; border-color: #6a3a3a; color: var(--fail); }
+.btn.block { width: 100%; }
+.btn-row { display: flex; gap: 8px; }
+.btn-row .btn { flex: 1; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.preset {
+  border: 1px solid var(--edge); background: var(--panel-2);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted);
+}
+.preset.on { border-color: var(--signal); color: var(--signal); background: #1a2c29; }
+
+/* advanced diagnostics drawer */
+.adv {
+  margin-top: 4px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  background: #14171c;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.adv-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  width: 100%; border: none; background: transparent; text-align: left;
+}
+.adv-head b { font-size: 12.5px; font-weight: 600; }
+.adv-head span { font-size: 12px; color: var(--muted); }
+.adv-head .chev { margin-left: auto; color: var(--dim); font-size: 11px; }
+.adv-body {
+  display: none;
+  border-top: 1px solid var(--edge);
+  padding: 12px;
+  gap: 12px;
+  flex-direction: column;
+}
+.adv.open .adv-body { display: flex; }
+.adv.open .chev { transform: rotate(180deg); }
+.adv-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 800px) {
+  .adv-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 1100px) {
+  .adv-grid { grid-template-columns: 1.1fr 1fr 1fr; }
+}
+.adv-block {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.adv-block h3 {
+  margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.host-list { display: flex; flex-direction: column; gap: 6px; }
+.host-item {
+  display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center;
+  font-size: 12.5px;
+}
+.host-item i {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--dim);
+}
+.host-item i.ok { background: var(--signal); }
+.host-item i.warn { background: var(--warn); }
+.host-item i.fail { background: var(--fail); }
+.host-item .st { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.log {
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  color: #9aa3b0; background: #101318; border-radius: 6px;
+  padding: 8px; height: 140px; overflow: auto; white-space: pre-wrap;
+}
+.log .t { color: var(--dim); }
+.log .ok { color: var(--signal); }
+.log .warn { color: var(--warn); }
+.log .fail { color: var(--fail); }
+.raw {
+  font-family: var(--mono); font-size: 11px; color: #8b95a3;
+  background: #101318; border-radius: 6px; padding: 8px;
+  height: 140px; overflow: auto; white-space: pre;
+}
+
+/* settings overlay */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  display: none; align-items: flex-start; justify-content: center;
+  padding: 48px 16px; z-index: 40; overflow: auto;
+}
+.sheet-backdrop.open { display: flex; }
+.sheet {
+  width: min(520px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.sheet header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sheet header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.setting {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid #2a3038;
+}
+.setting:last-of-type { border-bottom: none; }
+.setting .lab b { display: block; font-weight: 500; font-size: 13.5px; }
+.setting .lab span { font-size: 12px; color: var(--muted); }
+.switch {
+  position: relative; width: 40px; height: 22px; flex-shrink: 0;
+  border-radius: 99px; background: #3a424e; border: none; cursor: pointer;
+}
+.switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px; border-radius: 50%; background: #c5cad1;
+  transition: transform .15s;
+}
+.switch.on { background: #2f6a5f; }
+.switch.on::after { transform: translateX(18px); background: var(--signal); }
+
+/* capture modal */
+.capture {
+  margin-top: 10px; padding: 12px;
+  border: 1px dashed var(--line); border-radius: 8px;
+  background: #1a2433; font-size: 13px; display: none;
+}
+.capture.open { display: block; }
+.capture kbd {
+  font-family: var(--mono); background: #0e1218; border: 1px solid var(--edge);
+  border-radius: 4px; padding: 1px 6px; font-size: 12px;
+}
+
+/* state tabs for demo */
+.demo-bar {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 8px 14px; background: #101318; border-bottom: 1px solid var(--edge);
+  font-size: 12px; color: var(--muted);
+}
+.demo-bar button {
+  border-radius: 999px; border: 1px solid var(--edge); background: var(--panel);
+  color: var(--muted); padding: 4px 10px; font-size: 12px;
+}
+.demo-bar button.on { color: var(--ink); border-color: var(--signal); background: #1a2c29; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app" data-state="ready">
+
+  <header class="topnav">
+    <div class="brand">
+      <b>Voice VibeCoding</b>
+      <span>v1.0.2</span>
+    </div>
+    <div class="nav-status" role="status" aria-live="polite">
+      <span class="led ok" id="led"></span>
+      <strong id="headline">可以按住语音键说话</strong>
+      <span id="subline" style="color:var(--muted)">小米遥控器 2 Pro · 已连接</span>
+    </div>
+    <div class="nav-actions">
+      <button type="button" class="nav-btn" id="btnSettings">设置</button>
+      <button type="button" class="nav-btn" id="btnQuit">退出</button>
+    </div>
+  </header>
+
+  <div class="demo-bar" aria-label="Demo 状态切换">
+    <span>Demo 状态：</span>
+    <button type="button" data-state="idle">未连接</button>
+    <button type="button" data-state="connecting">连接中</button>
+    <button type="button" data-state="ready" class="on">就绪</button>
+    <button type="button" data-state="voice">按住说话</button>
+    <button type="button" data-state="error">语音异常</button>
+    <span style="margin-left:8px">窗口缩放 / 最大化可测自适应；悬停遥控器按键或右侧映射行会画连线。</span>
+  </div>
+
+  <div class="work">
+    <!-- dual meters -->
+    <div class="meters" aria-label="电平">
+      <div class="meter ok" id="meterIn">
+        <span class="cap">输入 · 增益前</span>
+        <div class="track"><span class="mark" id="markIn" style="left:42%"></span></div>
+        <span class="hint" id="hintIn">合适</span>
+        <span class="db" id="dbIn">-18</span>
+      </div>
+      <div class="meter ok" id="meterOut">
+        <span class="cap">送声 · 增益后</span>
+        <div class="track"><span class="mark" id="markOut" style="left:58%"></span></div>
+        <span class="hint" id="hintOut">正常</span>
+        <span class="db" id="dbOut">-12</span>
+      </div>
+    </div>
+
+    <div class="stage">
+      <!-- remote -->
+      <section class="panel" aria-label="遥控器">
+        <h2><em>小米遥控器 2 Pro</em></h2>
+        <div class="remote-wrap">
+          <div class="remote-schematic" id="remote" aria-label="小米遥控器示意">
+            <div class="top-row">
+              <div class="well well-sm">
+                <button type="button" class="key-cap key-cap-sm" data-key-id="power" aria-label="电源">
+                  <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4v7" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+                    <path d="M7.35 6.8a6.65 6.65 0 1 0 9.3 0" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="well well-sm">
+                <button type="button" class="key-cap key-cap-sm" data-key-id="mic" aria-label="语音">
+                  <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9.4" y="4.5" width="5.2" height="8.6" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M7.4 12.4a4.6 4.6 0 0 0 9.2 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="well well-dpad">
+              <div class="dpad">
+                <button type="button" class="key-ok" data-key-id="ok" aria-label="确定"></button>
+                <button type="button" class="dpad-dir dpad-up" data-key-id="up" aria-label="上"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-left" data-key-id="left" aria-label="左"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-right" data-key-id="right" aria-label="右"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-down" data-key-id="down" aria-label="下"><span class="dpad-dot"></span></button>
+              </div>
+            </div>
+
+            <div class="lower-keys">
+              <div class="lower-left">
+                <div class="well well-md">
+                  <button type="button" class="key-cap key-cap-md" data-key-id="back" aria-label="返回">
+                    <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M14.2 7 9.2 12l5 5" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="well well-md">
+                  <button type="button" class="key-cap key-cap-md" data-key-id="home" aria-label="主页">
+                    <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5.2 11.4 12 5.6l6.8 5.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M7.4 10.5V17.6h9.2V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="well well-md">
+                  <button type="button" class="key-cap key-cap-md" data-key-id="menu" aria-label="菜单">
+                    <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 8.2h10M7 12h10M7 15.8h10" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="lower-right">
+                <div class="well well-vol">
+                  <div class="vol-rocker" role="group" aria-label="音量">
+                    <button type="button" class="vol-half" data-key-id="volume_up" aria-label="音量+">
+                      <span class="vol-hit">
+                        <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 7.5v9M7.5 12h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                      </span>
+                    </button>
+                    <button type="button" class="vol-half" data-key-id="volume_down" aria-label="音量-">
+                      <span class="vol-hit">
+                        <svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7.5 12h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div class="well well-md">
+                  <button type="button" class="key-cap key-cap-md" data-key-id="tv" aria-label="TV">
+                    <svg class="key-icon key-icon-tv" viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="4" y="6.5" width="16" height="11" rx="2.8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                      <text x="12" y="14.05" text-anchor="middle" fill="currentColor" font-size="6.4" font-weight="600" font-family="Segoe UI, system-ui, sans-serif" letter-spacing="0.4">TV</text>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="remote-footer" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <rect x="5.2" y="5.2" width="13.6" height="13.6" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+                <path d="M9.2 15.2V8.8h2.1c1.55 0 2.5.85 2.5 2.15 0 .95-.55 1.65-1.4 1.95L15 15.2h-1.55l-2.05-2.15H10.5V15.2H9.2zm1.3-3.45h.85c.7 0 1.1-.35 1.1-.95s-.4-.95-1.1-.95h-.85v1.9z" fill="currentColor"/>
+              </svg>
+              <span class="brand-x">xiaomi</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- mapping -->
+      <section class="panel map-stage" id="mapStage" aria-label="按键映射">
+        <h2>按键映射 <span style="font-weight:400;color:var(--dim)">悬停可连线 · 点「改」录入快捷键</span></h2>
+        <div class="map-toolbar">
+          <span class="chip" id="chipMain">已连接</span>
+          <span class="chip" id="chipVoice">语音可用</span>
+          <span class="chip idle" id="chipCable">虚拟声卡 就绪</span>
+        </div>
+        <div class="map-body">
+          <svg class="map-svg" id="mapSvg" aria-hidden="true">
+            <path id="mapPath" d="" />
+            <circle id="dotA" r="3.5" cx="0" cy="0" />
+            <circle id="dotB" r="3.5" cx="0" cy="0" />
+          </svg>
+          <div class="map-col" id="mapLeft"></div>
+          <div class="map-col" id="mapRight"></div>
+        </div>
+        <div class="capture" id="captureBox" role="status">
+          正在录入 <b id="captureKey">—</b> 的快捷键… 请按下键盘组合，或
+          <kbd>Esc</kbd> 取消。
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button type="button" class="btn" id="captureCancel">取消</button>
+            <button type="button" class="btn" id="captureClear">清除映射</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- utility -->
+      <aside class="util" aria-label="运行与调节">
+        <div class="panel">
+          <h2>运行摘要</h2>
+          <div class="row"><span>蓝牙 BLE</span><span id="uBle">已连接</span></div>
+          <div class="row"><span>语音通道</span><span id="uAtvv">已订阅</span></div>
+          <div class="row"><span>虚拟声卡</span><span id="uCable">就绪</span></div>
+          <div class="row"><span>虚拟键盘</span><span id="uHid">就绪</span></div>
+          <div class="row"><span>电量</span><span id="uBatt">86%</span></div>
+          <div class="row"><span>增益</span><span id="uGain">10 dB</span></div>
+          <div class="btn-row" style="margin-top:8px">
+            <button type="button" class="btn" id="gainDown">增益 −</button>
+            <button type="button" class="btn" id="gainUp">增益 ＋</button>
+          </div>
+          <button type="button" class="btn primary block" id="btnRepair" style="margin-top:8px" hidden>修复语音通道</button>
+          <button type="button" class="btn block" id="btnConnect" style="margin-top:8px">断开遥控器</button>
+        </div>
+        <div class="panel">
+          <h2>语音 · 输入法快速应用</h2>
+          <div class="presets" id="presets">
+            <button type="button" class="preset on" data-p="wechat-hold">微信按住</button>
+            <button type="button" class="preset" data-p="doubao-hold">豆包按住</button>
+            <button type="button" class="preset" data-p="doubao-hands-free">豆包免手</button>
+            <button type="button" class="preset" data-p="qianwen-hold">千问按住</button>
+            <button type="button" class="preset" data-p="qianwen-win-alt">千问 Win+Alt</button>
+            <button type="button" class="preset" data-p="qianwen-ctrl-win">千问 Ctrl+Win</button>
+          </div>
+          <p style="margin:8px 0 0;font-size:12px;color:var(--muted)">
+            一键写入语音快捷键与触发模式。微信需在输入法里设为「F5 + 本软件快捷键」。
+          </p>
+        </div>
+        <div class="panel">
+          <h2>语音触发</h2>
+          <div class="presets" id="triggerModes">
+            <button type="button" class="preset on" data-t="hold">按住说话</button>
+            <button type="preset preset" class="preset" data-t="toggle">点按开关</button>
+          </div>
+          <p style="margin:8px 0 0;font-size:12px;color:var(--muted)">
+            松开行为：立即结束 / 延迟 200ms 结束。
+          </p>
+        </div>
+      </aside>
+    </div>
+
+    <!-- advanced diagnostics -->
+    <section class="adv" id="adv" aria-label="高级诊断">
+      <button type="button" class="adv-head" id="advToggle" aria-expanded="false">
+        <b>高级诊断</b>
+        <span>主机状态 · 修复动作 · 实时日志 · 原始字段</span>
+        <span class="chev">▲</span>
+      </button>
+      <div class="adv-body">
+        <div class="adv-grid">
+          <div class="adv-block">
+            <h3>主机状态</h3>
+            <div class="host-list" id="hostList"></div>
+            <p style="margin:10px 0 0;font-size:12px;color:var(--muted)" id="hostDetail">
+              桥接运行中，语音通道已就绪。
+            </p>
+          </div>
+          <div class="adv-block">
+            <h3>修复动作</h3>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <button type="button" class="btn">虚拟声卡修复</button>
+              <button type="button" class="btn">修复虚拟键盘</button>
+              <button type="button" class="btn">修复 ATVV 连接</button>
+              <button type="button" class="btn">重启桥接</button>
+              <button type="button" class="btn">打开日志目录</button>
+            </div>
+          </div>
+          <div class="adv-block">
+            <h3>实时日志</h3>
+            <div class="log" id="logBox" tabindex="0"></div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button type="button" class="btn" id="logClear" style="flex:1">清空</button>
+              <button type="button" class="btn" id="logMore" style="flex:1">加载更多</button>
+            </div>
+          </div>
+          <div class="adv-block">
+            <h3>原始状态字段</h3>
+            <div class="raw" id="rawBox" tabindex="0"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- settings sheet -->
+<div class="sheet-backdrop" id="settingsBackdrop" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+  <div class="sheet">
+    <header>
+      <h2 id="setTitle">设置</h2>
+      <button type="button" class="nav-btn" id="btnCloseSettings">关闭</button>
+    </header>
+    <div class="setting">
+      <div class="lab"><b>开机自启</b><span>登录 Windows 后自动启动</span></div>
+      <button type="button" class="switch on" data-s="autostart" aria-pressed="true" aria-label="开机自启"></button>
+    </div>
+    <div class="setting">
+      <div class="lab"><b>启动后最小化到托盘</b><span>不显示主窗口，托盘图标就绪</span></div>
+      <button type="button" class="switch" data-s="start_tray" aria-pressed="false" aria-label="启动后最小化到托盘"></button>
+    </div>
+    <div class="setting">
+      <div class="lab"><b>最小化到托盘</b><span>点关闭时进托盘，而不是退出</span></div>
+      <button type="button" class="switch on" data-s="min_tray" aria-pressed="true" aria-label="最小化到托盘"></button>
+    </div>
+    <div class="setting">
+      <div class="lab"><b>隐藏开发中项目菜单</b><span>仅显示小米遥控器</span></div>
+      <button type="button" class="switch on" data-s="hide_dev" aria-pressed="true" aria-label="隐藏开发中项目菜单"></button>
+    </div>
+    <p style="margin:12px 0 0;font-size:12px;color:var(--muted)">
+      入口：顶栏「设置」。按键映射 / 增益 / 输入法在主界面直接操作，不必进设置页。
+    </p>
+  </div>
+</div>
+
+<script>
+const KEYS = [
+  { id: "power", label: "电源", side: "L", bind: "未映射" },
+  { id: "up", label: "上", side: "L", bind: "↑" },
+  { id: "left", label: "左", side: "L", bind: "←" },
+  { id: "ok", label: "确定", side: "L", bind: "Enter" },
+  { id: "down", label: "下", side: "L", bind: "↓" },
+  { id: "back", label: "返回", side: "L", bind: "Esc" },
+  { id: "home", label: "主页", side: "L", bind: "Win + H" },
+  { id: "menu", label: "菜单", side: "L", bind: "未映射" },
+  { id: "mic", label: "语音", side: "R", bind: "Ctrl + Win" },
+  { id: "right", label: "右", side: "R", bind: "→" },
+  { id: "volume_up", label: "音量+", side: "R", bind: "Volume Up" },
+  { id: "volume_down", label: "音量-", side: "R", bind: "Volume Down" },
+  { id: "tv", label: "TV", side: "R", bind: "未映射" },
+];
+
+const STATES = {
+  idle: {
+    led: "", headline: "未连接遥控器", sub: "按下遥控器任意键或点「连接」",
+    chipMain: ["idle", "待命"], chipVoice: ["idle", "语音未开"], chipCable: ["idle", "虚拟声卡 待命"],
+    inMark: 6, outMark: 4, hintIn: "待命", hintOut: "待命", dbIn: "—", dbOut: "—",
+    inCls: "", outCls: "",
+    uBle: "未连接", uAtvv: "未订阅", uCable: "待命", uHid: "待命", uBatt: "—",
+    repair: null, connect: "连接遥控器",
+    host: [
+      ["桥接进程", "未运行", ""],
+      ["BLE 连接", "未连接", ""],
+      ["语音通道", "未订阅", ""],
+      ["虚拟声卡", "待命", ""],
+      ["虚拟键盘", "待命", ""],
+    ],
+    detail: "点「连接遥控器」开始桥接。",
+  },
+  connecting: {
+    led: "warn", headline: "正在连接遥控器…", sub: "建立蓝牙与语音通道",
+    chipMain: ["warn", "连接中"], chipVoice: ["idle", "等待语音"], chipCable: ["warn", "检测中"],
+    inMark: 10, outMark: 6, hintIn: "…", hintOut: "…", dbIn: "—", dbOut: "—",
+    inCls: "", outCls: "",
+    uBle: "连接中", uAtvv: "订阅中", uCable: "检测中", uHid: "检测中", uBatt: "—",
+    repair: null, connect: "取消",
+    host: [
+      ["桥接进程", "启动中", "warn"],
+      ["BLE 连接", "连接中", "warn"],
+      ["语音通道", "订阅中", "warn"],
+      ["虚拟声卡", "检测中", "warn"],
+      ["虚拟键盘", "检测中", "warn"],
+    ],
+    detail: "通常需要数秒。若卡住可展开修复动作。",
+  },
+  ready: {
+    led: "ok", headline: "可以按住语音键说话", sub: "小米遥控器 2 Pro · 已连接",
+    chipMain: ["", "已连接"], chipVoice: ["", "语音可用"], chipCable: ["", "虚拟声卡 就绪"],
+    inMark: 42, outMark: 58, hintIn: "合适", hintOut: "正常", dbIn: "-18", dbOut: "-12",
+    inCls: "ok", outCls: "ok",
+    uBle: "已连接", uAtvv: "已订阅", uCable: "就绪", uHid: "就绪", uBatt: "86%",
+    repair: null, connect: "断开遥控器",
+    host: [
+      ["桥接进程", "运行中", "ok"],
+      ["BLE 连接", "已连接", "ok"],
+      ["语音通道", "已订阅", "ok"],
+      ["虚拟声卡", "就绪", "ok"],
+      ["虚拟键盘", "就绪", "ok"],
+    ],
+    detail: "桥接运行中，语音通道已就绪。",
+  },
+  voice: {
+    led: "ok", headline: "正在送声…松开语音键结束", sub: "采音中 · 双电平实时刷新",
+    chipMain: ["", "已连接"], chipVoice: ["", "采音中"], chipCable: ["", "虚拟声卡 送声中"],
+    inMark: 55, outMark: 82, hintIn: "合适", hintOut: "正常", dbIn: "-11", dbOut: "-5",
+    inCls: "ok", outCls: "ok",
+    uBle: "已连接", uAtvv: "已订阅", uCable: "送声中", uHid: "就绪", uBatt: "86%",
+    repair: null, connect: "断开遥控器",
+    host: [
+      ["桥接进程", "运行中", "ok"],
+      ["BLE 连接", "已连接", "ok"],
+      ["语音通道", "采音中", "ok"],
+      ["虚拟声卡", "送声中", "ok"],
+      ["虚拟键盘", "就绪", "ok"],
+    ],
+    detail: "按住语音键期间吞掉泄漏 F5；真键盘 F5 仍可用。",
+  },
+  error: {
+    led: "fail", headline: "遥控器已连接，语音通道未就绪", sub: "按键可用 · 点右侧「修复语音通道」",
+    chipMain: ["", "已连接"], chipVoice: ["fail", "ATVV 未连接"], chipCable: ["", "虚拟声卡 就绪"],
+    inMark: 36, outMark: 12, hintIn: "合适", hintOut: "无送声", dbIn: "-19", dbOut: "—",
+    inCls: "ok", outCls: "",
+    uBle: "已连接", uAtvv: "未订阅", uCable: "就绪", uHid: "就绪", uBatt: "86%",
+    repair: "修复语音通道", connect: "断开遥控器",
+    host: [
+      ["桥接进程", "运行中", "ok"],
+      ["BLE 连接", "已连接", "ok"],
+      ["语音通道", "未订阅", "fail"],
+      ["虚拟声卡", "就绪", "ok"],
+      ["虚拟键盘", "就绪", "ok"],
+    ],
+    detail: "语音通道未订阅。按键映射仍生效。",
+  },
+};
+
+let gain = 10;
+let hoverKey = null;
+let selectedKey = null;
+let current = "ready";
+
+const $ = (id) => document.getElementById(id);
+
+function iconFor(id) {
+  const s = 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"';
+  if (id === "power") return `<svg viewBox="0 0 24 24"><path d="M12 4v7" ${s}/><path d="M7.35 6.8a6.65 6.65 0 1 0 9.3 0" ${s}/></svg>`;
+  if (id === "mic") return `<svg viewBox="0 0 24 24"><rect x="9.4" y="4.5" width="5.2" height="8.6" rx="2.6" ${s}/><path d="M7.4 12.4a4.6 4.6 0 0 0 9.2 0" ${s}/></svg>`;
+  if (id === "back") return `<svg viewBox="0 0 24 24"><path d="M14.2 7 9.2 12l5 5" ${s}/></svg>`;
+  if (id === "home") return `<svg viewBox="0 0 24 24"><path d="M5.2 11.4 12 5.6l6.8 5.8" ${s}/><path d="M7.4 10.5V17.6h9.2V10.5" ${s}/></svg>`;
+  if (id === "menu") return `<svg viewBox="0 0 24 24"><path d="M7 8.2h10M7 12h10M7 15.8h10" ${s}/></svg>`;
+  if (id === "volume_up") return `<svg viewBox="0 0 24 24"><path d="M12 7.5v9M7.5 12h9" ${s}/></svg>`;
+  if (id === "volume_down") return `<svg viewBox="0 0 24 24"><path d="M7.5 12h9" ${s}/></svg>`;
+  if (id === "tv") return `<svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11" rx="2.8" ${s}/></svg>`;
+  if (id === "ok") return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>`;
+  if (id === "up") return `<svg viewBox="0 0 24 24"><path d="M12 7v10M7 12h10" ${s} transform="rotate(-45 12 12)"/></svg>`;
+  if (id === "down") return `<svg viewBox="0 0 24 24"><path d="M12 7v10M7 12h10" ${s} transform="rotate(135 12 12)"/></svg>`;
+  if (id === "left") return `<svg viewBox="0 0 24 24"><path d="M12 7v10M7 12h10" ${s} transform="rotate(-135 12 12)"/></svg>`;
+  if (id === "right") return `<svg viewBox="0 0 24 24"><path d="M12 7v10M7 12h10" ${s} transform="rotate(45 12 12)"/></svg>`;
+  return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" ${s}/></svg>`;
+}
+
+function renderMaps() {
+  const L = $("mapLeft"), R = $("mapRight");
+  L.innerHTML = ""; R.innerHTML = "";
+  KEYS.forEach((k) => {
+    const el = document.createElement("div");
+    el.className = "map-card";
+    el.dataset.keyId = k.id;
+    el.innerHTML = `
+      <span class="ico">${iconFor(k.id)}</span>
+      <span class="name"><b>${k.label}</b><span>${k.id}</span></span>
+      <span class="bind">${k.bind}</span>
+      <span>
+        <button type="button" class="act" data-edit="${k.id}">改</button>
+      </span>`;
+    (k.side === "L" ? L : R).appendChild(el);
+  });
+}
+
+function setHover(id) {
+  hoverKey = id;
+  document.querySelectorAll("#remote [data-key-id]").forEach((b) => {
+    b.classList.toggle("hover", b.dataset.keyId === id);
+    b.classList.toggle("active", b.dataset.keyId === selectedKey);
+  });
+  document.querySelectorAll(".map-card").forEach((c) => {
+    c.classList.toggle("hot", c.dataset.keyId === id);
+    c.classList.toggle("selected", c.dataset.keyId === selectedKey);
+  });
+  updateLine();
+}
+
+function keyCenter(el, stage) {
+  const r = el.getBoundingClientRect();
+  const s = stage.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - s.left, y: r.top + r.height / 2 - s.top };
+}
+
+function updateLine() {
+  const stage = $("mapStage");
+  const svg = $("mapSvg");
+  const path = $("mapPath");
+  const id = hoverKey || selectedKey;
+  if (!id) {
+    svg.classList.remove("show");
+    return;
+  }
+  const a = $("remote").querySelector(`[data-key-id="${id}"]`);
+  const b = stage.querySelector(`.map-card[data-key-id="${id}"]`);
+  if (!a || !b) {
+    svg.classList.remove("show");
+    return;
+  }
+  // remote is outside mapStage — compute in viewport then convert
+  const stageRect = stage.getBoundingClientRect();
+  const ra = a.getBoundingClientRect();
+  const rb = b.getBoundingClientRect();
+  svg.setAttribute("viewBox", `0 0 ${stageRect.width} ${stageRect.height}`);
+  svg.setAttribute("width", stageRect.width);
+  svg.setAttribute("height", stageRect.height);
+  const ax = ra.left + ra.width / 2 - stageRect.left;
+  const ay = ra.top + ra.height / 2 - stageRect.top;
+  const bx = rb.left + rb.width / 2 - stageRect.left;
+  const by = rb.top + rb.height / 2 - stageRect.top;
+  const mx = (ax + bx) / 2;
+  const d = `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`;
+  path.setAttribute("d", d);
+  $("dotA").setAttribute("cx", ax);
+  $("dotA").setAttribute("cy", ay);
+  $("dotB").setAttribute("cx", bx);
+  $("dotB").setAttribute("cy", by);
+  svg.classList.add("show");
+  svg.classList.toggle("strong", !!selectedKey);
+}
+
+function applyState(name) {
+  current = name;
+  const s = STATES[name];
+  $("led").className = "led " + (s.led || "");
+  $("headline").textContent = s.headline;
+  $("subline").textContent = s.sub;
+  $("chipMain").className = "chip " + s.chipMain[0];
+  $("chipMain").textContent = s.chipMain[1];
+  $("chipVoice").className = "chip " + s.chipVoice[0];
+  $("chipVoice").textContent = s.chipVoice[1];
+  $("chipCable").className = "chip " + s.chipCable[0];
+  $("chipCable").textContent = s.chipCable[1];
+  $("markIn").style.left = s.inMark + "%";
+  $("markOut").style.left = s.outMark + "%";
+  $("meterIn").className = "meter " + s.inCls;
+  $("meterOut").className = "meter " + s.outCls;
+  $("hintIn").textContent = s.hintIn;
+  $("hintOut").textContent = s.hintOut;
+  $("dbIn").textContent = s.dbIn;
+  $("dbOut").textContent = s.dbOut;
+  $("uBle").textContent = s.uBle;
+  $("uAtvv").textContent = s.uAtvv;
+  $("uCable").textContent = s.uCable;
+  $("uHid").textContent = s.uHid;
+  $("uBatt").textContent = s.uBatt;
+  $("btnRepair").hidden = !s.repair;
+  if (s.repair) $("btnRepair").textContent = s.repair;
+  $("btnConnect").textContent = s.connect;
+  $("hostDetail").textContent = s.detail;
+  $("hostList").innerHTML = s.host
+    .map(([label, st, tone]) => `<div class="host-item"><i class="${tone||''}"></i><span>${label}</span><span class="st">${st}</span></div>`)
+    .join("");
+  const raw = {
+    ble_state: name === "idle" ? "idle" : name === "voice" ? "receiving" : "session",
+    cable_active: name === "ready" || name === "voice" || name === "error",
+    atvv_ok: name !== "idle" && name !== "connecting" && name !== "error",
+    bridge_alive: name !== "idle" && name !== "connecting",
+    gain_db: gain,
+    battery: name === "idle" || name === "connecting" ? null : 86,
+  };
+  $("rawBox").textContent = JSON.stringify(raw, null, 2);
+  document.querySelectorAll(".demo-bar [data-state]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.state === name);
+  });
+  pushLog(name);
+  updateLine();
+}
+
+const LOGS = [];
+function ts() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+}
+function pushLog(state) {
+  const map = {
+    idle: ['info', 'XIAOMI bridge stopped'],
+    connecting: ['info', 'XIAOMI BLE connecting…'],
+    ready: ['ok', 'ATVV subscribed; tray=Ready'],
+    voice: ['info', 'MIC ON session; UDP send ok'],
+    error: ['fail', 'ATVV not subscribed; tray=Error'],
+  };
+  const [cls, msg] = map[state] || ["info", state];
+  LOGS.unshift(`<span class="t">${ts()}</span> <span class="${cls}">${msg}</span>`);
+  if (LOGS.length > 40) LOGS.pop();
+  $("logBox").innerHTML = LOGS.join("\n");
+}
+
+// wiring
+renderMaps();
+applyState("ready");
+
+document.querySelectorAll(".demo-bar [data-state]").forEach((b) => {
+  b.addEventListener("click", () => applyState(b.dataset.state));
+});
+
+$("remote").addEventListener("mouseover", (e) => {
+  const t = e.target.closest("[data-key-id]");
+  if (t) setHover(t.dataset.keyId);
+});
+$("remote").addEventListener("mouseleave", () => setHover(selectedKey));
+$("remote").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-key-id]");
+  if (!t) return;
+  selectedKey = selectedKey === t.dataset.keyId ? null : t.dataset.keyId;
+  setHover(selectedKey);
+  if (selectedKey) openCapture(selectedKey);
+});
+
+$("mapStage").addEventListener("mouseover", (e) => {
+  const card = e.target.closest(".map-card");
+  if (card) setHover(card.dataset.keyId);
+});
+$("mapStage").addEventListener("mouseleave", () => setHover(selectedKey));
+$("mapStage").addEventListener("click", (e) => {
+  const edit = e.target.closest("[data-edit]");
+  if (edit) {
+    selectedKey = edit.dataset.edit;
+    setHover(selectedKey);
+    openCapture(selectedKey);
+  }
+});
+
+function openCapture(id) {
+  const k = KEYS.find((x) => x.id === id);
+  $("captureKey").textContent = k ? `${k.label} (${id})` : id;
+  $("captureBox").classList.add("open");
+}
+$("captureCancel").addEventListener("click", () => {
+  $("captureBox").classList.remove("open");
+  selectedKey = null;
+  setHover(null);
+});
+$("captureClear").addEventListener("click", () => {
+  const k = KEYS.find((x) => x.id === selectedKey);
+  if (k) k.bind = "未映射";
+  renderMaps();
+  setHover(selectedKey);
+});
+
+$("gainUp").addEventListener("click", () => {
+  gain = Math.min(30, gain + 1);
+  $("uGain").textContent = gain + " dB";
+  if (current === "ready" || current === "voice") {
+    const out = Math.min(96, 40 + gain * 2);
+    $("markOut").style.left = out + "%";
+    $("dbOut").textContent = String(Math.max(-42, Math.min(0, -24 + gain)));
+    $("meterOut").className = "meter " + (out > 78 ? "high" : "ok");
+    $("hintOut").textContent = out > 78 ? "偏高削波" : "正常";
+  }
+});
+$("gainDown").addEventListener("click", () => {
+  gain = Math.max(-12, gain - 1);
+  $("uGain").textContent = gain + " dB";
+  if (current === "ready" || current === "voice") {
+    const out = Math.min(96, 40 + gain * 2);
+    $("markOut").style.left = out + "%";
+    $("dbOut").textContent = String(Math.max(-42, Math.min(0, -24 + gain)));
+    $("meterOut").className = "meter " + (out > 78 ? "high" : "ok");
+    $("hintOut").textContent = out > 78 ? "偏高削波" : "正常";
+  }
+});
+
+$("btnConnect").addEventListener("click", () => {
+  if (current === "idle") applyState("connecting");
+  else if (current === "connecting") applyState("ready");
+  else applyState("idle");
+});
+$("btnRepair").addEventListener("click", () => applyState("ready"));
+
+$("advToggle").addEventListener("click", () => {
+  const open = $("adv").classList.toggle("open");
+  $("advToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  requestAnimationFrame(updateLine);
+});
+$("logClear").addEventListener("click", () => {
+  LOGS.length = 0;
+  $("logBox").textContent = "";
+});
+$("logMore").addEventListener("click", () => {
+  LOGS.unshift(`<span class="t">${ts()}</span> <span class="ok">host status refresh ok</span>`);
+  $("logBox").innerHTML = LOGS.join("\n");
+});
+
+$("btnSettings").addEventListener("click", () => {
+  $("settingsBackdrop").classList.add("open");
+});
+$("btnCloseSettings").addEventListener("click", () => {
+  $("settingsBackdrop").classList.remove("open");
+});
+$("settingsBackdrop").addEventListener("click", (e) => {
+  if (e.target === $("settingsBackdrop")) $("settingsBackdrop").classList.remove("open");
+});
+document.querySelectorAll(".switch").forEach((sw) => {
+  sw.addEventListener("click", () => {
+    const on = sw.classList.toggle("on");
+    sw.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+});
+$("presets").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-p]");
+  if (!b) return;
+  $("presets").querySelectorAll(".preset").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+  pushLog("ready");
+  LOGS.unshift(`<span class="t">${ts()}</span> <span class="ok">IME preset applied: ${b.dataset.p}</span>`);
+  $("logBox").innerHTML = LOGS.join("\n");
+});
+$("triggerModes").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-t]");
+  if (!b) return;
+  $("triggerModes").querySelectorAll(".preset").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+});
+$("btnQuit").addEventListener("click", () => {
+  alert("Demo：正式应用会弹出「退出应用？」确认。");
+});
+
+window.addEventListener("resize", () => requestAnimationFrame(updateLine));
+window.addEventListener("scroll", () => requestAnimationFrame(updateLine), true);
+if (window.ResizeObserver) {
+  new ResizeObserver(() => requestAnimationFrame(updateLine)).observe($("mapStage"));
+}
+</script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import { storeToRefs } from "pinia";
 import { useBridgeStore } from "../stores/bridge";
 import { useAppUpdateStore } from "../stores/appUpdate";
 import { useGlobalSettingsStore } from "../stores/globalSettings";
+import SettingsSheet from "./SettingsSheet.vue";
 import type { BridgeStatus } from "../types";
 
 const route = useRoute();
@@ -19,6 +20,7 @@ const { updateInfo, shouldShowPassivePrompt } = storeToRefs(appUpdate);
 
 const showQuitConfirm = ref(false);
 const quitting = ref(false);
+const showSettingsSheet = ref(false);
 
 /** 顶栏会话摘要：来自主机状态（阶段 A） */
 const session = ref({
@@ -27,7 +29,6 @@ const session = ref({
   sub: "",
 });
 let hostTimer: ReturnType<typeof setInterval> | null = null;
-const connBusy = ref(false);
 
 function statusClass(status: BridgeStatus): string {
   if (status === "Connected") return "connected";
@@ -48,13 +49,7 @@ const deviceItems = computed(() =>
     : allDeviceItems
 );
 
-const isXiaomi = computed(() => bridge.devices.xiaomi.status === "Connected");
 const xiaomiStatusText = computed(() => bridge.statusLabel(bridge.devices.xiaomi.status));
-
-const connectLabel = computed(() => {
-  if (connBusy.value) return bridge.devices.xiaomi.status === "Disconnected" ? "连接中…" : "断开中…";
-  return isXiaomi.value ? "断开遥控器" : "连接遥控器";
-});
 
 async function refreshSession() {
   try {
@@ -67,36 +62,21 @@ async function refreshSession() {
       tone: string;
     }>("get_xiaomi_host_status");
     if (!h.bridge_alive) {
-      session.value = { tone: "idle", title: "未连接遥控器", sub: "点「连接遥控器」或等待自动重连" };
+      session.value = { tone: "idle", title: "未连接遥控器", sub: "点左栏「重新连接」或等待自动重连" };
       return;
     }
     const voiceOk = h.atvv_ok && h.cable_ready && h.winuhid_ready;
     if (voiceOk) {
-      session.value = { tone: "ok", title: "语音可用", sub: h.status_text || "已连接" };
+      session.value = { tone: "ok", title: "语音可用", sub: "" };
     } else {
       session.value = {
         tone: h.tone === "error" ? "fail" : "warn",
-        title: h.status_text || "已连接但语音未就绪",
-        sub: "点「修复」见小米设置页",
+        title: h.status_text || "语音未就绪",
+        sub: "在左栏点对应修复",
       };
     }
   } catch {
     session.value = { tone: "idle", title: xiaomiStatusText.value, sub: "" };
-  }
-}
-
-async function toggleConnect() {
-  if (connBusy.value) return;
-  connBusy.value = true;
-  try {
-    if (isXiaomi.value) {
-      await bridge.stopBridge("xiaomi");
-    } else {
-      await bridge.startBridge("xiaomi");
-    }
-    await refreshSession();
-  } finally {
-    connBusy.value = false;
   }
 }
 
@@ -183,34 +163,12 @@ async function confirmQuit() {
         <span class="nav-label">{{ item.label }}</span>
       </button>
     </nav>
-    <button
-      v-else
-      type="button"
-      :class="['nav-item', 'single-device-label', { active: isActive('/xiaomi') || isActive('/settings') }]"
-      title="返回小米遥控器主界面"
-      @click="navigate('/xiaomi')"
-    >
-      <span
-        :class="['dot', statusClass(bridge.devices.xiaomi.status)]"
-        :title="bridge.statusLabel(bridge.devices.xiaomi.status)"
-      />
-      <span class="nav-label">小米遥控器 2 Pro</span>
-    </button>
 
     <div class="nav-actions">
       <button
         type="button"
-        class="nav-item nav-connect"
-        :class="{ busy: connBusy }"
-        :disabled="connBusy"
-        @click="toggleConnect"
-      >
-        <span class="nav-label">{{ connectLabel }}</span>
-      </button>
-      <button
-        type="button"
-        :class="['nav-item', { active: isActive('/settings') }]"
-        @click="navigate('/settings')"
+        class="nav-item"
+        @click="showSettingsSheet = true"
       >
         <span class="nav-label">设置</span>
       </button>
@@ -219,6 +177,8 @@ async function confirmQuit() {
       </button>
     </div>
   </header>
+
+  <SettingsSheet v-if="showSettingsSheet" @close="showSettingsSheet = false" />
 
   <Teleport to="body">
     <div

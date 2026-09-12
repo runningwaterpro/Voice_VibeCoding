@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice VibeCoding · 界面重设计 Demo</title>
+  <style>
+    :root {
+      --chassis: #171a1f;
+      --panel: #1f242b;
+      --panel-2: #262c35;
+      --edge: #343b46;
+      --ink: #e8ecf1;
+      --muted: #8b95a3;
+      --dim: #5c6673;
+      --signal: #4db6a4;
+      --signal-dim: #2a4a46;
+      --warn: #d4a84b;
+      --fail: #e06b6b;
+      --meter-bg: #12151a;
+      --paper: #f4f1ea;
+      --paper-ink: #1c2127;
+      --radius: 10px;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --mono: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #0e1014; color: var(--ink); font-family: var(--font); }
+    body { line-height: 1.5; }
+    button { font: inherit; cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+    .page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+    .kicker {
+      font-size: 12px; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 8px;
+    }
+    h1 { font-size: 28px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .lede { color: var(--muted); max-width: 52em; margin: 0 0 28px; font-size: 15px; }
+
+    .grid { display: grid; gap: 16px; }
+    @media (min-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr 1fr; }
+      .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--edge);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .card p, .card li { color: var(--muted); font-size: 13.5px; }
+    .card ul { margin: 0; padding-left: 1.15em; }
+    .card li + li { margin-top: 4px; }
+
+    .tokens { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .swatch {
+      width: 88px; border-radius: 8px; overflow: hidden; border: 1px solid var(--edge);
+      background: var(--panel-2);
+    }
+    .swatch i { display: block; height: 36px; }
+    .swatch span { display: block; padding: 6px 8px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+    /* ── App shell demo ── */
+    .shell {
+      margin-top: 8px;
+      border: 1px solid var(--edge);
+      border-radius: 14px;
+      background: var(--chassis);
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    }
+    .shell-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--edge);
+      background: #14171c;
+      font-size: 12.5px; color: var(--muted);
+    }
+    .shell-bar .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--signal);
+      box-shadow: 0 0 8px var(--signal);
+    }
+    .shell-bar .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .shell-bar .dot.fail { background: var(--fail); box-shadow: 0 0 8px var(--fail); }
+    .shell-bar .dot.idle { background: var(--dim); box-shadow: none; }
+
+    .shell-body {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      min-height: 520px;
+    }
+    @media (min-width: 900px) {
+      .shell-body { grid-template-columns: 88px 1fr 280px; }
+    }
+
+    .rail {
+      border-right: 1px solid var(--edge);
+      padding: 12px 8px;
+      display: flex; flex-direction: column; gap: 6px;
+      background: #14171c;
+    }
+    .rail-btn {
+      appearance: none; border: 1px solid transparent; background: transparent;
+      color: var(--muted); border-radius: 8px; padding: 10px 6px;
+      font-size: 11px; text-align: center;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    .rail-btn .led {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--dim);
+    }
+    .rail-btn.active {
+      background: var(--panel-2);
+      border-color: var(--edge);
+      color: var(--ink);
+    }
+    .rail-btn.active .led { background: var(--signal); box-shadow: 0 0 6px var(--signal); }
+
+    .stage { padding: 16px 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    .status-strip {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+      padding: 10px 12px;
+      background: var(--panel);
+      border: 1px solid var(--edge);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .status-strip strong { font-weight: 600; color: var(--ink); }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 2px 8px; border-radius: 999px; font-size: 12px;
+      background: var(--signal-dim); color: var(--signal);
+    }
+    .chip.warn { background: #3d3220; color: var(--warn); }
+    .chip.fail { background: #3d2424; color: var(--fail); }
+    .chip.idle { background: var(--panel-2); color: var(--muted); }
+
+    .meters { display: flex; flex-direction: column; gap: 6px; }
+    .meter {
+      display: grid;
+      grid-template-columns: 7.5em 1fr 5.5em 2.8em;
+      gap: 8px;
+      align-items: center;
+      height: 26px;
+      font-size: 12px;
+    }
+    .meter .cap { color: var(--muted); white-space: nowrap; }
+    .meter .track {
+      position: relative; height: 8px; border-radius: 99px;
+      background: linear-gradient(90deg, #2a2e24 0%, #2a2e24 33%, #1e2e2a 33%, #1e2e2a 78%, #2e2424 78%, #2e2424 100%);
+      border: 1px solid var(--edge);
+    }
+    .meter .mark {
+      position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px;
+      background: var(--ink); left: 40%;
+    }
+    .meter.ok .mark { background: var(--signal); }
+    .meter.high .mark { background: var(--fail); }
+    .meter .hint { color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meter .db { font-family: var(--mono); color: var(--dim); text-align: right; font-size: 11px; }
+    .meter.high .db { color: var(--fail); }
+
+    .stage-main {
+      display: grid; gap: 14px;
+    }
+    @media (min-width: 720px) {
+      .stage-main { grid-template-columns: 1fr 1fr; align-items: start; }
+    }
+
+    .remote-card {
+      background: linear-gradient(160deg, #2a3038, #1c2128 55%);
+      border: 1px solid var(--edge);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    .remote {
+      width: 148px; height: 280px; border-radius: 28px;
+      background: #0f1216;
+      border: 1px solid #3a424e;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.35);
+      display: grid; grid-template-rows: auto 1fr auto; padding: 16px 14px;
+      gap: 10px;
+    }
+    .remote .mic-led {
+      width: 10px; height: 10px; border-radius: 50%; margin: 0 auto;
+      background: var(--dim);
+    }
+    .remote .mic-led.on {
+      background: var(--signal);
+      box-shadow: 0 0 10px var(--signal);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .45; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .remote .mic-led.on { animation: none; }
+    }
+    .pad {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; align-content: center;
+    }
+    .key {
+      aspect-ratio: 1; border-radius: 8px; background: #1a1f26; border: 1px solid #2e3640;
+      color: var(--dim); font-size: 10px; display: flex; align-items: center; justify-content: center;
+    }
+    .key.center { background: #242b34; color: var(--ink); }
+    .key.voice {
+      grid-column: 1 / -1; aspect-ratio: auto; height: 36px; border-radius: 18px;
+      background: #1a2e2a; border-color: #2f5a52; color: var(--signal); font-size: 12px;
+    }
+    .key.voice.hot { background: #245248; box-shadow: 0 0 0 1px var(--signal); }
+
+    .map-list { display: flex; flex-direction: column; gap: 6px; }
+    .map-row {
+      display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+      padding: 8px 10px; border-radius: 8px; background: var(--panel-2);
+      border: 1px solid transparent; font-size: 13px;
+    }
+    .map-row:hover, .map-row:focus-within { border-color: var(--edge); }
+    .map-row .k { color: var(--ink); }
+    .map-row .v { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .map-row .edit {
+      border: 1px solid var(--edge); background: transparent; color: var(--muted);
+      border-radius: 6px; padding: 2px 8px; font-size: 12px;
+    }
+    .map-row .edit:hover { color: var(--ink); border-color: var(--muted); }
+
+    .side {
+      display: none;
+      border-left: 1px solid var(--edge);
+      background: #14171c;
+      padding: 14px;
+      flex-direction: column; gap: 12px;
+    }
+    @media (min-width: 900px) {
+      .side { display: flex; }
+    }
+    .side h3 { margin: 0; font-size: 12px; color: var(--muted); font-weight: 500; }
+    .side .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+    .side .row span:last-child { font-family: var(--mono); color: var(--ink); }
+    .side .actions { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+    .btn {
+      border-radius: 8px; padding: 8px 12px; border: 1px solid var(--edge);
+      background: var(--panel-2); color: var(--ink); font-size: 13px;
+    }
+    .btn.primary { background: #1e3d38; border-color: #2f6a5f; color: var(--signal); }
+    .btn.danger { background: #3a2424; border-color: #6a3a3a; color: var(--fail); }
+
+    .state-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+    .state-tabs button {
+      border-radius: 999px; border: 1px solid var(--edge); background: var(--panel);
+      color: var(--muted); padding: 6px 12px; font-size: 12.5px;
+    }
+    .state-tabs button.on { color: var(--ink); border-color: var(--signal); background: #1a2c29; }
+
+    .wire {
+      font-family: var(--mono); font-size: 12px; color: var(--muted);
+      background: #101318; border: 1px solid var(--edge); border-radius: 8px;
+      padding: 12px 14px; overflow-x: auto; white-space: pre; line-height: 1.45;
+    }
+
+    .note { font-size: 13px; color: var(--muted); margin: 0; }
+    .note strong { color: var(--ink); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <p class="kicker">设计 Demo · 未改正式代码 · 等你确认后再落地</p>
+    <h1>把「桥接」当成仪器面板，而不是设置长页</h1>
+    <p class="lede">
+      从用户任务出发：先回答「接上了吗 / 能说话吗 / 哪里坏了」，再给键位与增益。
+      界面主体是<strong style="color:var(--ink)">遥控器 + 双电平 + 一键修复</strong>，
+      细节配置收进侧栏，避免现在小米页 4000 行里信息挤成一团。
+    </p>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <h2>当前界面的主要问题（对照）</h2>
+        <ul>
+          <li>一切信息平铺：连接、波形、声卡、修复按钮、键位、增益同级出现</li>
+          <li>术语偏系统（ATVV / WinUHid / 桥接），用户任务被淹没</li>
+          <li>异常时才需要的「修复」常驻，增加噪音</li>
+          <li>遥控器只是插图，不是可操作的中心对象</li>
+          <li>垂直空间被标尺和说明文字吃掉，全屏也放不下遥控器</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>重设计原则</h2>
+        <ul>
+          <li><strong style="color:var(--ink)">一句话状态</strong>放在最顶：现在能不能用</li>
+          <li><strong style="color:var(--ink)">遥控器是主角</strong>：按键与语音键有即时反馈</li>
+          <li><strong style="color:var(--ink)">双电平一行一条</strong>：输入定增益，送声防削波</li>
+          <li><strong style="color:var(--ink)">有问题才出现主修复按钮</strong></li>
+          <li>主机细节 / 高级诊断默认折叠，需要时再开</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 style="margin:28px 0 8px;font-size:15px;font-weight:600;">色板与字体</h2>
+    <p class="note">石墨机箱底 + 信号青绿（就绪）+ 琥珀（注意）+ 砖红（故障）。数字用等宽，正文用系统中文 UI 字体。</p>
+    <div class="tokens">
+      <div class="swatch"><i style="background:#171a1f"></i><span>chassis</span></div>
+      <div class="swatch"><i style="background:#1f242b"></i><span>panel</span></div>
+      <div class="swatch"><i style="background:#e8ecf1"></i><span>ink</span></div>
+      <div class="swatch"><i style="background:#8b95a3"></i><span>muted</span></div>
+      <div class="swatch"><i style="background:#4db6a4"></i><span>signal</span></div>
+      <div class="swatch"><i style="background:#d4a84b"></i><span>warn</span></div>
+      <div class="swatch"><i style="background:#e06b6b"></i><span>fail</span></div>
+    </div>
+
+    <h2 style="margin:28px 0 4px;font-size:15px;font-weight:600;">主界面线框</h2>
+    <div class="wire">┌ rail ┬ ────────── 工作台 ────────── ┬ 侧栏（可关） ─┐
+│ 小米 │  一句话状态 · 芯片          │ 主机状态      │
+│  T1  │  [输入·增益前] ====o==== 合适│ 增益 −/+      │
+│ V60  │  [送声·增益后] =====o== 正常│ 电量 / ATVV   │
+│      │  ┌遥控器示意┐  键位映射列表  │ [仅异常时]    │
+│      │  │  ●语音键  │  Home → Win+H│  修复…        │
+│      │  └──────────┘              │ 高级 ▸        │
+└──────┴────────────────────────────┴───────────────┘</div>
+
+    <h2 style="margin:28px 0 4px;font-size:15px;font-weight:600;">可点状态 Demo</h2>
+    <p class="note">点下面状态切换，看主界面如何变化。这只是设计稿，不是正式安装包。</p>
+    <div class="state-tabs" id="tabs" role="tablist" aria-label="界面状态">
+      <button type="button" data-state="idle" class="on">未连接</button>
+      <button type="button" data-state="connecting">连接中</button>
+      <button type="button" data-state="ready">就绪</button>
+      <button type="button" data-state="voice">按住说话</button>
+      <button type="button" data-state="error">语音异常</button>
+    </div>
+
+    <div class="shell" id="shell" data-state="idle">
+      <div class="shell-bar">
+        <span class="dot idle" id="trayDot"></span>
+        <span id="trayText">Voice VibeCoding</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:11px" id="winVer">1.0.2 · demo</span>
+      </div>
+      <div class="shell-body">
+        <nav class="rail" aria-label="设备">
+          <button type="button" class="rail-btn active" data-dev="xiaomi">
+            <span class="led"></span>小米
+          </button>
+          <button type="button" class="rail-btn" data-dev="t1">
+            <span class="led"></span>T1
+          </button>
+          <button type="button" class="rail-btn" data-dev="v60">
+            <span class="led"></span>V60
+          </button>
+        </nav>
+
+        <main class="stage">
+          <div class="status-strip">
+            <strong id="headline">未连接遥控器</strong>
+            <span class="chip idle" id="chipMain">待命</span>
+            <span class="chip idle" id="chipVoice">语音未开</span>
+            <span style="margin-left:auto;color:var(--muted);font-size:12px" id="subline">点「连接」或按下遥控器任意键唤醒</span>
+          </div>
+
+          <div class="meters" aria-label="电平">
+            <div class="meter" id="meterIn">
+              <span class="cap">输入 · 增益前</span>
+              <div class="track"><span class="mark" style="left:8%"></span></div>
+              <span class="hint" id="hintIn">待命</span>
+              <span class="db" id="dbIn">—</span>
+            </div>
+            <div class="meter" id="meterOut">
+              <span class="cap">送声 · 增益后</span>
+              <div class="track"><span class="mark" style="left:4%"></span></div>
+              <span class="hint" id="hintOut">待命</span>
+              <span class="db" id="dbOut">—</span>
+            </div>
+          </div>
+
+          <div class="stage-main">
+            <div class="remote-card">
+              <div class="remote" aria-hidden="true">
+                <div class="mic-led" id="micLed"></div>
+                <div class="pad">
+                  <div class="key">音+</div>
+                  <div class="key center">上</div>
+                  <div class="key">静音</div>
+                  <div class="key">左</div>
+                  <div class="key center">OK</div>
+                  <div class="key">右</div>
+                  <div class="key">音−</div>
+                  <div class="key center">下</div>
+                  <div class="key">菜单</div>
+                  <div class="key voice" id="voiceKey">按住说话</div>
+                </div>
+              </div>
+              <p class="note" style="text-align:center;margin:0">语音键高亮 = 正在采音并送入电脑</p>
+            </div>
+
+            <div class="card" style="padding:12px 14px">
+              <h2 style="margin-bottom:8px">按键映射</h2>
+              <div class="map-list" id="mapList">
+                <div class="map-row"><span class="k">上</span><span class="v">↑</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">下</span><span class="v">↓</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">左</span><span class="v">←</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">右</span><span class="v">→</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">OK</span><span class="v">Enter</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">Home</span><span class="v">Win + H</span><button type="button" class="edit">改</button></div>
+                <div class="map-row"><span class="k">语音</span><span class="v">Ctrl + Win</span><button type="button" class="edit">改</button></div>
+              </div>
+              <p class="note" style="margin-top:10px">点「改」进入录音式录入（保留你现有的录入体验，只是入口更近）。</p>
+            </div>
+          </div>
+        </main>
+
+        <aside class="side">
+          <h3>运行摘要</h3>
+          <div class="row"><span>虚拟声卡</span><span id="sideCable">—</span></div>
+          <div class="row"><span>虚拟键盘</span><span id="sideHid">—</span></div>
+          <div class="row"><span>语音通道</span><span id="sideAtvv">—</span></div>
+          <div class="row"><span>电量</span><span id="sideBatt">—</span></div>
+          <div class="row"><span>增益</span><span id="sideGain">10 dB</span></div>
+          <h3 style="margin-top:8px">增益</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button type="button" class="btn" id="gainDown" style="flex:1">−</button>
+            <button type="button" class="btn" id="gainUp" style="flex:1">＋</button>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btnPrimary" hidden>修复语音通道</button>
+            <button type="button" class="btn" id="btnConnect">连接遥控器</button>
+            <button type="button" class="btn" id="btnAdv">高级诊断</button>
+          </div>
+          <p class="note" id="advNote" hidden>高级：进程日志、驱动修复、Host 原始字段——默认不占主视线。</p>
+        </aside>
+      </div>
+    </div>
+
+    <div class="grid grid-3" style="margin-top:20px">
+      <div class="card">
+        <h2>交互：状态机</h2>
+        <p>未连接 → 连接中 → 就绪 → 按住说话。异常从就绪分叉，主按钮变为「修复语音通道」，修好回就绪。</p>
+      </div>
+      <div class="card">
+        <h2>交互：增益</h2>
+        <p>只看「输入」决定加不加；只看「送声」决定要不要降。拧增益时输入条不动、送声条动。</p>
+      </div>
+      <div class="card">
+        <h2>不在这版做的事</h2>
+        <p>不改 rc003 按键逻辑、不改1.0.x 版本号策略、不静默升级通道。只动信息架构与视觉。</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const states = {
+      idle: {
+        tray: "idle", trayText: "Voice VibeCoding · 未连接",
+        headline: "未连接遥控器",
+        chipMain: ["idle", "待命"], chipVoice: ["idle", "语音未开"],
+        sub: "点「连接」或按下遥控器任意键唤醒",
+        inMark: 8, outMark: 4, hintIn: "待命", hintOut: "待命", dbIn: "—", dbOut: "—",
+        inCls: "", outCls: "", mic: false, voiceHot: false,
+        cable: "待命", hid: "待命", atvv: "未订阅", batt: "—",
+        primary: null, connect: "连接遥控器",
+      },
+      connecting: {
+        tray: "warn", trayText: "Voice VibeCoding · 初始化中",
+        headline: "正在连接遥控器…",
+        chipMain: ["warn", "连接中"], chipVoice: ["idle", "等待语音"],
+        sub: "建立蓝牙与语音通道，约数秒",
+        inMark: 12, outMark: 6, hintIn: "…", hintOut: "…", dbIn: "—", dbOut: "—",
+        inCls: "", outCls: "", mic: false, voiceHot: false,
+        cable: "检测中", hid: "检测中", atvv: "订阅中", batt: "—",
+        primary: null, connect: "取消",
+      },
+      ready: {
+        tray: "", trayText: "Voice VibeCoding · 语音已就绪",
+        headline: "可以按住语音键说话",
+        chipMain: ["", "已连接"], chipVoice: ["", "语音可用"],
+        sub: "真键盘 F5 可用；松开语音键结束采音",
+        inMark: 42, outMark: 58, hintIn: "合适", hintOut: "正常", dbIn: "-18", dbOut: "-12",
+        inCls: "ok", outCls: "ok", mic: false, voiceHot: false,
+        cable: "就绪", hid: "就绪", atvv: "已订阅", batt: "86%",
+        primary: null, connect: "断开",
+      },
+      voice: {
+        tray: "", trayText: "Voice VibeCoding · 采音中",
+        headline: "正在送声…说完松开语音键",
+        chipMain: ["", "已连接"], chipVoice: ["", "采音中"],
+        sub: "输入看是否要加增益；送声避免顶满",
+        inMark: 55, outMark: 82, hintIn: "合适", hintOut: "正常", dbIn: "-11", dbOut: "-5",
+        inCls: "ok", outCls: "ok", mic: true, voiceHot: true,
+        cable: "送声中", hid: "就绪", atvv: "已订阅", batt: "86%",
+        primary: null, connect: "断开",
+      },
+      error: {
+        tray: "fail", trayText: "Voice VibeCoding · 语音异常",
+        headline: "遥控器已连接，但语音通道未就绪",
+        chipMain: ["", "已连接"], chipVoice: ["fail", "ATVV 未连接"],
+        sub: "按键仍可用；点右侧「修复语音通道」",
+        inMark: 30, outMark: 10, hintIn: "合适", hintOut: "无送声", dbIn: "-20", dbOut: "—",
+        inCls: "ok", outCls: "", mic: false, voiceHot: false,
+        cable: "待命", hid: "就绪", atvv: "未订阅", batt: "86%",
+        primary: "修复语音通道", connect: "断开",
+      },
+    };
+
+    let gain = 10;
+    let current = "idle";
+    const $ = (id) => document.getElementById(id);
+
+    function apply(name) {
+      current = name;
+      const s = states[name];
+      $("shell").dataset.state = name;
+      $("trayDot").className = "dot " + (s.tray || "");
+      $("trayText").textContent = s.trayText;
+      $("headline").textContent = s.headline;
+      $("chipMain").className = "chip " + s.chipMain[0];
+      $("chipMain").textContent = s.chipMain[1];
+      $("chipVoice").className = "chip " + s.chipVoice[0];
+      $("chipVoice").textContent = s.chipVoice[1];
+      $("subline").textContent = s.sub;
+      $("meterIn").querySelector(".mark").style.left = s.inMark + "%";
+      $("meterOut").querySelector(".mark").style.left = s.outMark + "%";
+      $("meterIn").className = "meter " + s.inCls;
+      $("meterOut").className = "meter " + s.outCls;
+      $("hintIn").textContent = s.hintIn;
+      $("hintOut").textContent = s.hintOut;
+      $("dbIn").textContent = s.dbIn;
+      $("dbOut").textContent = s.dbOut;
+      $("micLed").classList.toggle("on", s.mic);
+      $("voiceKey").classList.toggle("hot", s.voiceHot);
+      $("sideCable").textContent = s.cable;
+      $("sideHid").textContent = s.hid;
+      $("sideAtvv").textContent = s.atvv;
+      $("sideBatt").textContent = s.batt;
+      $("btnPrimary").hidden = !s.primary;
+      if (s.primary) $("btnPrimary").textContent = s.primary;
+      $("btnConnect").textContent = s.connect;
+      document.querySelectorAll("#tabs button").forEach((b) => {
+        b.classList.toggle("on", b.dataset.state === name);
+      });
+    }
+
+    document.getElementById("tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-state]");
+      if (b) apply(b.dataset.state);
+    });
+    $("btnPrimary").addEventListener("click", () => apply("ready"));
+    $("btnConnect").addEventListener("click", () => {
+      if (current === "idle" || current === "connecting") apply("ready");
+      else apply("idle");
+    });
+    $("btnAdv").addEventListener("click", () => {
+      const n = $("advNote");
+      n.hidden = !n.hidden;
+    });
+    $("gainUp").addEventListener("click", () => {
+      gain = Math.min(30, gain + 1);
+      $("sideGain").textContent = gain + " dB";
+      if (current === "ready" || current === "voice") {
+        const out = Math.min(96, 40 + gain * 2);
+        $("meterOut").querySelector(".mark").style.left = out + "%";
+        $("dbOut").textContent = String(Math.max(-42, Math.min(0, -24 + gain)));
+        $("meterOut").className = "meter " + (out > 78 ? "high" : "ok");
+        $("hintOut").textContent = out > 78 ? "偏高削波" : "正常";
+      }
+    });
+    $("gainDown").addEventListener("click", () => {
+      gain = Math.max(-12, gain - 1);
+      $("sideGain").textContent = gain + " dB";
+      if (current === "ready" || current === "voice") {
+        const out = Math.min(96, 40 + gain * 2);
+        $("meterOut").querySelector(".mark").style.left = out + "%";
+        $("dbOut").textContent = String(Math.max(-42, Math.min(0, -24 + gain)));
+        $("meterOut").className = "meter " + (out > 78 ? "high" : "ok");
+        $("hintOut").textContent = out > 78 ? "偏高削波" : "正常";
+      }
+    });
+
+    apply("idle");
+  </script>
+</body>
+</html>

@@ -180,22 +180,262 @@ const waveLinePoints = computed(() => {
 
 const cableReady = computed(() => host.value.cable_ready);
 
-/** 阶段 B：仅异常时显示对应修复按钮（对齐 xiaomi_host_status 优先级） */
-const repairNeed = computed(() => ({
-  cable: !host.value.cable_ready,
-  winuhid: Boolean(host.value.bridge_alive && !host.value.winuhid_ready),
-  atvv: Boolean(host.value.bridge_alive && !host.value.atvv_ok),
-  restart: !host.value.bridge_alive || (host.value.bridge_alive && !host.value.audio_alive),
-}));
-const anyRepairNeed = computed(() => Object.values(repairNeed.value).some(Boolean));
-const allHealthy = computed(
+/* ── V4 状态机：左栏连接钮 + 主/次修复高亮 + 四芯片 ── */
+type RepairKey = "cable" | "winuhid" | "atvv" | "restart" | "conn";
+type RailState =
+  | "idle"
+  | "connecting"
+  | "ready"
+  | "voice"
+  | "error"
+  | "err_hid"
+  | "err_cable"
+  | "err_route"
+  | "err_bridge";
+
+const connBusy = ref(false);
+
+const connectingNow = computed(
   () =>
-    host.value.bridge_alive &&
-    host.value.audio_alive &&
-    host.value.cable_ready &&
-    host.value.winuhid_ready &&
-    host.value.atvv_ok,
+    connBusy.value ||
+    restarting.value ||
+    bridge.devices.xiaomi.status === "Connecting",
 );
+
+const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
+
+const railState = computed<RailState>(() => {
+  const h = host.value;
+  if (connectingNow.value) return "connecting";
+  if (!h.bridge_alive) return "err_bridge";
+  if (!h.winuhid_ready) return "err_hid";
+  if (!h.atvv_ok) return "error";
+  if (!h.cable_ready) return "err_cable";
+  if (!h.audio_alive) return "err_route";
+  if (receivingNow.value) return "voice";
+  return "ready";
+});
+
+type ChipTone = "" | "warn" | "fail" | "idle";
+interface RailChip {
+  tone: ChipTone;
+  label: string;
+}
+
+const railChips = computed<Record<"ble" | "atvv" | "cable" | "hid", RailChip>>(() => {
+  const h = host.value;
+  const bridgeDown = !h.bridge_alive;
+  const receiving = receivingNow.value;
+  const st = railState.value;
+  const atvvDegraded = st === "err_hid" || st === "err_cable" || st === "err_route";
+  return {
+    ble: bridgeDown
+      ? { tone: "fail", label: "蓝牙未连接" }
+      : { tone: "", label: "蓝牙已连接" },
+    atvv: bridgeDown
+      ? { tone: "idle", label: "语音通道未就绪" }
+      : h.atvv_ok
+        ? atvvDegraded
+          ? { tone: "warn", label: "语音通道待恢复" }
+          : { tone: "", label: receiving ? "语音通道采音中" : "语音通道正常" }
+        : atvvDegraded
+          ? { tone: "warn", label: "语音通道待恢复" }
+          : { tone: "fail", label: "语音通道未就绪" },
+    cable: bridgeDown
+      ? { tone: "idle", label: "虚拟声卡待命" }
+      : h.cable_ready
+        ? st === "err_route"
+          ? { tone: "warn", label: "虚拟声卡检测中" }
+          : { tone: "", label: receiving && h.audio_alive ? "虚拟声卡送声中" : "虚拟声卡正常" }
+        : { tone: "fail", label: "虚拟声卡未就绪" },
+    hid: bridgeDown
+      ? { tone: "idle", label: "虚拟键盘待命" }
+      : h.winuhid_ready
+        ? { tone: "", label: "虚拟键盘正常" }
+        : { tone: "fail", label: "虚拟键盘未就绪" },
+  };
+});
+
+interface RailFocus {
+  led: ChipTone;
+  headline: string;
+  sub: string;
+  qHeadline: string;
+  qSub: string;
+  connLabel: string;
+  connCls: "primary" | "ghost";
+  primary: RepairKey | null;
+  secondary: RepairKey | null;
+  showRepairs: boolean;
+  healthyText: string | null;
+}
+
+const railFocus = computed<RailFocus>(() => {
+  const st = railState.value;
+  switch (st) {
+    case "idle":
+    case "err_bridge":
+      return {
+        led: st === "idle" ? "idle" : "fail",
+        headline: "未连接遥控器",
+        sub: "启动会自动连接；也可点「重新连接」",
+        qHeadline: st === "idle" ? "未连接" : "桥接未运行",
+        qSub: "点「重新连接」或等待自动重连",
+        connLabel: connBusy.value ? "连接中…" : "重新连接",
+        connCls: "primary",
+        primary: "conn",
+        secondary: "restart",
+        showRepairs: true,
+        healthyText: null,
+      };
+    case "connecting":
+      return {
+        led: "warn",
+        headline: "正在连接遥控器…",
+        sub: "正在建立蓝牙与语音通道",
+        qHeadline: "连接中",
+        qSub: "请稍候",
+        connLabel: "取消连接",
+        connCls: "ghost",
+        primary: null,
+        secondary: null,
+        showRepairs: false,
+        healthyText: null,
+      };
+    case "voice":
+      return {
+        led: "",
+        headline: "采音中",
+        sub: "松开语音键结束",
+        qHeadline: "采音中",
+        qSub: "松开语音键结束",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: null,
+        secondary: null,
+        showRepairs: false,
+        healthyText: "采音送声中",
+      };
+    case "ready":
+      return {
+        led: "",
+        headline: "语音可用",
+        sub: "",
+        qHeadline: "语音可用",
+        qSub: "已自动连接",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: null,
+        secondary: null,
+        showRepairs: false,
+        healthyText: "全部服务正常",
+      };
+    case "error":
+      return {
+        led: "warn",
+        headline: "语音通道未就绪",
+        sub: "点「修复 ATVV 连接」",
+        qHeadline: "语音通道异常",
+        qSub: "按键映射仍可用",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: "atvv",
+        secondary: null,
+        showRepairs: true,
+        healthyText: null,
+      };
+    case "err_hid":
+      return {
+        led: "warn",
+        headline: "虚拟键盘未就绪",
+        sub: "语音唤醒需要虚拟键盘",
+        qHeadline: "虚拟键盘异常",
+        qSub: "点「修复虚拟键盘」",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: "winuhid",
+        secondary: null,
+        showRepairs: true,
+        healthyText: null,
+      };
+    case "err_cable":
+      return {
+        led: "warn",
+        headline: "虚拟声卡未就绪",
+        sub: "点「虚拟声卡修复」",
+        qHeadline: "虚拟声卡异常",
+        qSub: "未检测到 VB-CABLE",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: "cable",
+        secondary: null,
+        showRepairs: true,
+        healthyText: null,
+      };
+    case "err_route":
+      return {
+        led: "warn",
+        headline: "语音路由未就绪",
+        sub: "点「重启桥接」或「虚拟声卡修复」",
+        qHeadline: "语音路由异常",
+        qSub: "音频通路未就绪",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: "restart",
+        secondary: "cable",
+        showRepairs: true,
+        healthyText: null,
+      };
+  }
+});
+
+const showRepairBtn = (key: RepairKey) =>
+  railFocus.value.showRepairs &&
+  (railFocus.value.primary === key || railFocus.value.secondary === key);
+
+const repairBtnClass = (key: RepairKey) => {
+  if (railFocus.value.primary === key) return "btn btn-attention";
+  if (railFocus.value.secondary === key) return "btn btn-attention-sec";
+  return "btn";
+};
+
+const rawStatusJson = computed(() =>
+  JSON.stringify(
+    {
+      ble_state: receivingNow.value ? "receiving" : host.value.bridge_alive ? "session" : "idle",
+      cable_active: voiceMeter.value.cableActive,
+      cable_ready: host.value.cable_ready,
+      atvv_ok: host.value.atvv_ok,
+      winuhid_ready: host.value.winuhid_ready,
+      bridge_alive: host.value.bridge_alive,
+      audio_alive: host.value.audio_alive,
+      rail_state: railState.value,
+      gain_db: gainDb.value,
+    },
+    null,
+    2,
+  ),
+);
+
+async function toggleRailConnect() {
+  if (connBusy.value) return;
+  connBusy.value = true;
+  try {
+    if (railState.value === "connecting") {
+      await bridge.stopBridge("xiaomi");
+    } else if (host.value.bridge_alive) {
+      await bridge.stopBridge("xiaomi");
+    } else {
+      await bridge.startBridge("xiaomi");
+    }
+    await refreshHost();
+    await bridge.refreshStatus("xiaomi");
+  } catch (e) {
+    prependLog(`连接切换失败: ${String(e)}`);
+  } finally {
+    connBusy.value = false;
+  }
+}
 
 const cableVolZone = computed(() => {
   if (!cableReady.value) return "idle";
@@ -1705,32 +1945,35 @@ async function retryLoadConfig() {
       <aside class="status-col" aria-label="运行状态">
         <section class="card host-card">
           <h3 class="rail-title">运行状态</h3>
-          <div class="host-status-row host-status-stack" role="list" aria-label="服务状态">
-            <div
-              v-for="item in host.items"
-              :key="item.id"
-              class="host-status-item"
-              role="listitem"
-            >
-              <span
-                class="host-dot"
-                :class="itemToneClass(item.tone)"
-                aria-hidden="true"
-              />
-              <span class="host-item-label">{{ item.label }}</span>
-              <span class="host-item-state" :class="itemToneClass(item.tone)">
-                {{ item.state_label }}
-              </span>
-            </div>
+
+          <button
+            type="button"
+            class="btn rail-conn"
+            :class="railFocus.connCls === 'primary' ? 'btn-primary' : 'btn-secondary'"
+            :disabled="connBusy && railState !== 'connecting'"
+            @click="toggleRailConnect"
+          >
+            {{ railFocus.connLabel }}
+          </button>
+
+          <div class="status-line" role="status" aria-live="polite">
+            <b>{{ railFocus.qHeadline }}</b>
+            <span>{{ railFocus.qSub }}</span>
           </div>
-          <p v-if="host.detail" class="host-detail">{{ host.detail }}</p>
-          <p v-if="allHealthy" class="healthy-note">全部服务正常</p>
-          <div v-if="anyRepairNeed" class="host-actions host-actions-stack">
-            <div v-if="repairNeed.cable" class="host-action-group">
+
+          <div class="chip-row" role="list" aria-label="服务状态">
+            <span class="chip" :class="railChips.ble.tone" role="listitem">{{ railChips.ble.label }}</span>
+            <span class="chip" :class="railChips.atvv.tone" role="listitem">{{ railChips.atvv.label }}</span>
+            <span class="chip" :class="railChips.cable.tone" role="listitem">{{ railChips.cable.label }}</span>
+            <span class="chip" :class="railChips.hid.tone" role="listitem">{{ railChips.hid.label }}</span>
+          </div>
+
+          <div v-if="railFocus.showRepairs" class="repair-group">
+            <div v-if="showRepairBtn('cable')" class="host-action-group">
               <button
-                class="btn btn-secondary"
+                :class="repairBtnClass('cable')"
                 type="button"
-                :disabled="voiceRepairing || restarting"
+                :disabled="voiceRepairing || restarting || connBusy"
                 @click="voiceDetectAndRepair"
               >
                 {{ voiceRepairing ? "处理中..." : "虚拟声卡修复" }}
@@ -1784,11 +2027,11 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div v-if="repairNeed.winuhid" class="host-action-group">
+            <div v-if="showRepairBtn('winuhid')" class="host-action-group">
               <button
-                class="btn btn-secondary"
+                :class="repairBtnClass('winuhid')"
                 type="button"
-                :disabled="winuhidRepairing || voiceRepairing || atvvRepairing || restarting"
+                :disabled="winuhidRepairing || voiceRepairing || atvvRepairing || restarting || connBusy"
                 @click="repairWinUHid"
               >
                 {{ winuhidRepairing ? "修复中..." : "修复虚拟键盘" }}
@@ -1842,11 +2085,11 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div v-if="repairNeed.atvv" class="host-action-group">
+            <div v-if="showRepairBtn('atvv')" class="host-action-group">
               <button
-                class="btn btn-secondary"
+                :class="repairBtnClass('atvv')"
                 type="button"
-                :disabled="atvvRepairing || restarting || voiceRepairing || winuhidRepairing"
+                :disabled="atvvRepairing || restarting || voiceRepairing || winuhidRepairing || connBusy"
                 @click="repairAtvv"
               >
                 {{ atvvRepairing ? "修复中..." : "修复 ATVV 连接" }}
@@ -1900,11 +2143,11 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div v-if="repairNeed.restart" class="host-action-group">
+            <div v-if="showRepairBtn('restart')" class="host-action-group">
               <button
-                class="btn btn-secondary"
+                :class="repairBtnClass('restart')"
                 type="button"
-                :disabled="restarting || voiceRepairing || atvvRepairing"
+                :disabled="restarting || voiceRepairing || atvvRepairing || connBusy"
                 @click="restartBridge"
               >
                 {{ restarting ? "重启中..." : "重启桥接" }}
@@ -1958,16 +2201,36 @@ async function retryLoadConfig() {
                 </div>
               </Teleport>
             </div>
-            <div class="host-action-group">
-              <button
-                class="btn btn-secondary"
-                type="button"
-                @click="showSetupTips = true"
-              >
+          </div>
+
+          <p v-if="railFocus.healthyText" class="healthy-note">{{ railFocus.healthyText }}</p>
+
+          <details class="more-ops">
+            <summary>更多操作</summary>
+            <div class="ops-body">
+              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
+                虚拟声卡修复
+              </button>
+              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
+                修复虚拟键盘
+              </button>
+              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
+                修复 ATVV 连接
+              </button>
+              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
+                重启桥接
+              </button>
+              <button type="button" class="btn" @click="showSetupTips = true">
                 输入法设置
               </button>
             </div>
-          </div>
+          </details>
+
+          <p class="credit-line">
+            基于上游
+            <a href="https://github.com/mwlt/Voice_VibeCoding" target="_blank" rel="noreferrer">mwlt/Voice_VibeCoding</a>
+            ，作者 <strong>mwlt</strong>
+          </p>
         </section>
       </aside>
 
@@ -2548,7 +2811,7 @@ async function retryLoadConfig() {
     <details class="adv-drawer">
       <summary class="adv-summary">
         <b>高级诊断</b>
-        <span>主机状态 · 日志</span>
+        <span>主机状态 · 修复动作 · 日志 · 详细信息</span>
         <span class="adv-chevron" aria-hidden="true">▾</span>
       </summary>
       <div class="adv-body">
@@ -2567,7 +2830,24 @@ async function retryLoadConfig() {
             <p v-if="host.detail" class="adv-detail">{{ host.detail }}</p>
           </div>
           <div class="adv-block">
-            <h4>日志</h4>
+            <h4>修复动作</h4>
+            <div class="adv-actions-col">
+              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
+                虚拟声卡修复
+              </button>
+              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
+                修复虚拟键盘
+              </button>
+              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
+                修复 ATVV 连接
+              </button>
+              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
+                重启桥接
+              </button>
+            </div>
+          </div>
+          <div class="adv-block">
+            <h4>实时日志</h4>
             <div class="adv-actions">
               <button type="button" class="btn btn-secondary" @click="openLogs">
                 打开完整日志
@@ -2580,6 +2860,10 @@ async function retryLoadConfig() {
               </p>
               <p v-if="!logs.length" class="adv-log-empty">暂无新日志</p>
             </div>
+          </div>
+          <div class="adv-block">
+            <h4>原始状态字段</h4>
+            <pre class="adv-raw">{{ rawStatusJson }}</pre>
           </div>
         </div>
       </div>
@@ -3573,8 +3857,145 @@ async function retryLoadConfig() {
 }
 .healthy-note {
   margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--success, #16a34a);
+  font-size: 12px;
+  color: var(--success);
+}
+
+/* V4 left-rail */
+.rail-conn {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.status-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  margin-bottom: 8px;
+}
+.status-line b {
+  font-size: 13.5px;
+  color: var(--text);
+}
+.status-line span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: #2a4a46;
+  color: var(--success);
+  width: fit-content;
+}
+.chip.warn {
+  background: #3d3220;
+  color: var(--warning);
+}
+.chip.fail {
+  background: #3d2424;
+  color: var(--danger);
+}
+.chip.idle {
+  background: var(--panel-2);
+  color: var(--text-secondary);
+}
+.repair-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.repair-group .btn {
+  width: 100%;
+}
+.btn-attention {
+  border-color: var(--warning) !important;
+  color: var(--warning) !important;
+  background: #3d3220 !important;
+  font-weight: 600;
+}
+.btn-attention-sec {
+  border-color: var(--edge) !important;
+  color: var(--text-secondary) !important;
+  background: transparent !important;
+}
+.more-ops {
+  margin-top: auto;
+  border-top: 1px solid #2a3038;
+  padding-top: 8px;
+}
+.more-ops > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  list-style: none;
+}
+.more-ops > summary::-webkit-details-marker {
+  display: none;
+}
+.more-ops > summary::before {
+  content: "▸ ";
+  color: var(--dim, #5c6673);
+}
+.more-ops[open] > summary::before {
+  content: "▾ ";
+}
+.more-ops .ops-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.more-ops .ops-body .btn {
+  width: 100%;
+}
+.adv-actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.adv-actions-col .btn {
+  width: 100%;
+}
+.adv-raw {
+  font-family: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: #101318;
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+}
+.credit-line {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.credit-line a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.credit-line a:hover {
+  text-decoration: underline;
 }
 
 .vol-meter-block {
