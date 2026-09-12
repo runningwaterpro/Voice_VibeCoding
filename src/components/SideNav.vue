@@ -237,11 +237,10 @@ async function confirmQuit() {
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 48px;
+  height: 44px;
   padding: 0 16px;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   user-select: none;
   flex-shrink: 0;
   min-width: 0;

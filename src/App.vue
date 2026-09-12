@@ -356,7 +356,7 @@ body {
   flex: 0 0 auto;
   overflow-x: hidden;
   overflow-y: visible;
-  padding: 12px;
+  padding: 10px 12px 12px;
   background: var(--chassis);
   border-radius: 0 0 12px 12px;
 }

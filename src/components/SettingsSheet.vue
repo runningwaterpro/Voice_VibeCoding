@@ -42,23 +42,7 @@ onMounted(async () => {
         </label>
         <label class="setting-row">
           <span class="setting-lab">
-            <b>启动后最小化到托盘</b>
-            <span>不显示主窗口，托盘图标就绪</span>
-          </span>
-          <button
-            type="button"
-            class="switch"
-            :class="{ on: settings.start_minimized_to_tray }"
-            :aria-pressed="settings.start_minimized_to_tray"
-            aria-label="启动后最小化到托盘"
-            @click.prevent="settings.start_minimized_to_tray = !settings.start_minimized_to_tray; globalSettings.save()"
-          >
-            <span class="switch-knob" />
-          </button>
-        </label>
-        <label class="setting-row">
-          <span class="setting-lab">
-            <b>最小化到托盘</b>
+            <b>点击关闭最小化到托盘</b>
             <span>点关闭时进托盘，而不是退出</span>
           </span>
           <button
@@ -66,7 +50,7 @@ onMounted(async () => {
             class="switch"
             :class="{ on: settings.minimize_to_tray }"
             :aria-pressed="settings.minimize_to_tray"
-            aria-label="最小化到托盘"
+            aria-label="点击关闭最小化到托盘"
             @click.prevent="settings.minimize_to_tray = !settings.minimize_to_tray; globalSettings.save()"
           >
             <span class="switch-knob" />
