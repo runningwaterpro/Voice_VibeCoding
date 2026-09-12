@@ -82,7 +82,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .battery-chip.is-crit .battery-ico{color:var(--fail)}
 .battery-chip.is-unknown .battery-ico{color:var(--dim)}
 
-.demo-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 14px;background:#101318;border-bottom:1px solid var(--edge);font-size:12px;color:var(--muted)}
+/* 预览控制在机身外：避免分栏干扰真实界面观感 */
+.demo-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;padding:10px 14px;background:transparent;font-size:12px;color:var(--muted);max-width:960px;margin:0 auto}
 .demo-bar button{border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--muted);padding:3px 10px;font-size:12px}
 .demo-bar button.on{color:var(--ink);border-color:var(--signal);background:#1a2c29}
 
@@ -170,6 +171,9 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);
 }
 .action-bar[hidden]{display:none!important}
+/* 无主操作：只留一句 + 更多，不占空按钮列 */
+.action-bar.no-primary{grid-template-columns:minmax(0,1fr) auto}
+.action-bar.no-primary .repair-group{display:none}
 .status-line{
   display:flex;flex-direction:row;align-items:center;gap:8px;
   margin:0;padding:0;min-width:0;overflow:hidden;height:34px;
@@ -532,6 +536,20 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 </style>
 </head>
 <body>
+<!-- 预览控制：机身外，不进入 .app -->
+<div class="demo-bar" role="region" aria-label="预览控制">
+  <span>预览控制 · v4.3（机身外）：健康无横条 · 异常才一句+主操作</span>
+  <button type="button" data-state="idle">未连接</button>
+  <button type="button" data-state="connecting">连接中</button>
+  <button type="button" data-state="ready" class="on">就绪</button>
+  <button type="button" data-state="voice">按住说话</button>
+  <button type="button" data-state="error">语音异常·ATVV</button>
+  <button type="button" data-state="err_hid">异常·虚拟键盘</button>
+  <button type="button" data-state="err_cable">异常·声卡</button>
+  <button type="button" data-state="err_route">异常·语音路由</button>
+  <button type="button" data-state="err_bridge">异常·桥接</button>
+</div>
+
 <div class="app" id="app" data-state="ready">
 
   <header class="topnav">
@@ -554,19 +572,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
       <button type="button" class="nav-btn" id="btnQuit">退出</button>
     </div>
   </header>
-
-  <div class="demo-bar">
-    <span>预览控制 · v4.3：健康无横条 · 异常才出现一句+主操作</span>
-    <button type="button" data-state="idle">未连接</button>
-    <button type="button" data-state="connecting">连接中</button>
-    <button type="button" data-state="ready" class="on">就绪</button>
-    <button type="button" data-state="voice">按住说话</button>
-    <button type="button" data-state="error">语音异常·ATVV</button>
-    <button type="button" data-state="err_hid">异常·虚拟键盘</button>
-    <button type="button" data-state="err_cable">异常·声卡</button>
-    <button type="button" data-state="err_route">异常·语音路由</button>
-    <button type="button" data-state="err_bridge">异常·桥接</button>
-  </div>
 
   <div class="work">
     <div class="meters" aria-label="电平与增益">
@@ -600,7 +605,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
           <span id="qSub"></span>
         </div>
         <div class="repair-group" id="repairGroup">
-          <button type="button" class="btn attention" id="btnPrimary" hidden>处理</button>
+          <button type="button" class="btn attention" id="btnPrimary" hidden></button>
         </div>
         <details class="more-ops" id="moreOps">
           <summary>更多</summary>
@@ -1030,7 +1035,7 @@ function applyState(name){
   // 单行：标题 + 次要说明同行
   $("qHeadline").textContent=s.qH;
   $("qSub").textContent=s.qS;
-  // 主操作：固定一个按钮槽，只改文案，避免布局跳动
+  // 主操作：有才显示；无则收成两列（一句 + 更多），不留空按钮槽
   const primaryMap={
     btnRepairCable:"虚拟声卡修复",
     btnRepairHid:"修复虚拟键盘",
@@ -1041,9 +1046,18 @@ function applyState(name){
   const primaryId=s.primary||null;
   const primaryLabel=primaryId?primaryMap[primaryId]:null;
   const btnP=$("btnPrimary");
+  const grp=$("repairGroup");
+  if(bar) bar.classList.toggle("no-primary",!primaryLabel);
   if(btnP){
-    if(primaryLabel){btnP.hidden=false;btnP.textContent=primaryLabel;}
-    else{btnP.hidden=true;btnP.textContent="处理";}
+    if(primaryLabel){
+      btnP.hidden=false;
+      btnP.textContent=primaryLabel;
+      if(grp) grp.hidden=false;
+    }else{
+      btnP.hidden=true;
+      btnP.textContent="";
+      if(grp) grp.hidden=true;
+    }
   }
   $("moreOps").open=false;
   $("markIn").style.left=s.inMark+"%";$("markOut").style.left=s.outMark+"%";

@@ -1931,15 +1931,15 @@ async function retryLoadConfig() {
       <section
         v-if="showActionBar"
         class="card action-bar"
+        :class="{ 'no-primary': !primaryLabel }"
         aria-label="异常处理"
       >
         <div class="status-line" role="status" aria-live="polite">
           <b>{{ railFocus.qHeadline }}</b>
           <span>{{ railFocus.qSub }}</span>
         </div>
-        <div class="repair-group">
+        <div v-if="primaryLabel" class="repair-group">
           <button
-            v-if="primaryLabel"
             type="button"
             class="btn btn-attention action-primary"
             :disabled="primaryDisabled"
@@ -3409,6 +3409,10 @@ async function retryLoadConfig() {
   gap: 10px;
   min-height: 42px;
   padding: 8px 12px;
+}
+/* 无主操作：一句 + 更多，不占空按钮列 */
+.action-bar.no-primary {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .action-bar .status-line {
   display: flex;
