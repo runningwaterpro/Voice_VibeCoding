@@ -326,31 +326,39 @@ input[type="number"]::-webkit-inner-spin-button {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: var(--bg);
+  background: #0e1014;
   color: var(--text);
-  overflow: hidden;
-  height: 100vh;
+  overflow: auto;
+  min-height: 100vh;
+  height: auto;
 }
 
 #app {
-  height: 100vh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  width: 100%;
   max-width: 1120px;
-  margin: 0 auto;
+  margin: 20px auto;
+  background: var(--chassis);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #343b46;
+  flex: 0 0 auto;
 }
 
 .main-content {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   overflow-x: hidden;
-  overflow-y: auto;
-  padding: 12px 14px 16px;
+  overflow-y: visible;
+  padding: 12px;
   background: var(--chassis);
+  border-radius: 0 0 12px 12px;
 }
 
 .conflict-backdrop {

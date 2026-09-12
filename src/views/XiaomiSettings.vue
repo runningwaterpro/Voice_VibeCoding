@@ -86,7 +86,6 @@ const cableDownloadMessage = ref("");
 const cableZipDefaultName = ref("VBCABLE_Driver_Pack45.zip");
 const showVoiceReboot = ref(false);
 const voiceRebootMsg = ref("");
-const showLogModal = ref(false);
 const showSetupTips = ref(false);
 const setupApplyHint = ref("");
 const setupImeTab = ref<ImeTabId>("wechat");
@@ -99,10 +98,6 @@ const qianwenPresets = QIANWEN_PRESET_IDS.map((id) => IME_PRESETS[id]);
 const SHOW_VOICE_TRIGGER_MODE = false;
 
 const activeImePresets = computed(() => getPresetsForTab(setupImeTab.value));
-const logText = ref("");
-const logPath = ref("");
-const logLoading = ref(false);
-const logCopyHint = ref("");
 
 type BleMeterState = "idle" | "session" | "receiving";
 interface VoiceMeterSnapshot {
@@ -406,24 +401,6 @@ const repairBtnClass = (key: RepairKey) => {
   if (secondary === key) return "btn btn-attention-sec";
   return "btn";
 };
-
-const rawStatusJson = computed(() =>
-  JSON.stringify(
-    {
-      ble_state: receivingNow.value ? "receiving" : host.value.bridge_alive ? "session" : "idle",
-      cable_active: voiceMeter.value.cableActive,
-      cable_ready: host.value.cable_ready,
-      atvv_ok: host.value.atvv_ok,
-      winuhid_ready: host.value.winuhid_ready,
-      bridge_alive: host.value.bridge_alive,
-      audio_alive: host.value.audio_alive,
-      rail_state: railState.value,
-      gain_db: gainDb.value,
-    },
-    null,
-    2,
-  ),
-);
 
 async function toggleRailConnect() {
   if (connBusy.value) return;
@@ -1054,12 +1031,6 @@ async function onKeyMappingSave(cfg: DeviceConfig) {
 let hostPollTimer: ReturnType<typeof setInterval> | null = null;
 let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
-function itemToneClass(tone: string): string {
-  if (tone === "ok") return "ok";
-  if (tone === "warn") return "warn";
-  return "error";
-}
-
 interface LogEntry {
   id: number;
   time: string;
@@ -1292,44 +1263,6 @@ async function repairAtvv() {
     if (!awaitingClear) {
       atvvRepairing.value = false;
     }
-  }
-}
-
-async function openLogs() {
-  showLogModal.value = true;
-  logCopyHint.value = "";
-  logLoading.value = true;
-  try {
-    const result = await invoke<{ path: string; content: string }>("get_app_log");
-    logPath.value = result.path || "";
-    logText.value = result.content?.trim()
-      ? result.content
-      : "（暂无日志）";
-  } catch (e) {
-    logText.value = `读取日志失败: ${e}`;
-    logPath.value = "";
-  } finally {
-    logLoading.value = false;
-  }
-}
-
-async function copyLog() {
-  try {
-    await navigator.clipboard.writeText(logText.value || "");
-    logCopyHint.value = "已复制";
-    setTimeout(() => {
-      logCopyHint.value = "";
-    }, 1500);
-  } catch (e) {
-    logCopyHint.value = `复制失败: ${e}`;
-  }
-}
-
-async function openLogExternally() {
-  try {
-    await invoke("open_app_log");
-  } catch (e) {
-    logCopyHint.value = `打开失败: ${e}`;
   }
 }
 
@@ -2366,24 +2299,6 @@ async function retryLoadConfig() {
         </div>
       </div>
 
-      <div v-if="showLogModal" class="voice-modal-backdrop" @click.self="showLogModal = false">
-        <div class="voice-modal log-modal" role="dialog" aria-modal="true">
-          <h3>运行日志</h3>
-          <p v-if="logPath" class="log-path">{{ logPath }}</p>
-          <pre class="log-viewer">{{ logLoading ? "读取中…" : logText }}</pre>
-          <div class="log-modal-actions">
-            <button class="btn btn-primary" type="button" :disabled="logLoading" @click="copyLog">
-              {{ logCopyHint || "复制" }}
-            </button>
-            <button class="btn btn-secondary" type="button" @click="openLogExternally">
-              用记事本打开
-            </button>
-            <button class="btn btn-secondary" type="button" @click="showLogModal = false">
-              关闭
-            </button>
-          </div>
-        </div>
-      </div>
       <div
         v-if="showVoiceChoice"
         class="voice-modal-backdrop"
@@ -2821,67 +2736,6 @@ async function retryLoadConfig() {
         />
       </section>
     </div>
-
-    <details class="adv-drawer">
-      <summary class="adv-summary">
-        <b>高级诊断</b>
-        <span>主机状态 · 修复动作 · 日志 · 详细信息</span>
-        <span class="adv-chevron" aria-hidden="true">▾</span>
-      </summary>
-      <div class="adv-body">
-        <div class="adv-grid">
-          <div class="adv-block">
-            <h4>主机状态</h4>
-            <div
-              v-for="item in host.items"
-              :key="item.id"
-              class="adv-row"
-            >
-              <span class="adv-dot" :class="itemToneClass(item.tone)" />
-              <span>{{ item.label }}</span>
-              <span class="adv-st">{{ item.state_label }}</span>
-            </div>
-            <p v-if="host.detail" class="adv-detail">{{ host.detail }}</p>
-          </div>
-          <div class="adv-block">
-            <h4>修复动作</h4>
-            <div class="adv-actions-col">
-              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
-                虚拟声卡修复
-              </button>
-              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
-                修复虚拟键盘
-              </button>
-              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
-                修复 ATVV 连接
-              </button>
-              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
-                重启桥接
-              </button>
-            </div>
-          </div>
-          <div class="adv-block">
-            <h4>实时日志</h4>
-            <div class="adv-actions">
-              <button type="button" class="btn btn-secondary" @click="openLogs">
-                打开完整日志
-              </button>
-            </div>
-            <div class="adv-log-preview">
-              <p v-for="entry in logs.slice(0, 12)" :key="entry.id" class="adv-log-line">
-                <span class="adv-log-time">{{ entry.time }}</span>
-                <span>{{ entry.text }}</span>
-              </p>
-              <p v-if="!logs.length" class="adv-log-empty">暂无新日志</p>
-            </div>
-          </div>
-          <div class="adv-block">
-            <h4>原始状态字段</h4>
-            <pre class="adv-raw">{{ rawStatusJson }}</pre>
-          </div>
-        </div>
-      </div>
-    </details>
   </div>
 
   <Teleport to="body">
@@ -2901,8 +2755,6 @@ async function retryLoadConfig() {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
-  /* 抵消 main-content 底部 padding 的一半（20 → 有效 10） */
-  margin-bottom: -10px;
 }
 .mapping-layout.card {
   /* 相对 .card 的 10px，下边减半 */
@@ -3515,13 +3367,6 @@ async function retryLoadConfig() {
   color: #777 !important;
 }
 
-.log-modal {
-  width: min(720px, 100%);
-  max-height: min(80vh, 720px);
-  display: flex;
-  flex-direction: column;
-}
-
 .setup-tips-modal {
   width: min(560px, 100%);
   max-height: min(72vh, 560px);
@@ -3781,35 +3626,6 @@ async function retryLoadConfig() {
   color: #94a3b8;
   text-align: center;
 }
-.log-path {
-  margin: 0 0 8px !important;
-  font-size: 11px !important;
-  color: #888 !important;
-  word-break: break-all;
-}
-.log-viewer {
-  flex: 1;
-  min-height: 240px;
-  max-height: 48vh;
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: ui-monospace, Consolas, "Courier New", monospace;
-}
-.log-modal-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .info-item {
   display: flex;
   flex-direction: column;
@@ -4009,27 +3825,6 @@ async function retryLoadConfig() {
   background: var(--surface-hover);
   color: var(--text);
 }
-.adv-actions-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.adv-actions-col .btn {
-  width: 100%;
-}
-.adv-raw {
-  font-family: "Cascadia Mono", ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-  background: #101318;
-  border-radius: 6px;
-  padding: 8px;
-  height: 130px;
-  overflow: auto;
-  white-space: pre;
-  margin: 0;
-  box-sizing: border-box;
-}
 .credit-line {
   margin: 12px 0 0;
   padding-top: 10px;
@@ -4039,7 +3834,7 @@ async function retryLoadConfig() {
   line-height: 1.5;
 }
 .credit-line a {
-  color: var(--primary);
+  color: #60a5fa;
   text-decoration: none;
 }
 .credit-line a:hover {
@@ -4412,8 +4207,9 @@ async function retryLoadConfig() {
   gap: 12px;
   align-items: stretch;
   flex-direction: unset;
-  min-height: min(560px, calc(100vh - 160px));
-  flex: 1;
+  min-height: 0;
+  flex: 0 0 auto;
+  height: auto;
 }
 @media (max-width: 960px) {
   .page-body.stage-grid { grid-template-columns: 1fr; }
@@ -4421,62 +4217,6 @@ async function retryLoadConfig() {
 .status-col { min-height: 0; display: flex; flex-direction: column; }
 .status-col .host-card { height: 100%; display: flex; flex-direction: column; }
 .status-col .host-actions-stack { margin-top: auto; }
-.adv-drawer {
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  overflow: hidden;
-}
-.adv-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 12.5px;
-  color: var(--text);
-}
-.adv-summary::-webkit-details-marker { display: none; }
-.adv-summary b { font-weight: 600; }
-.adv-summary span { color: var(--text-secondary); }
-.adv-chevron { margin-left: auto; color: var(--text-secondary); }
-.adv-drawer[open] .adv-chevron { transform: rotate(180deg); }
-.adv-body { padding: 0 12px 12px; }
-.adv-grid { display: grid; gap: 10px; grid-template-columns: 1fr; }
-@media (min-width: 800px) {
-  .adv-grid { grid-template-columns: 1fr 1.2fr; }
-}
-.adv-block {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--panel-2);
-}
-.adv-block h4 { margin: 0 0 8px; font-size: 12px; color: var(--text-secondary); }
-.adv-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; }
-.adv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
-.adv-dot.ok { background: var(--success); }
-.adv-dot.warn { background: var(--warning); }
-.adv-dot.error { background: var(--danger); }
-.adv-st { margin-left: auto; color: var(--text-secondary); font-size: 12px; }
-.adv-detail { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
-.adv-actions { display: flex; gap: 8px; margin-bottom: 8px; }
-.adv-log-preview {
-  height: 130px;
-  overflow: auto;
-  background: #0f1218;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  line-height: 1.45;
-  box-sizing: border-box;
-}
-.adv-log-line { margin: 0 0 2px; color: #b6c0cc; }
-.adv-log-time { color: var(--dim); margin-right: 6px; }
-.adv-log-empty { margin: 0; color: var(--dim); }
 .device-info-row,
 .log-aside { display: none !important; }
 .status-col .host-card { height: 100%; }
