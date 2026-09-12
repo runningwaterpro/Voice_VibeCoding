@@ -244,6 +244,8 @@ async function confirmQuit() {
   user-select: none;
   flex-shrink: 0;
   min-width: 0;
+  /* 与机身圆角对齐：父级 border-radius 不裁子元素 */
+  border-radius: 11px 11px 0 0;
 }
 
 .session-chip {

@@ -406,10 +406,7 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
     let Some(config) = load_xiaomi_config(app) else {
         return;
     };
-    if !config.voice_shortcut_enabled {
-        log::info!("XIAOMI VOICE shortcut disabled");
-        return;
-    }
+    // v4.1：取消「是否发送映射」开关——语音键始终注热键（若有映射）
     let vks = resolve_voice_hotkey(&config);
     if vks.is_empty() {
         log::warn!("XIAOMI VOICE shortcut empty");

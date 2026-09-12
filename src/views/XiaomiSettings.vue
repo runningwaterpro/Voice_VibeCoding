@@ -842,15 +842,6 @@ const showAtvvFailLabel = computed(
   () => Boolean(host.value.bridge_alive) && !(voiceMeter.value.atvvOk || host.value.atvv_ok)
 );
 
-const voiceShortcutEnabled = computed({
-  get: () => config.value?.voice_shortcut_enabled !== false,
-  set: (v: boolean) => {
-    if (!config.value) return;
-    config.value.voice_shortcut_enabled = v;
-    void persistVoiceSettings();
-  },
-});
-
 const GAIN_MIN = -12;
 const GAIN_MAX = 30;
 const GAIN_STEP = 1;
@@ -979,6 +970,18 @@ async function persistVoiceSettings() {
     }
   });
 }
+
+/** v4.1：取消开关后，旧配置若为 false 也强制为 true（语音键始终注热键） */
+watch(
+  config,
+  (c) => {
+    if (c && c.voice_shortcut_enabled === false) {
+      c.voice_shortcut_enabled = true;
+      void persistVoiceSettings();
+    }
+  },
+  { immediate: true },
+);
 
 /** 输入法一键预设（微信 / 豆包 / 千问等） */
 function isWechatPreset(id: ImePresetId): boolean {
@@ -1604,9 +1607,8 @@ onMounted(async () => {
       const label = p.label || resolveKeyLabel(id);
       const phase: "down" | "up" = p.phase === "up" ? "up" : "down";
       const isVoice = id === "mic" || id === "voice";
-      const voiceMapOn = config.value?.voice_shortcut_enabled !== false;
-      // D1：语音映射关闭时只显示按下/抬起，不写映射段
-      const lineMapped = isVoice && !voiceMapOn ? null : resolveMappedActionLabel(id);
+      // v4.1：语音键始终注热键，映射区完整显示绑定
+      const lineMapped = resolveMappedActionLabel(id);
       showMappingFlash(label, lineMapped, phase);
     });
   } catch (e) {
@@ -2611,121 +2613,6 @@ async function retryLoadConfig() {
               <span class="mapping-flash-mapped">{{ lastMappingFlash.mapped }}</span>
             </template>
           </p>
-        </div>
-        <div class="voice-toolbar" role="group" aria-label="语音听写设置">
-          <div class="voice-toolbar-item">
-            <span class="voice-toolbar-label">点击语音键：发送映射</span>
-            <label class="switch" title="点击语音键：发送映射">
-              <input
-                type="checkbox"
-                v-model="voiceShortcutEnabled"
-                aria-label="点击语音键：发送映射"
-              />
-              <span class="switch-slider" aria-hidden="true"></span>
-            </label>
-            <button
-              ref="voiceInfoBtn"
-              type="button"
-              class="title-info voice-info"
-              :aria-expanded="showVoiceShortcutTip"
-              aria-label="语音映射按键说明"
-              @mouseenter="openVoiceTip"
-              @mouseleave="scheduleCloseVoiceTip"
-              @focus="openVoiceTip"
-              @blur="scheduleCloseVoiceTip"
-              @click.stop="toggleVoiceTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showVoiceShortcutTip"
-                ref="voiceTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="voiceTipStyle"
-                @mouseenter="openVoiceTip"
-                @mouseleave="scheduleCloseVoiceTip"
-              >
-                <p class="tip-lead">
-                  只管「按语音键时要不要发映射快捷键」。传声（VB-CABLE）不受此开关影响。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">开</div>
-                  <ul>
-                    <li>声音送到电脑</li>
-                    <li>按住语音键时发送你设好的映射快捷键</li>
-                  </ul>
-                  <p class="tip-aside">适合靠快捷键开/关的语音输入法。</p>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">关</div>
-                  <ul>
-                    <li>声音照样送到电脑</li>
-                    <li>不发送映射键（日志只记按下/抬起语音键）</li>
-                  </ul>
-                  <p class="tip-aside">听写需自行打开输入法语音。</p>
-                </div>
-              </div>
-            </Teleport>
-          </div>
-
-          <div v-if="SHOW_VOICE_TRIGGER_MODE" class="voice-toolbar-item">
-            <span class="voice-toolbar-label">触发模式</span>
-            <select
-              v-model="config.trigger_mode"
-              class="form-select voice-toolbar-select"
-              @change="persistVoiceSettings"
-            >
-              <option value="Toggle">点击</option>
-              <option value="Hold">按住</option>
-            </select>
-            <button
-              ref="triggerInfoBtn"
-              type="button"
-              class="title-info voice-info"
-              :aria-expanded="showTriggerTip"
-              aria-label="触发模式说明"
-              @mouseenter="openTriggerTip"
-              @mouseleave="scheduleCloseTriggerTip"
-              @focus="openTriggerTip"
-              @blur="scheduleCloseTriggerTip"
-              @click.stop="toggleTriggerTip"
-            >
-              <span class="title-info-icon" aria-hidden="true">i</span>
-            </button>
-            <Teleport to="body">
-              <div
-                v-if="showTriggerTip"
-                ref="triggerTipEl"
-                class="floating-info-tip voice-info-tip"
-                role="tooltip"
-                :style="triggerTipStyle"
-                @mouseenter="openTriggerTip"
-                @mouseleave="scheduleCloseTriggerTip"
-              >
-                <p class="tip-lead">
-                  快捷键跟随遥控器实际操作：点一下就点按，按住就按住。
-                </p>
-                <div class="tip-block tip-on">
-                  <div class="tip-badge">点击</div>
-                  <ul>
-                    <li>短按语音键：点按一次映射快捷键</li>
-                    <li>长按语音键：按住映射快捷键，松手释放</li>
-                  </ul>
-                  <p class="tip-aside">适合「点一下开/关」类输入法，也会正确处理长按。</p>
-                </div>
-                <div class="tip-block tip-off">
-                  <div class="tip-badge">按住</div>
-                  <ul>
-                    <li>按下语音键：立刻按住映射快捷键并传声</li>
-                    <li>松开语音键：释放快捷键并结束</li>
-                  </ul>
-                  <p class="tip-aside">适合「按住说话」类输入法。</p>
-                </div>
-              </div>
-            </Teleport>
-          </div>
         </div>
         <KeyMappingStage
           :config="config"

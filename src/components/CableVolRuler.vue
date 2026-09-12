@@ -95,10 +95,11 @@ const ariaLabel = computed(() => {
   height: 22px;
   padding: 0 4px;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
+  display: grid;
+  /* 固定文案列：hint/db 字数变化不挤标尺轨 */
+  grid-template-columns: 7em minmax(80px, 1fr) 5.2em 2.8em;
   gap: 8px;
+  align-items: center;
   border-radius: 4px;
   background: var(--panel-2);
   border: 1px solid var(--border, #e2e8f0);

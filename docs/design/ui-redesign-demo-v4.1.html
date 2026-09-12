@@ -45,7 +45,12 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   .app{max-width:1120px;margin:20px auto;border-radius:12px;box-shadow:0 0 0 1px #343b46}
 }
 
-.topnav{display:flex;align-items:center;gap:14px;height:44px;padding:0 14px;background:#14171c;flex-shrink:0;position:sticky;top:0;z-index:30}
+.topnav{
+  display:flex;align-items:center;gap:14px;height:44px;padding:0 14px;
+  background:#14171c;flex-shrink:0;position:sticky;top:0;z-index:30;
+  /* 顶角圆角与机身对齐：子元素不被父 border-radius 裁剪时用自身半径 */
+  border-radius:11px 11px 0 0;
+}
 .brand{display:flex;align-items:baseline;gap:8px;flex-shrink:0}
 .brand b{font-size:13.5px}
 .brand span{font-size:11px;color:var(--muted);font-family:var(--mono)}
@@ -87,7 +92,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .meters{display:flex;flex-direction:column;gap:3px;padding:7px 12px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);flex-shrink:0}
 .meter{
   display:grid;
-  grid-template-columns:7em minmax(60px,1fr) 4.8em 2.5em;
+  /* 固定右侧文案列宽：hint/db 不随字数挤轨，标尺宽度稳定可对比 */
+  grid-template-columns:7em minmax(80px,1fr) 5.2em 2.8em;
   gap:10px;align-items:center;min-height:24px;font-size:12px;
 }
 .meter .cap{color:var(--muted);white-space:nowrap}
@@ -108,7 +114,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 /* gain row aligned under meters; does not steal track width */
 .gain-row{
   display:grid;
-  grid-template-columns:7em minmax(60px,1fr) 4.8em 2.5em;
+  grid-template-columns:7em minmax(80px,1fr) 5.2em 2.8em;
   gap:10px;align-items:center;min-height:26px;font-size:12px;
   margin-top:2px;padding-top:4px;border-top:1px dashed #2a3038;
 }
@@ -122,20 +128,18 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .gain-btn:hover{border-color:var(--muted)}
 .gain-val{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:3.4em;text-align:center}
 
-/* v4.1: voice click toggle + 3 quick presets */
-.voice-toggle-row{margin:0 0 10px}
-.voice-toggle{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+/* v4.1: meters — fixed hint/db columns; topnav top radius */
 .switch{
-  position:relative;width:40px;height:22px;border-radius:99px;background:#3a424e;border:none;flex-shrink:0;cursor:pointer;padding:0;
+  position:relative;width:36px;height:20px;border-radius:99px;background:#3a424e;border:none;flex-shrink:0;cursor:pointer;padding:0;
   transition:background-color 150ms var(--ease-out),transform 160ms var(--ease-out);
 }
 .switch::after{
-  content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#c5cad1;
+  content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#c5cad1;
   transition:transform 150ms var(--ease-out);
 }
 .switch:active{transform:scale(0.97)}
 .switch.on{background:#2f6a5f}
-.switch.on::after{transform:translateX(18px);background:var(--signal)}
+.switch.on::after{transform:translateX(16px);background:var(--signal)}
 .voice-quick-panel{
   margin-top:8px;padding:10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel2);
 }
@@ -498,7 +502,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   </header>
 
   <div class="demo-bar">
-    <span>预览控制（非正式界面）· v4.1：单主操作 · 去重复文案 · 三预设</span>
+    <span>预览控制 · v4.1：顶栏圆角 · 电平列宽固定 · 无语音键开关</span>
     <button type="button" data-state="idle">未连接</button>
     <button type="button" data-state="connecting">连接中</button>
     <button type="button" data-state="ready" class="on">就绪</button>
@@ -580,14 +584,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
           <circle id="dotB" r="3.2" cx="0" cy="0"></circle>
         </svg>
         <h2 class="map-work-title">按键映射</h2>
-        <div class="voice-toggle-row">
-          <label class="voice-toggle">
-            <span>点击语音键：发送映射</span>
-            <button type="button" class="switch on" aria-pressed="true" id="voiceClickSwitch" aria-label="点击语音键发送映射">
-              <span class="switch-knob"></span>
-            </button>
-          </label>
-        </div>
         <div class="map-cols">
         <div class="map-col" id="mapLeft" aria-label="按键映射左列"></div>
         <div class="remote-panel" aria-label="遥控器">
