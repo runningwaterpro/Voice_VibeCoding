@@ -740,7 +740,7 @@ pub async fn repair_xiaomi_winuhid(
 ) -> Result<crate::bridges::xiaomi::winuhid_env::WinUHidActionResult, String> {
     let force = force.unwrap_or(false);
     log::info!("XIAOMI WINUHID repair enter source={source:?} force={force}");
-    let result = if let Some(src) = source {
+    let result: crate::bridges::xiaomi::winuhid_env::WinUHidActionResult = if let Some(src) = source {
         tokio::task::spawn_blocking(move || {
             crate::bridges::xiaomi::winuhid_env::repair_with_source(&src, force)
         })
@@ -748,14 +748,14 @@ pub async fn repair_xiaomi_winuhid(
         .map_err(|e| {
             log::error!("XIAOMI WINUHID repair task join failed: {e}");
             format!("winuhid repair task: {e}")
-        })?
+        })??
     } else if force {
         tokio::task::spawn_blocking(|| crate::bridges::xiaomi::winuhid_env::repair_embedded(true))
             .await
             .map_err(|e| {
                 log::error!("XIAOMI WINUHID repair task join failed: {e}");
                 format!("winuhid repair task: {e}")
-            })?
+            })??
     } else {
         tokio::task::spawn_blocking(crate::bridges::xiaomi::winuhid_env::check_or_repair)
             .await
