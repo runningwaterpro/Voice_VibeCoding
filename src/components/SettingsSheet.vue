@@ -58,7 +58,7 @@ onMounted(async () => {
         </label>
         <label class="setting-row">
           <span class="setting-lab">
-            <b>点击关闭最小化到托盘</b>
+            <b>关闭到托盘</b>
             <span>点关闭时进托盘，而不是退出</span>
           </span>
           <button
@@ -66,7 +66,7 @@ onMounted(async () => {
             class="switch"
             :class="{ on: settings.minimize_to_tray }"
             :aria-pressed="settings.minimize_to_tray"
-            aria-label="点击关闭最小化到托盘"
+            aria-label="关闭到托盘"
             @click.prevent="settings.minimize_to_tray = !settings.minimize_to_tray; globalSettings.save()"
           >
             <span class="switch-knob" />
