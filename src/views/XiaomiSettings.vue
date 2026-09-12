@@ -2674,9 +2674,16 @@ async function retryLoadConfig() {
   margin-bottom: 8px;
   min-height: 1.4em;
 }
-.mapping-layout h3 {
+/* 与 V4 map-work-title 一致：区块小标题，非页面大标题 */
+.mapping-layout h3,
+.mapping-placeholder h3,
+.mapping-error h3 {
   margin: 0;
   flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.3;
 }
 .mapping-placeholder,
 .mapping-error {
