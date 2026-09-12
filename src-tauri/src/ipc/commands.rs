@@ -75,7 +75,17 @@ async fn start_xiaomi_bridge(
 ) -> Result<(), String> {
     let runtime = app.state::<Arc<XiaomiRuntime>>();
     if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
-        return Err("小米桥接已在运行".into());
+        // 旧 worker 仍在：请求停止并等待，而不是直接失败
+        runtime.request_stop();
+        for _ in 0..50 {
+            if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("小米桥接仍在退出中，请稍后再点「重新连接」".into());
+        }
     }
     runtime.clear_stop();
     runtime
@@ -221,6 +231,16 @@ pub async fn stop_bridge(
     if bt == BridgeType::Xiaomi {
         if let Some(runtime) = app.try_state::<Arc<XiaomiRuntime>>() {
             runtime.request_stop();
+            // 与 restart 一致：等 worker 把 running 置 false，否则立刻 start 会报「已在运行」
+            for _ in 0..50 {
+                if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                log::warn!("stop_bridge: xiaomi worker still running after 5s wait");
+            }
         }
     }
     state.update_status(bt, BridgeStatus::Disconnected);

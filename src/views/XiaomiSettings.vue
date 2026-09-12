@@ -328,7 +328,7 @@ const railFocus = computed<RailFocus>(() => {
         primary: null,
         secondary: null,
         showRepairs: false,
-        healthyText: "全部服务正常",
+        healthyText: null,
       };
     case "error":
       return {
@@ -394,8 +394,16 @@ const showRepairBtn = (key: RepairKey) =>
   (railFocus.value.primary === key || railFocus.value.secondary === key);
 
 const repairBtnClass = (key: RepairKey) => {
-  if (railFocus.value.primary === key) return "btn btn-attention";
-  if (railFocus.value.secondary === key) return "btn btn-attention-sec";
+  const { primary, secondary } = railFocus.value;
+  if (primary === key) return "btn btn-attention";
+  // 桥接未运行：重启与重新连接同级琥珀，避免隐蔽灰钮
+  if (
+    secondary === key &&
+    (railState.value === "err_bridge" || railState.value === "idle")
+  ) {
+    return "btn btn-attention";
+  }
+  if (secondary === key) return "btn btn-attention-sec";
   return "btn";
 };
 
@@ -1949,7 +1957,13 @@ async function retryLoadConfig() {
           <button
             type="button"
             class="btn rail-conn"
-            :class="railFocus.connCls === 'primary' ? 'btn-primary' : 'btn-secondary'"
+            :class="
+              railFocus.primary === 'conn'
+                ? 'btn-attention'
+                : railFocus.connCls === 'primary'
+                  ? 'btn-primary'
+                  : 'btn-secondary'
+            "
             :disabled="connBusy && railState !== 'connecting'"
             @click="toggleRailConnect"
           >
@@ -3304,7 +3318,14 @@ async function retryLoadConfig() {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    filter 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .btn-tiny {
   padding: 2px 8px;
@@ -3324,7 +3345,9 @@ async function retryLoadConfig() {
   border: 1px solid var(--border);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: #e2e8f0;
+  background: var(--surface-hover);
+  border-color: var(--text-secondary);
+  color: var(--text);
 }
 .btn-primary {
   background: var(--primary);
@@ -3928,9 +3951,14 @@ async function retryLoadConfig() {
   font-weight: 600;
 }
 .btn-attention-sec {
-  border-color: var(--edge) !important;
-  color: var(--text-secondary) !important;
+  border-color: #8a6d2f !important;
+  color: var(--warning) !important;
   background: transparent !important;
+  font-weight: 500;
+}
+.btn-attention-sec:hover:not(:disabled) {
+  border-color: var(--warning) !important;
+  background: #3d3220 !important;
 }
 .more-ops {
   margin-top: auto;
@@ -3942,6 +3970,14 @@ async function retryLoadConfig() {
   font-size: 12px;
   color: var(--text-secondary);
   list-style: none;
+  transition: color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.more-ops > summary:hover {
+  color: var(--text);
+}
+.more-ops > summary:active {
+  transform: scale(0.97);
 }
 .more-ops > summary::-webkit-details-marker {
   display: none;
@@ -3961,6 +3997,17 @@ async function retryLoadConfig() {
 }
 .more-ops .ops-body .btn {
   width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  font-size: 12.5px;
+  padding: 7px 10px;
+}
+.more-ops .ops-body .btn:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 .adv-actions-col {
   display: flex;
@@ -3977,10 +4024,11 @@ async function retryLoadConfig() {
   background: #101318;
   border-radius: 6px;
   padding: 8px;
-  max-height: 160px;
+  height: 130px;
   overflow: auto;
   white-space: pre;
   margin: 0;
+  box-sizing: border-box;
 }
 .credit-line {
   margin: 12px 0 0;
@@ -4172,10 +4220,16 @@ async function retryLoadConfig() {
   line-height: 1;
   cursor: pointer;
   user-select: none;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .stepper-btn:hover:not(:disabled) {
-  background: #e2e8f0;
+  background: var(--surface-hover);
+}
+
+.stepper-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .stepper-btn:disabled {
@@ -4410,7 +4464,7 @@ async function retryLoadConfig() {
 .adv-detail { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
 .adv-actions { display: flex; gap: 8px; margin-bottom: 8px; }
 .adv-log-preview {
-  max-height: 120px;
+  height: 130px;
   overflow: auto;
   background: #0f1218;
   border-radius: 6px;
@@ -4418,6 +4472,7 @@ async function retryLoadConfig() {
   font-family: var(--mono, monospace);
   font-size: 11px;
   line-height: 1.45;
+  box-sizing: border-box;
 }
 .adv-log-line { margin: 0 0 2px; color: #b6c0cc; }
 .adv-log-time { color: var(--dim); margin-right: 6px; }

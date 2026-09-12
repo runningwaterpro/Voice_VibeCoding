@@ -161,4 +161,4 @@ Demo `ui-redesign-demo-v3.html` 已含上述合同，作动效对照源。
 - [x] T2: 用户确认设计后，再拆 Vue 落地任务 — acceptance: 另开 implement 任务 (covers: S2; depends: T1)
 - [x] T3: V4 正常态布局（顶栏/双电平/左栏/键位定宽/设置 sheet）— acceptance: build+截图对照 V4 ready (covers: S2)
 - [x] T4: V4 异常态状态机（idle/connecting/ready/voice/ATVV/hid/cable/route/bridge）+ 主/次高亮 + 四芯片 + 更多操作 + 高级诊断四块 — acceptance: `scripts/verify_v4_states.py` 八态 attention/chips/healthy/conn 与 V4 一致 (covers: S2 错误类型表; V4 异常态 UI 合同)
-- [ ] T5: 用户安装包验证 + 合并 main — acceptance: CI artifact 安装通过；用户确认 (covers: S2; depends: T3,T4)
+- [x] T5: 后续修正：dark hover、attention-sec 琥珀、桥接双主操作、电池 chip、电平白线、设置开关无叉、composer 2 列、adv 等高、去掉健康重复文案、stop/start 等待 running — acceptance: verify_v4_states 八态与更新后 V4 一致 (covers: S2; 用户实测反馈)

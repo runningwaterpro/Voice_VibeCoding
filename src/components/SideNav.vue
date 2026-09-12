@@ -51,6 +51,18 @@ const deviceItems = computed(() =>
 
 const xiaomiStatusText = computed(() => bridge.statusLabel(bridge.devices.xiaomi.status));
 
+const batteryRaw = computed(() => bridge.devices.xiaomi.battery_level);
+const batteryText = computed(() =>
+  batteryRaw.value == null ? "—" : `${Math.round(batteryRaw.value)}%`,
+);
+const batteryTone = computed(() => {
+  const v = batteryRaw.value;
+  if (v == null) return "unknown";
+  if (v <= 15) return "crit";
+  if (v <= 30) return "low";
+  return "ok";
+});
+
 async function refreshSession() {
   try {
     const h = await invoke<{
@@ -93,7 +105,10 @@ onMounted(async () => {
   }
   await bridge.refreshStatus("xiaomi");
   await refreshSession();
-  hostTimer = setInterval(refreshSession, 2000);
+  hostTimer = setInterval(() => {
+    void refreshSession();
+    void bridge.refreshStatus("xiaomi");
+  }, 2000);
 });
 
 onUnmounted(() => {
@@ -146,6 +161,20 @@ async function confirmQuit() {
       <span :class="['session-dot', `tone-${session.tone}`]" />
       <span class="session-title">{{ session.title }}</span>
       <span v-if="session.sub" class="session-sub">{{ session.sub }}</span>
+    </div>
+
+    <div
+      class="battery-chip"
+      :class="`is-${batteryTone}`"
+      title="遥控器电池电量"
+      aria-label="遥控器电池"
+    >
+      <svg class="battery-ico" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="7" width="17" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <path d="M21 10v4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        <rect class="battery-fill" x="4" y="9" width="10" height="6" rx="1" fill="currentColor" />
+      </svg>
+      <span>{{ batteryText }}</span>
     </div>
 
     <nav class="nav-row" v-if="deviceItems.length > 1">
@@ -259,6 +288,34 @@ async function confirmQuit() {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+.battery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--panel);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.battery-chip .battery-ico {
+  width: 14px;
+  height: 14px;
+  color: var(--success);
+}
+.battery-chip.is-low .battery-ico {
+  color: var(--warning);
+}
+.battery-chip.is-crit .battery-ico {
+  color: var(--danger);
+}
+.battery-chip.is-unknown .battery-ico {
+  color: var(--dim, #5c6673);
 }
 .single-device-label {
   display: inline-flex;

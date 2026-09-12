@@ -124,16 +124,11 @@ const ariaLabel = computed(() => {
   min-width: 48px;
   height: 8px;
   border-radius: 3px;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--edge);
+  background: linear-gradient(90deg, #2a2e24 0 33%, #1e2e2a 33% 78%, #2e2424 78% 100%);
+  overflow: hidden;
 }
 
-.cable-vol-ruler.shell-idle .ruler-zone,
-.cable-vol-ruler.shell-disabled .ruler-zone {
-  opacity: 0;
-}
-
-.cable-vol-ruler.shell-idle .ruler-track,
 .cable-vol-ruler.shell-disabled .ruler-track {
   border-color: transparent;
   background: transparent;
@@ -141,9 +136,9 @@ const ariaLabel = computed(() => {
 
 .cable-vol-ruler.shell-active .ruler-track {
   border-color: rgba(77, 182, 164, 0.45);
-  background: rgba(255, 255, 255, 0.04);
 }
 
+/* 与 V4 一致：弱透明分区叠在轨道上 */
 .ruler-zones {
   position: absolute;
   inset: 0;
@@ -154,7 +149,15 @@ const ariaLabel = computed(() => {
 
 .ruler-zone {
   height: 100%;
-  opacity: 0.35;
+  opacity: 0.28;
+}
+
+.cable-vol-ruler.shell-idle .ruler-zone {
+  opacity: 0.12;
+}
+
+.cable-vol-ruler.shell-disabled .ruler-zone {
+  opacity: 0;
 }
 
 .zone-low {
@@ -181,27 +184,20 @@ const ariaLabel = computed(() => {
 
 .ruler-marker {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: #8b95a3;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
-  transition: left 70ms linear, background-color 120ms ease;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #e8ecf1;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 6px rgba(232, 236, 241, 0.35);
+  transition: left 100ms linear, background-color 120ms ease;
   pointer-events: none;
 }
 
-.shell-active.zone-low .ruler-marker {
-  background: #d4a84b;
-}
-
-.shell-active.zone-ok .ruler-marker {
-  background: #4db6a4;
-}
-
 .shell-active.zone-high .ruler-marker {
-  background: #e06b6b;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 8px rgba(224, 107, 107, 0.55);
 }
 
 .ruler-hint {

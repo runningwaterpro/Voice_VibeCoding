@@ -170,7 +170,7 @@ watch(() => props.initialKeys, resetFromKeys, { immediate: true });
 }
 .shortcut-composer-fields {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 .shortcut-composer-fields label {

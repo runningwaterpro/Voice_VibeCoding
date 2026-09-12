@@ -63,8 +63,18 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .led.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
 .led.fail{background:var(--fail);box-shadow:0 0 8px var(--fail)}
 .nav-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}
-.nav-btn{border:1px solid var(--edge);background:var(--panel);color:var(--muted);border-radius:6px;padding:5px 12px;font-size:12.5px}
+.nav-btn{border:1px solid var(--edge);background:var(--panel);color:var(--muted);border-radius:6px;padding:5px 12px;font-size:12.5px;transition:transform var(--t-press) var(--ease-out),background-color 150ms var(--ease-out),border-color 150ms var(--ease-out),color 150ms var(--ease-out)}
 .nav-btn:hover{color:var(--ink);border-color:var(--muted)}
+.nav-btn:active{transform:scale(0.97)}
+.battery-chip{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  padding:3px 8px;border-radius:999px;border:1px solid var(--edge);
+  background:var(--panel);color:var(--muted);font-size:11.5px;font-family:var(--mono);
+}
+.battery-chip .battery-ico{width:14px;height:14px;color:var(--signal)}
+.battery-chip.is-low .battery-ico{color:var(--warn)}
+.battery-chip.is-crit .battery-ico{color:var(--fail)}
+.battery-chip.is-unknown .battery-ico{color:var(--dim)}
 
 .demo-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 14px;background:#101318;border-bottom:1px solid var(--edge);font-size:12px;color:var(--muted)}
 .demo-bar button{border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--muted);padding:3px 10px;font-size:12px}
@@ -83,11 +93,15 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .meter .track{position:relative;height:8px;border-radius:99px;border:1px solid var(--edge);
   background:linear-gradient(90deg,#2a2e24 0 33%,#1e2e2a 33% 78%,#2e2424 78% 100%)}
 .meter .mark{
-  position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);left:10%;
-  transition:left 70ms linear,background-color 120ms ease-out;
+  position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1.5px;
+  background:var(--ink);left:10%;
+  border-radius:2px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 6px rgba(232,236,241,.35);
+  transition:left 100ms linear,background-color 120ms ease-out;
 }
-.meter.ok .mark{background:var(--signal)}
-.meter.high .mark{background:var(--fail)}
+/* 白线+暗边：黄/绿/红三区都醒目；分区色只作弱提示 */
+.meter.ok .mark{background:#e8ecf1}
+.meter.high .mark{background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 8px rgba(224,107,107,.55)}
 .meter .hint{color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meter .db{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
 /* gain row aligned under meters; does not steal track width */
@@ -155,7 +169,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   .map-cols .remote-panel{order:1}
   .map-cols .map-col .map-card{max-width:none;width:100%}
 }
-}
 
 .gain-ctl{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
 .gain-btn{
@@ -187,8 +200,14 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .btn.danger{background:#3a2424;border-color:#6a3a3a;color:var(--fail)}
 .btn.ghost{background:transparent}
 .btn.attention{border-color:var(--warn);color:var(--warn);background:#3d3220;font-weight:600}
-.btn.attention-sec{border-color:var(--edge);color:var(--muted);background:transparent}
+.btn.attention-sec{border-color:#8a6d2f;color:var(--warn);background:transparent;font-weight:500}
+.btn.attention-sec:hover{border-color:var(--warn);background:#3d3220}
 .btn[hidden]{display:none}
+/* more-ops summary feedback */
+.more-ops>summary{transition:color 150ms var(--ease-out)}
+.more-ops>summary:hover{color:var(--ink)}
+.more-ops>summary:active{transform:scale(0.97)}
+.gain-btn:active{transform:scale(0.97)}
 /* card actions: compact, non-stretching, same row */
 .map-card-actions .btns .btn{
   width:auto!important;flex:0 0 auto;padding:5px 10px;font-size:12px;
@@ -460,6 +479,14 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
       <strong id="headline">语音可用</strong>
       <span id="subline" class="sub-muted" hidden></span>
     </div>
+    <div class="battery-chip" id="batteryChip" title="遥控器电池电量" aria-label="遥控器电池">
+      <svg class="battery-ico" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="7" width="17" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M21 10v4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <rect class="battery-fill" x="4" y="9" width="10" height="6" rx="1" fill="currentColor"/>
+      </svg>
+      <span id="batteryText">83%</span>
+    </div>
     <div class="nav-actions">
       <button type="button" class="nav-btn" id="btnSettings">设置</button>
       <button type="button" class="nav-btn" id="btnQuit">退出</button>
@@ -467,7 +494,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   </header>
 
   <div class="demo-bar">
-    <span>预览控制（非正式界面）</span>
+    <span>预览控制（非正式界面）· 本轮：电池/电平白线/重启琥珀/去掉健康重复文案</span>
     <button type="button" data-state="idle">未连接</button>
     <button type="button" data-state="connecting">连接中</button>
     <button type="button" data-state="ready" class="on">就绪</button>
@@ -657,7 +684,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
     <div class="setting"><div class="lab"><b>启动后最小化到托盘</b><span>不显示主窗口，托盘图标就绪</span></div><button type="button" class="switch" aria-pressed="false"></button></div>
     <div class="setting"><div class="lab"><b>最小化到托盘</b><span>点关闭时进托盘，而不是退出</span></div><button type="button" class="switch on" aria-pressed="true"></button></div>
     <div class="setting"><div class="lab"><b>隐藏开发中项目菜单</b><span>仅显示小米遥控器</span></div><button type="button" class="switch on" aria-pressed="true"></button></div>
-    <p class="note">键位、增益、输入法预设在主界面操作，不进本页。</p>
+    <p class="note">键位、增益在主界面操作，不进本页。此处无右上角关闭叉，仅底部「关闭」。</p>
   </div>
 </div>
 
@@ -988,23 +1015,27 @@ function applyState(name){
   const btnIds=["btnConn","btnRepairCable","btnRepairHid","btnRepairAtvv","btnRestart"];
   const primaryId=s.primary||null;
   const secondaryIds=s.secondary||[];
+  const bridgeDown=["idle","err_bridge"].includes(name);
   btnIds.forEach(id=>{
     const el=$(id);if(!el)return;
     const isConn=id==="btnConn";
     if(!isConn){
       const needed=id===primaryId || secondaryIds.includes(id)
-        || (id==="btnRestart" && ["idle","err_bridge"].includes(name) && !primaryId);
+        || (id==="btnRestart" && bridgeDown && !primaryId);
       el.hidden=!needed;
     }
     const base=isConn?("btn "+(s.connCls||"")):"btn";
-    if(id===primaryId) el.className=base+" attention";
+    // 桥接未运行：重启与重新连接同级琥珀，避免隐蔽灰钮
+    if(id===primaryId || (bridgeDown && id==="btnRestart" && secondaryIds.includes(id))) el.className=base+" attention";
     else if(secondaryIds.includes(id)) el.className=base+" attention-sec";
     else el.className=base;
   });
   const showRepairs=!!primaryId||secondaryIds.length>0||["idle","err_bridge","err_route","error","err_hid","err_cable"].includes(name);
   $("repairGroup").hidden=!showRepairs;
-  $("healthyNote").hidden=showRepairs;
-  $("healthyNote").textContent=name==="voice"?"采音送声中":"全部服务正常";
+  // 健康态由四枚芯片表达，不再重复「全部服务正常」；仅采音中保留瞬时提示
+  const healthyEl=$("healthyNote");
+  if(name==="voice"){healthyEl.hidden=false;healthyEl.textContent="采音送声中";}
+  else{healthyEl.hidden=true;healthyEl.textContent="";}
   $("moreOps").open=showRepairs?false:$("moreOps").open;
   $("markIn").style.left=s.inMark+"%";$("markOut").style.left=s.outMark+"%";
   $("meterIn").className="meter "+s.inCls;$("meterOut").className="meter "+s.outCls;
@@ -1020,6 +1051,12 @@ function applyState(name){
     gain_db:gain,
   },null,2);
   document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.classList.toggle("on",b.dataset.state===name));
+  // 电池：演示固定 83%；正式应用读 DeviceInfo.battery_level
+  const bat=83;
+  const batChip=$("batteryChip"),batText=$("batteryText");
+  batChip.classList.remove("is-low","is-crit","is-unknown");
+  if(bat==null){batChip.classList.add("is-unknown");batText.textContent="—";}
+  else{batText.textContent=bat+"%";if(bat<=15)batChip.classList.add("is-crit");else if(bat<=30)batChip.classList.add("is-low");}
   const msgs={
     idle:["info","桥接未运行"],
     connecting:["info","正在连接遥控器"],

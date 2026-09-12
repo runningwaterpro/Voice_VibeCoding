@@ -144,7 +144,11 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'get_xiaomi_host_status') return window.__MOCK_HOST__;
     if (cmd === 'get_device_status') return {
       type: 'xiaomi', name: 'Xiaomi Remote 2 Pro',
+      bridge_type: 'xiaomi',
       status: window.__MOCK_HOST__.bridge_alive ? 'Connected' : 'Disconnected',
+      device_name: 'Xiaomi Remote 2 Pro',
+      device_address: '00:11:22:33:44:55',
+      battery_level: 83,
       battery: null,
     };
     if (cmd === 'load_config') return {
@@ -172,6 +176,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def start_server():
+    socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.TCPServer(("127.0.0.1", PORT), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
@@ -198,6 +203,9 @@ EXTRACT = """
     chips, attention, attentionSec,
     healthy: visible(healthy) ? text(healthy) : null,
     statusLine, conn, moreOps, topnavHasConnect, railBtns,
+    battery: text(q('.battery-chip')),
+    hasSettingsCloseX: !!q('.settings-close'),
+    hasSwitch: !!q('.switch'),
   };
 }
 """
