@@ -2668,16 +2668,17 @@ async function retryLoadConfig() {
 }
 .mapping-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin-bottom: 8px;
-  min-height: 1.4em;
+  margin: 0 0 10px;
+  min-height: 1.3em;
 }
-/* 与 V4 map-work-title 一致：区块小标题，非页面大标题 */
+/* 与 rail-title 同一盒模型：字号/行高/下边距一致，保证左右标题水平对齐 */
 .mapping-layout h3,
 .mapping-placeholder h3,
-.mapping-error h3 {
+.mapping-error h3,
+.rail-title {
   margin: 0;
   flex: 0 0 auto;
   font-size: 12px;
@@ -3670,21 +3671,26 @@ async function retryLoadConfig() {
   color: var(--text-secondary);
 }
 .chip-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 5px;
   margin-bottom: 8px;
 }
 .chip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
+  justify-content: center;
+  padding: 3px 6px;
   border-radius: 999px;
   font-size: 11.5px;
   background: #2a4a46;
   color: var(--success);
-  width: fit-content;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .chip.warn {
   background: #3d3220;
@@ -4166,12 +4172,7 @@ async function retryLoadConfig() {
 .device-info-row,
 .log-aside { display: none !important; }
 .status-col .host-card { height: 100%; }
-.rail-title {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
+/* rail-title 规则已并入 mapping-heading 附近统一选择器 */
 .status-col .host-status-row {
   display: flex !important;
   flex-direction: column;
