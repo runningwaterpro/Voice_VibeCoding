@@ -591,14 +591,22 @@ pub fn restart_xiaomi_bridge_inner(
 
     // 仅停 BLE worker；HID Tap 为进程级单例，重启不解绑 30684（避免自占用）
     if let Some(runtime) = app.try_state::<Arc<XiaomiRuntime>>() {
+        let t_wait = std::time::Instant::now();
+        let was_running = runtime.running.load(std::sync::atomic::Ordering::SeqCst);
         runtime.request_stop();
         // 等旧 worker 退出
+        let mut exited = false;
         for _ in 0..50 {
             if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                exited = true;
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        log::info!(
+            "XIAOMI restart wait stop was_running={was_running} exited={exited} wait_ms={}",
+            t_wait.elapsed().as_millis()
+        );
     }
 
     // 语音路由挂了则一并拉起（比 Python 更稳，不破坏 restart_bridge 语义）
@@ -615,6 +623,7 @@ pub fn restart_xiaomi_bridge_inner(
         .try_state::<Arc<XiaomiRuntime>>()
         .ok_or_else(|| "XiaomiRuntime missing".to_string())?;
     if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+        log::error!("XIAOMI restart abort: worker still running after wait");
         return Err("旧桥接尚未退出，请稍后再试".into());
     }
 
@@ -660,7 +669,8 @@ pub async fn repair_xiaomi_voice_env(
     source: String,
 ) -> Result<crate::audio::vb_cable::VoiceEnvActionResult, String> {
     let source = source.to_ascii_lowercase();
-    tokio::task::spawn_blocking(move || match source.as_str() {
+    log::info!("XIAOMI VOICE env repair enter source={source}");
+    let result = tokio::task::spawn_blocking(move || match source.as_str() {
         "embedded" => crate::audio::vb_cable::install_embedded(),
         "embedded_force" => crate::audio::vb_cable::install_embedded_force(),
         "download_page" => crate::audio::vb_cable::open_download_page(),
@@ -670,7 +680,21 @@ pub async fn repair_xiaomi_voice_env(
         )),
     })
     .await
-    .map_err(|e| format!("voice repair task: {e}"))?
+    .map_err(|e| {
+        log::error!("XIAOMI VOICE env repair task join failed: {e}");
+        format!("voice repair task: {e}")
+    })?;
+    match &result {
+        Ok(r) => log::info!(
+            "XIAOMI VOICE env repair done ok={} ready={} needsReboot={} msg={}",
+            r.ok,
+            r.ready,
+            r.needs_reboot,
+            r.message
+        ),
+        Err(e) => log::error!("XIAOMI VOICE env repair failed: {e}"),
+    }
+    result
 }
 
 /// WinUHid 虚拟键盘状态（语音唤醒依赖）
@@ -715,27 +739,39 @@ pub async fn repair_xiaomi_winuhid(
     force: Option<bool>,
 ) -> Result<crate::bridges::xiaomi::winuhid_env::WinUHidActionResult, String> {
     let force = force.unwrap_or(false);
-    if let Some(src) = source {
-        return Ok(
-            tokio::task::spawn_blocking(move || {
-                crate::bridges::xiaomi::winuhid_env::repair_with_source(&src, force)
-            })
+    log::info!("XIAOMI WINUHID repair enter source={source:?} force={force}");
+    let result = if let Some(src) = source {
+        tokio::task::spawn_blocking(move || {
+            crate::bridges::xiaomi::winuhid_env::repair_with_source(&src, force)
+        })
+        .await
+        .map_err(|e| {
+            log::error!("XIAOMI WINUHID repair task join failed: {e}");
+            format!("winuhid repair task: {e}")
+        })?
+    } else if force {
+        tokio::task::spawn_blocking(|| crate::bridges::xiaomi::winuhid_env::repair_embedded(true))
             .await
-            .map_err(|e| format!("winuhid repair task: {e}"))??,
-        );
-    }
-    if force {
-        return Ok(
-            tokio::task::spawn_blocking(|| crate::bridges::xiaomi::winuhid_env::repair_embedded(true))
-                .await
-                .map_err(|e| format!("winuhid repair task: {e}"))??,
-        );
-    }
-    Ok(
+            .map_err(|e| {
+                log::error!("XIAOMI WINUHID repair task join failed: {e}");
+                format!("winuhid repair task: {e}")
+            })?
+    } else {
         tokio::task::spawn_blocking(crate::bridges::xiaomi::winuhid_env::check_or_repair)
             .await
-            .map_err(|e| format!("winuhid repair task: {e}"))?,
-    )
+            .map_err(|e| {
+                log::error!("XIAOMI WINUHID repair task join failed: {e}");
+                format!("winuhid repair task: {e}")
+            })?
+    };
+    log::info!(
+        "XIAOMI WINUHID repair done ok={} needsReboot={} msg={}",
+        result.ok,
+        result.needs_reboot,
+        result.message
+    );
+    Ok(result)
+}
 }
 
 /// 应用内下载 WinUHid 驱动包（dest_path 由前端 save 对话框选定）
@@ -843,38 +879,59 @@ pub async fn repair_xiaomi_atvv(
     force: Option<bool>,
 ) -> Result<AtvvRepairResult, String> {
     let force = force.unwrap_or(false);
+    log::info!("XIAOMI ATVV repair enter force={force}");
     if !force {
-        let snap = crate::bridges::xiaomi::conflict_guard::emit_conflicts_now(
-            "atvv_repair",
-            "修复 ATVV 前检测到其它遥控桥接进程占用端口或 BLE，请先结束后再继续。",
-            true,
-        );
-        if !snap.processes.is_empty() {
-            let names: Vec<_> = snap
-                .processes
+        let conflicts = crate::bridges::xiaomi::conflict_guard::scan_conflicts(true);
+        log::info!(
+            "XIAOMI ATVV repair conflict_scan count={} names={:?}",
+            conflicts.len(),
+            conflicts
                 .iter()
-                .map(|p| format!("{} (PID {})", p.name, p.pid))
-                .collect();
-            return Ok(AtvvRepairResult {
-                phase: "awaiting_conflict_clear".into(),
-                message: format!(
-                    "发现占用进程：{}。请在弹窗中结束后，将自动继续修复。",
-                    names.join("、")
-                ),
-                atvv_ok: false,
-                had_conflicts: true,
-            });
+                .map(|c| format!("{}({})", c.name, c.pid))
+                .collect::<Vec<_>>()
+        );
+        if !conflicts.is_empty() {
+            let snap = crate::bridges::xiaomi::conflict_guard::emit_conflicts_now(
+                "atvv_repair",
+                "修复 ATVV 前检测到其它遥控桥接进程占用端口或 BLE，请先结束后再继续。",
+                true,
+            );
+            if !snap.processes.is_empty() {
+                let names: Vec<_> = snap
+                    .processes
+                    .iter()
+                    .map(|p| format!("{} (PID {})", p.name, p.pid))
+                    .collect();
+                log::warn!("XIAOMI ATVV repair awaiting_conflict_clear: {}", names.join("、"));
+                return Ok(AtvvRepairResult {
+                    phase: "awaiting_conflict_clear".into(),
+                    message: format!(
+                        "发现占用进程：{}。请在弹窗中结束后，将自动继续修复。",
+                        names.join("、")
+                    ),
+                    atvv_ok: false,
+                    had_conflicts: true,
+                });
+            }
         }
     }
 
     let app_for_job = app.clone();
+    let t0 = std::time::Instant::now();
     let (ok, msg) = tokio::task::spawn_blocking(move || {
         let state = app_for_job.state::<BridgeState>();
         let config_manager = app_for_job.state::<ConfigManager>();
         run_atvv_repair_pipeline(&app_for_job, state.inner(), config_manager.inner())
     })
     .await
-    .map_err(|e| format!("ATVV repair task: {e}"))??;
+    .map_err(|e| {
+        log::error!("XIAOMI ATVV repair spawn_blocking join failed: {e}");
+        format!("ATVV repair task: {e}")
+    })??;
+    let elapsed_ms = t0.elapsed().as_millis();
+    log::info!(
+        "XIAOMI ATVV repair result ok={ok} elapsed_ms={elapsed_ms} msg={msg}"
+    );
 
     let _ = app.emit(
         "xiaomi-atvv-repair-result",
@@ -898,12 +955,41 @@ pub(crate) fn run_atvv_repair_pipeline(
     config_manager: &ConfigManager,
 ) -> Result<(bool, String), String> {
     log::info!("XIAOMI ATVV repair pipeline start");
+    let t0 = std::time::Instant::now();
     crate::bridges::xiaomi::hid_report_tap::stop_and_join();
+    log::info!(
+        "XIAOMI ATVV repair hid_tap joined ms={}",
+        t0.elapsed().as_millis()
+    );
+    let t1 = std::time::Instant::now();
     restart_xiaomi_bridge_inner(app, state, config_manager)?;
-    let ok = connect::wait_atvv_subscribed(std::time::Duration::from_secs(12));
+    log::info!(
+        "XIAOMI ATVV repair restart done ms={}",
+        t1.elapsed().as_millis()
+    );
+    let wait_timeout = std::time::Duration::from_secs(12);
+    let t2 = std::time::Instant::now();
+    let ok = connect::wait_atvv_subscribed(wait_timeout);
+    log::info!(
+        "XIAOMI ATVV repair wait_atvv ok={ok} waited_ms={} timeout_ms={}",
+        t2.elapsed().as_millis(),
+        wait_timeout.as_millis()
+    );
+    let conflicts = crate::bridges::xiaomi::conflict_guard::scan_conflicts(true);
+    let host = xiaomi_host_status_now(app);
+    log::info!(
+        "XIAOMI ATVV repair snapshot atvv_ok={} bridge_alive={} audio_alive={} cable_ready={} winuhid_ready={} conflicts={} total_ms={}",
+        host.atvv_ok,
+        host.bridge_alive,
+        host.audio_alive,
+        host.cable_ready,
+        host.winuhid_ready,
+        conflicts.len(),
+        t0.elapsed().as_millis()
+    );
     let msg = if ok {
         "ATVV 语音通道已恢复".to_string()
-    } else if !crate::bridges::xiaomi::conflict_guard::scan_conflicts(true).is_empty() {
+    } else if !conflicts.is_empty() {
         "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复 ATVV 连接」。".to_string()
     } else {
         "已重连但仍未订阅 ATVV（未见端口占用）。可再试一次，或检查蓝牙配对后重试。".to_string()

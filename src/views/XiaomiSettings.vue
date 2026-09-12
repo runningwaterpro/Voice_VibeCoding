@@ -1203,10 +1203,13 @@ async function refreshHost() {
 
 async function restartBridge() {
   restarting.value = true;
+  prependLog("重启桥接：开始");
   try {
     await invoke("restart_xiaomi_bridge");
+    prependLog("重启桥接：完成");
     await refreshHost();
   } catch (e) {
+    prependLog(`重启桥接失败: ${String(e)}`);
     host.value = {
       ...host.value,
       status_text: "重启失败",
@@ -1229,11 +1232,17 @@ async function repairAtvv() {
   if (atvvRepairing.value || restarting.value || voiceRepairing.value) return;
   atvvRepairing.value = true;
   let awaitingClear = false;
+  prependLog("ATVV 修复：开始");
   try {
     const result = await invoke<AtvvRepairResult>("repair_xiaomi_atvv", {
       force: false,
     });
     awaitingClear = result.phase === "awaiting_conflict_clear";
+    prependLog(
+      awaitingClear
+        ? `ATVV 修复：等待清理占用 — ${result.message}`
+        : `ATVV 修复结果 ok=${result.atvvOk} — ${result.message}`,
+    );
     host.value = {
       ...host.value,
       status_text: result.atvvOk
@@ -1249,6 +1258,7 @@ async function repairAtvv() {
     }
     await refreshHost();
   } catch (e) {
+    prependLog(`ATVV 修复失败: ${String(e)}`);
     host.value = {
       ...host.value,
       status_text: "ATVV 修复失败",
@@ -1296,8 +1306,12 @@ async function runVoiceAutoRepair() {
   voiceRepairing.value = true;
   showVoiceChoice.value = false;
   showVoiceReboot.value = false;
+  prependLog("虚拟声卡修复：开始（自动检测）");
   try {
     const result = await invoke<VoiceEnvActionResult>("check_xiaomi_voice_env");
+    prependLog(
+      `虚拟声卡检测 ok=${result.ok} ready=${result.ready} needsChoice=${result.needsChoice} needsReboot=${result.needsReboot} — ${result.message}`,
+    );
     if (result.needsChoice) {
       // 未装驱动：回到选择窗，保留下载 / 内嵌安装等选项
       voiceChoiceMsg.value = result.message;
@@ -1331,10 +1345,14 @@ async function chooseVoiceSource(
   voiceRepairing.value = true;
   showVoiceChoice.value = false;
   showVoiceReboot.value = false;
+  prependLog(`虚拟声卡修复：source=${source}`);
   try {
     const result = await invoke<VoiceEnvActionResult>("repair_xiaomi_voice_env", {
       source,
     });
+    prependLog(
+      `虚拟声卡修复结果 ok=${result.ok} ready=${result.ready} needsReboot=${result.needsReboot} — ${result.message}`,
+    );
     applyVoiceEnvResult(result);
     await refreshHost();
   } catch (e) {
@@ -1391,11 +1409,15 @@ async function chooseWinuhidSource(
   }
   winuhidRepairing.value = true;
   showWinuhidChoice.value = false;
+  prependLog(`虚拟键盘修复：source=${source} force=${source === "embedded_force"}`);
   try {
     const result = await invoke<WinUHidActionResult>("repair_xiaomi_winuhid", {
       source,
       force: source === "embedded_force",
     });
+    prependLog(
+      `虚拟键盘修复结果 ok=${result.ok} needsReboot=${result.needsReboot} — ${result.message}`,
+    );
     applyWinuhidResult(result);
     await refreshHost();
   } catch (e) {
