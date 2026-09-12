@@ -911,19 +911,20 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 400;
   color: var(--text);
-  flex-shrink: 0;
+  flex-shrink: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .map-bind {
-  font-size: 12px;
+  font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--panel-2);
   color: var(--text);
   padding: 2px 8px;
   border-radius: 4px;
   min-width: 0;
-  max-width: 55%;
+  max-width: 72%;
   flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -934,6 +935,8 @@ onUnmounted(() => {
 .map-bind.unbound {
   background: transparent;
   color: #94a3b8;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 @keyframes mic-bind-flash {

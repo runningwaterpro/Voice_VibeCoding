@@ -3674,6 +3674,7 @@ async function retryLoadConfig() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 5px;
+  margin-top: 10px;
   margin-bottom: 8px;
 }
 .chip {
