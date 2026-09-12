@@ -20,7 +20,7 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{font-family:var(--font);color:var(--ink);background:#0e1014;font-size:13.5px;line-height:1.45}
+body{font-family:var(--font);color:var(--ink);background:#0e1014;font-size:13.5px;line-height:1.45;display:flex;flex-direction:column}
 button{font:inherit;cursor:pointer;color:inherit}
 button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 /* press feedback on pressables */
@@ -39,9 +39,10 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   .btn:hover,.nav-btn:hover,.gain-btn:hover{border-color:var(--muted)}
 }
 
-.app{min-height:100%;max-width:1120px;margin:0 auto;display:flex;flex-direction:column;background:var(--chassis);border-inline:1px solid var(--edge)}
+.app{width:100%;max-width:1120px;margin:0 auto;display:flex;flex-direction:column;background:var(--chassis);border-inline:1px solid var(--edge);min-height:0}
 @media(min-width:1200px){
-  .app{max-width:1120px;margin:20px auto;border-radius:12px;min-height:calc(100vh - 40px);box-shadow:0 0 0 1px #343b46}
+  /* 机身随内容收缩：左右/上下外边距同为 20px，底部不留视口撑高的空白 */
+  .app{max-width:1120px;margin:20px auto;border-radius:12px;box-shadow:0 0 0 1px #343b46}
 }
 
 .topnav{display:flex;align-items:center;gap:14px;height:48px;padding:0 14px;background:#14171c;border-bottom:1px solid var(--edge);flex-shrink:0;position:sticky;top:0;z-index:30}
@@ -80,7 +81,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .demo-bar button{border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--muted);padding:3px 10px;font-size:12px}
 .demo-bar button.on{color:var(--ink);border-color:var(--signal);background:#1a2c29}
 
-.work{flex:1;display:flex;flex-direction:column;gap:10px;padding:10px 12px 14px;min-width:0}
+.work{display:flex;flex-direction:column;gap:12px;padding:12px;min-width:0;flex:0 0 auto}
 
 /* meters: identical track columns so input vs send can be compared */
 .meters{display:flex;flex-direction:column;gap:3px;padding:7px 12px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);flex-shrink:0}
@@ -122,8 +123,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .gain-val{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:3.4em;text-align:center}
 .gain-note{color:var(--dim);font-size:11px}
 
-/* stage: quick | map-work (maps + remote in one frame) */
-.stage{flex:1;display:grid;gap:10px;min-height:420px;align-items:stretch;
+/* stage: quick | map-work — 按内容定高，不再拉满视口留大片空白 */
+.stage{display:grid;gap:10px;min-height:0;align-items:stretch;
   grid-template-columns:1fr}
 @media(min-width:900px){
   .stage{grid-template-columns:minmax(200px,230px) minmax(0,1fr)}
@@ -131,7 +132,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .panel{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);padding:10px 12px;min-width:0}
 .panel h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--muted)}
 
-/* quick rail — stretch to column bottom */
+/* quick rail — stretch to map-work height, not viewport */
 .quick{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0}
 
 .map-work{
@@ -139,7 +140,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   display:flex;
   flex-direction:column;
   align-items:stretch;
-  height:100%;min-height:0;
+  height:auto;min-height:0;
   background:var(--panel);
   border:1px solid var(--edge);
   border-radius:var(--r);
@@ -149,9 +150,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .manual-host{display:none;margin:0 0 10px}
 .map-work.composer-open .manual-host{display:block}
 .map-cols{
-  flex:1;min-height:0;
+  flex:0 1 auto;min-height:0;
   display:grid;
-  /* 卡宽 ≈ 遥控器(130px)+少量余量；三列总宽约遥控器×2+间隙，不再吃满半屏 */
   grid-template-columns:200px auto 200px;
   gap:14px;
   align-items:stretch;
@@ -426,33 +426,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .link-svg.on path,.link-svg.on circle{opacity:1}
 .link-svg.strong path{stroke-width:2}
 
-/* advanced */
-.adv{border:1px solid var(--edge);border-radius:var(--r);background:#14171c;overflow:hidden;flex-shrink:0}
-.adv-head{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;padding:8px 12px;text-align:left}
-.adv-head b{font-size:12.5px}.adv-head span{font-size:12px;color:var(--muted)}
-.adv-head .chev{margin-left:auto;color:var(--dim);font-size:11px}
-.adv-body{
-  display:grid;grid-template-rows:0fr;
-  transition:grid-template-rows 200ms var(--ease-out);
-}
-.adv-body>div{overflow:hidden;min-height:0;border-top:1px solid var(--edge);padding:0}
-.adv.open .adv-body{grid-template-rows:1fr}
-.adv.open .adv-body>div{padding:10px 12px}
-.adv-head .chev{transition:transform 150ms var(--ease-out)}
-.adv.open .chev{transform:rotate(180deg)}
-.adv-grid{display:grid;gap:10px;grid-template-columns:1fr}
-@media(min-width:820px){.adv-grid{grid-template-columns:1fr 1fr}}
-@media(min-width:1100px){.adv-grid{grid-template-columns:1.1fr 1fr 1fr}}
-.adv-block{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:10px;min-width:0}
-.adv-block h3{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:600}
-.host-item{display:grid;grid-template-columns:8px 1fr auto;gap:8px;align-items:center;font-size:12.5px;padding:3px 0}
-.host-item i{width:8px;height:8px;border-radius:50%;background:var(--dim)}
-.host-item i.ok{background:var(--signal)}.host-item i.warn{background:var(--warn)}.host-item i.fail{background:var(--fail)}
-.host-item .st{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.log{font-family:var(--mono);font-size:11px;line-height:1.5;color:#9aa3b0;background:#101318;border-radius:6px;padding:8px;height:130px;overflow:auto;white-space:pre-wrap}
-.log .t{color:var(--dim)}.log .ok{color:var(--signal)}.log .fail{color:var(--fail)}.log .warn{color:var(--warn)}
-.raw{font-family:var(--mono);font-size:11px;color:#8b95a3;background:#101318;border-radius:6px;padding:8px;height:130px;overflow:auto;white-space:pre}
-
 /* settings sheet */
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:48px 16px;z-index:40;overflow:auto}
 .backdrop.open{display:flex}
@@ -642,38 +615,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
         </div>
       </div>
     </div>
-
-    <section class="adv" id="adv">
-      <button type="button" class="adv-head" id="advToggle" aria-expanded="false">
-        <b>高级诊断</b><span>主机状态 · 日志 · 详细信息</span><span class="chev">▲</span>
-      </button>
-      <div class="adv-body">
-        <div class="adv-grid">
-          <div class="adv-block">
-            <h3>主机状态</h3>
-            <div id="hostList"></div>
-            <p class="note" id="hostDetail"></p>
-          </div>
-          <div class="adv-block">
-            <h3>修复动作</h3>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <button type="button" class="btn">虚拟声卡修复</button>
-              <button type="button" class="btn">修复虚拟键盘</button>
-              <button type="button" class="btn">修复 ATVV 连接</button>
-              <button type="button" class="btn">重启桥接</button>
-            </div>
-          </div>
-          <div class="adv-block">
-            <h3>实时日志</h3>
-            <div class="log" id="logBox"></div>
-          </div>
-          <div class="adv-block">
-            <h3>原始状态字段</h3>
-            <div class="raw" id="rawBox"></div>
-          </div>
-        </div>
-      </div>
-    </section>
   </div>
 </div>
 
@@ -994,9 +935,8 @@ function setHover(id){
 const LOGS=[];
 function ts(){return new Date().toTimeString().slice(0,8)}
 function log(cls,msg){
-  LOGS.unshift(`<span class="t">${ts()}</span> <span class="${cls}">${msg}</span>`);
+  LOGS.unshift(`${ts()} [${cls}] ${msg}`);
   if(LOGS.length>50)LOGS.pop();
-  $("logBox").innerHTML=LOGS.join("\n");
 }
 
 function applyState(name){
@@ -1041,15 +981,6 @@ function applyState(name){
   $("meterIn").className="meter "+s.inCls;$("meterOut").className="meter "+s.outCls;
   $("hintIn").textContent=s.hintIn;$("hintOut").textContent=s.hintOut;
   $("dbIn").textContent=s.dbIn;$("dbOut").textContent=s.dbOut;
-  $("hostDetail").textContent=s.detail;
-  $("hostList").innerHTML=s.host.map(([a,b,t])=>`<div class="host-item"><i class="${t||""}"></i><span>${a}</span><span class="st">${b}</span></div>`).join("");
-  $("rawBox").textContent=JSON.stringify({
-    ble_state:name.startsWith("err")||name==="idle"?"idle":name==="voice"?"receiving":"session",
-    cable_active:["ready","voice","error","err_hid","err_route"].includes(name),
-    atvv_ok:["ready","voice"].includes(name),
-    bridge_alive:!["idle","connecting","err_bridge"].includes(name),
-    gain_db:gain,
-  },null,2);
   document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.classList.toggle("on",b.dataset.state===name));
   // 电池：演示固定 83%；正式应用读 DeviceInfo.battery_level
   const bat=83;
@@ -1156,9 +1087,6 @@ $("gainUp").addEventListener("click",()=>{
 $("gainDown").addEventListener("click",()=>{
   gain=Math.max(-12,gain-1);$("qGain").textContent=gain+" dB";
   if(current==="ready"||current==="voice"){const out=Math.min(96,40+gain*2);$("markOut").style.left=out+"%";$("dbOut").textContent=String(Math.max(-42,Math.min(0,-24+gain)));$("meterOut").className="meter "+(out>78?"high":"ok");$("hintOut").textContent=out>78?"偏高削波":"正常"}
-});
-$("advToggle").addEventListener("click",()=>{
-  const o=$("adv").classList.toggle("open");$("advToggle").setAttribute("aria-expanded",o?"true":"false");requestAnimationFrame(updateLink);
 });
 $("btnSettings").addEventListener("click",()=>$("setBd").classList.add("open"));
 $("setClose").addEventListener("click",()=>$("setBd").classList.remove("open"));
