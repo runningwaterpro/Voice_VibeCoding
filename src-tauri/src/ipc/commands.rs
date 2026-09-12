@@ -772,7 +772,6 @@ pub async fn repair_xiaomi_winuhid(
     );
     Ok(result)
 }
-}
 
 /// 应用内下载 WinUHid 驱动包（dest_path 由前端 save 对话框选定）
 #[tauri::command]
