@@ -183,7 +183,19 @@ async function confirmQuit() {
         <span class="nav-label">{{ item.label }}</span>
       </button>
     </nav>
-    <span v-else class="single-device-label">小米遥控器 2 Pro</span>
+    <button
+      v-else
+      type="button"
+      :class="['nav-item', 'single-device-label', { active: isActive('/xiaomi') || isActive('/settings') }]"
+      title="返回小米遥控器主界面"
+      @click="navigate('/xiaomi')"
+    >
+      <span
+        :class="['dot', statusClass(bridge.devices.xiaomi.status)]"
+        :title="bridge.statusLabel(bridge.devices.xiaomi.status)"
+      />
+      <span class="nav-label">小米遥控器 2 Pro</span>
+    </button>
 
     <div class="nav-actions">
       <button
@@ -289,11 +301,27 @@ async function confirmQuit() {
   min-width: 0;
 }
 .single-device-label {
-  color: #94a3b8;
-  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+}
+.single-device-label:hover {
+  background: #ffffff14;
+  color: #fff;
+}
+.single-device-label.active {
+  background: var(--sidebar-active);
+  color: #fff;
 }
 .nav-connect.busy {
   opacity: 0.6;

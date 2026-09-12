@@ -87,7 +87,14 @@ async function checkUpdate() {
   <div class="page">
     <header class="page-header">
       <div class="header-left">
-        <h2>⚙️ 全局设置</h2>
+        <button
+          class="btn btn-secondary back-home"
+          type="button"
+          @click="router.push('/xiaomi')"
+        >
+          ← 返回遥控器
+        </button>
+        <h2>全局设置</h2>
         <button
           class="btn btn-secondary"
           type="button"
