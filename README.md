@@ -4,7 +4,7 @@
 **原作者**：**mwlt**（亦见 [Gitee](https://gitee.com/mwlt/remote-voice-vibe-coding)）  
 本仓库为其 **Fork**，在此致谢。上游后续版本请看原仓库。
 
-**手动组合快捷键**：交互与实现思路借鉴并行项目 [runningwaterpro/Nexus-Prime](https://github.com/runningwaterpro/Nexus-Prime) 中的快捷键组合器（修饰键 + 主键选择、不依赖系统键盘钩子的录入方式）。本仓库已按小米遥控与 Tauri/Vue 结构落地，致谢原实现。
+**手动组合快捷键**：交互与实现思路借鉴并行项目 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) 中的快捷键组合器（修饰键 + 主键选择、不依赖系统键盘钩子的录入方式）。本仓库已按小米遥控与 Tauri/Vue 结构落地，致谢原实现。
 
 ---
 
@@ -71,9 +71,7 @@ npm run tauri:build
 
 代码与资源版权归属原作者与各自贡献者。Fork 内修改遵循上游既有许可；发布时请保留上游署名。
 
-相关上游/历史项目（仅供溯源，非本仓库依赖列表）：
+相关项目（仅供溯源）：
 
-- [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding) · Rust（主上游）  
-- [runningwaterpro/Nexus-Prime](https://github.com/runningwaterpro/Nexus-Prime) · 手动组合快捷键参考  
-- Python 版 Remote Bridge Hub 系（[xxb26553663-star](https://github.com/xxb26553663-star/remote-bridge-hub) 等）  
-- macOS：[nijez/open-voice-bridge](https://github.com/nijez/open-voice-bridge)
+- [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding) · Rust 主上游  
+- [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) · 手动组合快捷键参考
