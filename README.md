@@ -1,10 +1,6 @@
 # Voice VibeCoding
 
-**上游项目**：[mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding)  
-**原作者**：**mwlt**（亦见 [Gitee](https://gitee.com/mwlt/remote-voice-vibe-coding)）  
-本仓库为其 **Fork**，在此致谢。上游后续版本请看原仓库。
-
-**手动组合快捷键**：交互与实现思路借鉴并行项目 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) 中的快捷键组合器。本仓库已按小米遥控与 Tauri/Vue 结构落地，致谢原实现。
+基于 [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding)（作者 **mwlt**）的 Fork。
 
 ---
 
@@ -43,9 +39,4 @@ npm run tauri:build
 
 ## 许可与归属
 
-代码与资源版权归属原作者与各自贡献者。Fork 内修改遵循上游既有许可；发布时请保留上游署名。
-
-相关项目（仅供溯源）：
-
-- [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding) · Rust 主上游  
-- [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime) · 手动组合快捷键参考
+上游代码与资源版权属 **mwlt** 及其贡献者。本仓库在其之上的修改归本仓库维护者，遵循上游许可；分发时请保留上游署名。手动组合参考 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime)，致谢。
