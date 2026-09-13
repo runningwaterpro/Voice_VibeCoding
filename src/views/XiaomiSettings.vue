@@ -3474,6 +3474,9 @@ async function retryLoadConfig() {
   min-height: 42px;
   padding: 8px 12px;
   margin-bottom: 12px;
+  /* 整条抬高层叠：展开的「更多」必须盖在电平之上 */
+  position: relative;
+  z-index: 30;
 }
 /* 进出场：仅 opacity/transform，180ms strong ease-out */
 .action-bar-enter-active,

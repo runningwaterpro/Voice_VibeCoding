@@ -172,6 +172,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   /* 进出场只动 opacity/transform；退出更干脆 */
   transition:opacity 180ms var(--ease-out),transform 180ms var(--ease-out);
   will-change:opacity,transform;
+  /* 整条抬高层叠：展开的「更多」必须盖在电平之上 */
+  position:relative;z-index:30;
 }
 .action-bar[hidden]{display:none!important}
 .action-bar.is-enter{opacity:0;transform:translateY(-4px) scale(0.98)}
