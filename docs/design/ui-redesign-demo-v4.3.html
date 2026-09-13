@@ -245,7 +245,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .action-bar.booting .status-line b{
   font-weight:500;
 }
-.action-bar.booting .status-line > span:not(.booting-wave){
+.action-bar.booting .status-line > .status-sub{
   flex:0 1 auto;
   color:#8b9bb0;
   padding-left:10px;
@@ -639,6 +639,28 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   </header>
 
   <div class="work">
+    <!-- 全局状态条：顶栏之下、电平之上 -->
+    <section class="action-bar" id="actionBar" aria-label="异常处理" hidden>
+      <div class="status-line" id="statusLine">
+        <span class="booting-wave" id="bootPulse" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <b id="qHeadline"></b>
+        <span class="status-sub" id="qSub"></span>
+      </div>
+      <div class="repair-group" id="repairGroup">
+        <button type="button" class="btn attention" id="btnPrimary" hidden></button>
+      </div>
+      <details class="more-ops" id="moreOps">
+        <summary>更多</summary>
+        <div class="ops-body">
+          <button type="button" class="btn" data-force-repair="cable">虚拟声卡修复</button>
+          <button type="button" class="btn" data-force-repair="hid">修复虚拟键盘</button>
+          <button type="button" class="btn" data-force-repair="atvv">修复 ATVV 连接</button>
+          <button type="button" class="btn ghost" data-force-repair="restart">重启桥接</button>
+          <button type="button" class="btn ghost" data-force-repair="reconnect">重新连接</button>
+        </div>
+      </details>
+    </section>
+
     <div class="meters" aria-label="电平与增益">
       <div class="meter ok" id="meterIn">
         <span class="cap">输入 · 增益前</span>
@@ -663,28 +685,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
     </div>
 
     <div class="stage" id="stage">
-      <!-- 异常才出现：单行说明 + 固定槽主操作 + 更多；健康时整条隐藏 -->
-      <section class="action-bar" id="actionBar" aria-label="异常处理" hidden>
-        <div class="status-line" id="statusLine">
-          <span class="booting-wave" id="bootPulse" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
-          <b id="qHeadline"></b>
-          <span id="qSub"></span>
-        </div>
-        <div class="repair-group" id="repairGroup">
-          <button type="button" class="btn attention" id="btnPrimary" hidden></button>
-        </div>
-        <details class="more-ops" id="moreOps">
-          <summary>更多</summary>
-          <div class="ops-body">
-            <button type="button" class="btn" data-force-repair="cable">虚拟声卡修复</button>
-            <button type="button" class="btn" data-force-repair="hid">修复虚拟键盘</button>
-            <button type="button" class="btn" data-force-repair="atvv">修复 ATVV 连接</button>
-            <button type="button" class="btn ghost" data-force-repair="restart">重启桥接</button>
-            <button type="button" class="btn ghost" data-force-repair="reconnect">重新连接</button>
-          </div>
-        </details>
-      </section>
-
       <!-- 键位映射：全宽 -->
       <div class="map-work" id="mapWork" aria-label="按键映射">
         <svg class="link-svg" id="linkSvg" aria-hidden="true">

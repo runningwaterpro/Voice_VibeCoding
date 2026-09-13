@@ -1927,6 +1927,64 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
+    <!-- 全局状态条：顶栏之下、电平之上；仅启动/异常出现 -->
+      <Transition name="action-bar">
+        <section
+          v-if="showActionBar"
+          class="card action-bar"
+          :class="{
+            'no-primary': !primaryLabel,
+            booting: railState === 'booting',
+          }"
+          aria-label="异常处理"
+        >
+          <div class="status-line" role="status" aria-live="polite">
+            <span
+              v-if="railState === 'booting'"
+              class="booting-wave"
+              aria-hidden="true"
+            >
+              <i></i><i></i><i></i><i></i><i></i>
+            </span>
+            <b>{{ railFocus.qHeadline }}</b>
+            <span class="status-sub">{{ railFocus.qSub }}</span>
+          </div>
+          <div v-if="primaryLabel" class="repair-group">
+            <button
+              type="button"
+              class="btn btn-attention action-primary"
+              :disabled="primaryDisabled"
+              @click="runPrimary"
+            >
+              {{ primaryLabel }}
+            </button>
+          </div>
+          <details class="more-ops">
+            <summary>更多</summary>
+            <div class="ops-body">
+              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
+                虚拟声卡修复
+              </button>
+              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
+                修复虚拟键盘
+              </button>
+              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
+                修复 ATVV 连接
+              </button>
+              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
+                重启桥接
+              </button>
+              <button type="button" class="btn" :disabled="connBusy || railState === 'connecting'" @click="toggleRailConnect">
+                {{ railFocus.connLabel }}
+              </button>
+              <button type="button" class="btn" @click="showSetupTips = true">
+                输入法设置
+              </button>
+            </div>
+          </details>
+        </section>
+      </Transition>
+
     <div class="vol-meters-card vol-meters-full">
           <CableVolRuler
             :level="voiceMeter.bleLevel"
@@ -1977,64 +2035,6 @@ async function retryLoadConfig() {
         </div>
 
 <div class="page-body stage-stack">
-      <!-- V4.3：仅异常出现；健康态整条隐藏 -->
-      <Transition name="action-bar">
-        <section
-          v-if="showActionBar"
-          class="card action-bar"
-          :class="{
-            'no-primary': !primaryLabel,
-            booting: railState === 'booting',
-          }"
-          aria-label="异常处理"
-        >
-          <div class="status-line" role="status" aria-live="polite">
-            <span
-              v-if="railState === 'booting'"
-              class="booting-wave"
-              aria-hidden="true"
-            >
-              <i></i><i></i><i></i><i></i><i></i>
-            </span>
-            <b>{{ railFocus.qHeadline }}</b>
-            <span class="status-sub">{{ railFocus.qSub }}</span>
-          </div>
-        <div v-if="primaryLabel" class="repair-group">
-          <button
-            type="button"
-            class="btn btn-attention action-primary"
-            :disabled="primaryDisabled"
-            @click="runPrimary"
-          >
-            {{ primaryLabel }}
-          </button>
-        </div>
-        <details class="more-ops">
-          <summary>更多</summary>
-          <div class="ops-body">
-            <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
-              虚拟声卡修复
-            </button>
-            <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
-              修复虚拟键盘
-            </button>
-            <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
-              修复 ATVV 连接
-            </button>
-            <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
-              重启桥接
-            </button>
-            <button type="button" class="btn" :disabled="connBusy || railState === 'connecting'" @click="toggleRailConnect">
-              {{ railFocus.connLabel }}
-            </button>
-            <button type="button" class="btn" @click="showSetupTips = true">
-              输入法设置
-            </button>
-          </div>
-        </details>
-        </section>
-      </Transition>
-
       <!-- 小米专用运行状态弹层等 -->
       <div v-if="showSetupTips" class="voice-modal-backdrop" @click.self="showSetupTips = false">
         <div class="voice-modal setup-tips-modal" role="dialog" aria-modal="true" aria-labelledby="setup-tips-title">
@@ -4068,7 +4068,9 @@ async function retryLoadConfig() {
 
 .device-info-row,
 .log-aside { display: none !important; }
-.vol-meters-full { width: 100%; }
+.vol-meters-full { width: 100%; margin-top: 12px; }
+/* 状态条退场时电平上移不留双倍空隙 */
+.action-bar { margin-bottom: 0; }
 /* keep voice-quick dark in mapping */
 .mapping-layout .voice-quick-setup {
   background: var(--card-bg) !important;
