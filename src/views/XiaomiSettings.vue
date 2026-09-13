@@ -3425,6 +3425,7 @@ async function retryLoadConfig() {
 .vol-meters-full {
   width: 100%;
   margin-bottom: 10px;
+  margin-top: 0;
 }
 .status-meters-row {
   display: grid;
@@ -3472,6 +3473,7 @@ async function retryLoadConfig() {
   gap: 10px;
   min-height: 42px;
   padding: 8px 12px;
+  margin-bottom: 12px;
 }
 /* 进出场：仅 opacity/transform，180ms strong ease-out */
 .action-bar-enter-active,

@@ -331,8 +331,6 @@ body {
   overflow: auto;
   min-height: 100vh;
   height: auto;
-  /* 与机身 margin 对称，下方不空一块 */
-  padding-bottom: 12px;
 }
 
 #app {
@@ -346,16 +344,18 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: 820px;
+  /* 上下左右外边距一致：内容不满屏时机身撑满可用高，底部不留大块空底 */
   margin: 12px auto;
+  min-height: calc(100vh - 24px);
   background: var(--chassis);
   border: 1px solid var(--edge);
   border-radius: 12px;
   box-shadow: 0 0 0 1px #343b46;
-  flex: 0 0 auto;
+  flex: 1 0 auto;
 }
 
 .main-content {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   overflow-x: hidden;
   overflow-y: visible;
   padding: 10px 12px 12px;
