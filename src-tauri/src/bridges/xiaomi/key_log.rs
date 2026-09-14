@@ -217,6 +217,9 @@ pub fn start_key_logger(
 fn windows_vk_poll_logger(app: AppHandle, runtime: Arc<XiaomiRuntime>, gate: Arc<KeyEmitGate>) {
     use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
+    // 勿轮询 VK_RETURN(0x0D)：电源等键映射为 Shift+Enter 时，
+    // 注入的 Enter 会被当成「确定」高亮，盖住真实按键反馈。
+    // 「确定」只由 HID Tap / 设备路径 emit，不靠系统键盘状态。
     let keys: &[(i32, &str)] = &[
         (0xAF, "volume_up"),
         (0xAE, "volume_down"),
@@ -225,7 +228,6 @@ fn windows_vk_poll_logger(app: AppHandle, runtime: Arc<XiaomiRuntime>, gate: Arc
         (0x28, "down"),
         (0x25, "left"),
         (0x27, "right"),
-        (0x0D, "ok"),
         (0x24, "home"),
     ];
 
