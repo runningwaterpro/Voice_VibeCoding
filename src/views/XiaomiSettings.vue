@@ -118,15 +118,9 @@ const voiceMeter = ref<VoiceMeterSnapshot>({
   atvvOk: false,
 });
 
-/** 「按键映射」标题旁：最近一次 按下/抬起 + 配置映射 */
-const lastMappingFlash = ref<{
-  seq: number;
-  phase: "down" | "up";
-  remote: string;
-  mapped: string | null;
-} | null>(null);
-let mappingFlashSeq = 0;
-let mappingFlashClearTimer: ReturnType<typeof setTimeout> | null = null;
+/** 实体键按下：只驱动映射区键位高亮脉冲 */
+const keyPressPulse = ref<{ id: string; seq: number } | null>(null);
+let keyPressSeq = 0;
 
 const bleSignalLabel = computed(() => {
   switch (voiceMeter.value.bleState) {
@@ -1216,22 +1210,15 @@ function formatKeyEventLine(
   return `${phaseLabel} ${remoteLabel}`;
 }
 
-function showMappingFlash(
+function showKeyPressPulse(
   remoteLabel: string,
   mappedLabel: string | null,
+  buttonId: string,
   phase: "down" | "up" = "down"
 ) {
-  lastMappingFlash.value = {
-    seq: ++mappingFlashSeq,
-    phase,
-    remote: remoteLabel,
-    mapped: mappedLabel,
-  };
-  if (mappingFlashClearTimer) clearTimeout(mappingFlashClearTimer);
-  mappingFlashClearTimer = setTimeout(() => {
-    lastMappingFlash.value = null;
-    mappingFlashClearTimer = null;
-  }, 4500);
+  if (phase === "down") {
+    keyPressPulse.value = { id: buttonId, seq: ++keyPressSeq };
+  }
   // 状态日志只记配置映射，不再汇总漏键/吞键/真实输出
   if (phase === "down") {
     prependLog(formatKeyEventLine(phase, remoteLabel, mappedLabel));
@@ -1707,7 +1694,7 @@ onMounted(async () => {
       const isVoice = id === "mic" || id === "voice";
       // v4.1：语音键始终注热键，映射区完整显示绑定
       const lineMapped = resolveMappedActionLabel(id);
-      showMappingFlash(label, lineMapped, phase);
+      showKeyPressPulse(label, lineMapped, id, phase);
     });
   } catch (e) {
     console.warn("listen xiaomi-key failed:", e);
@@ -1881,7 +1868,7 @@ onUnmounted(() => {
     flushGainPersist();
   }
   if (gainToastTimer) clearTimeout(gainToastTimer);
-  if (mappingFlashClearTimer) clearTimeout(mappingFlashClearTimer);
+
   if (tipViewportRaf != null) {
     cancelAnimationFrame(tipViewportRaf);
     tipViewportRaf = null;
@@ -2447,25 +2434,9 @@ async function retryLoadConfig() {
       </section>
 
       <section v-else-if="config" class="card mapping-layout">
-        <div v-if="lastMappingFlash" class="mapping-heading">
-          <p
-            :key="lastMappingFlash.seq"
-            class="mapping-flash"
-            role="status"
-            aria-live="polite"
-          >
-            <span class="mapping-flash-phase">{{
-              lastMappingFlash.phase === "up" ? "抬起" : "按下"
-            }}</span>
-            <span class="mapping-flash-remote">{{ lastMappingFlash.remote }}</span>
-            <template v-if="lastMappingFlash.mapped">
-              <span class="mapping-flash-sep" aria-hidden="true">：</span>
-              <span class="mapping-flash-mapped">{{ lastMappingFlash.mapped }}</span>
-            </template>
-          </p>
-        </div>
         <KeyMappingStage
           :config="config"
+          :press-pulse="keyPressPulse"
           @save="onKeyMappingSave"
         />
       </section>
@@ -2515,41 +2486,6 @@ async function retryLoadConfig() {
 }
 .mapping-error-text {
   margin-bottom: 12px;
-}
-.mapping-flash {
-  margin: 0;
-  padding: 0;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--text-muted, #64748b);
-  animation: mapping-flash-in 0.28s ease-out;
-}
-.mapping-flash-phase {
-  margin-right: 6px;
-  color: var(--text-muted, #94a3b8);
-  font-weight: 500;
-}
-.mapping-flash-remote {
-  color: var(--text, #334155);
-  font-weight: 600;
-}
-.mapping-flash-sep {
-  margin: 0 1px;
-  color: var(--text-muted, #94a3b8);
-}
-.mapping-flash-mapped {
-  color: var(--accent, #0f766e);
-  font-weight: 600;
-}
-@keyframes mapping-flash-in {
-  from {
-    opacity: 0;
-    transform: translateX(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 .voice-toolbar {
   display: flex;
@@ -2999,8 +2935,7 @@ async function retryLoadConfig() {
   .btn,
   .stepper-btn,
   .more-ops > summary,
-  .ruler-marker,
-  .mapping-flash {
+  .ruler-marker {
     animation: none !important;
     transition: none !important;
     transform: none !important;

@@ -17,6 +17,8 @@ import { MEDIA_PICK_KEYS, vkDisplayName } from "../utils/vkDisplay";
 
 const props = defineProps<{
   config: DeviceConfig;
+  /** 实体键按下脉冲：仅高亮对应键位，不另开文案条 */
+  pressPulse?: { id: string; seq: number } | null;
 }>();
 
 const emit = defineEmits<{
@@ -59,6 +61,8 @@ const DEFAULT_LABELS: Record<string, string> = {
 
 const selectedId = ref<string | null>(null);
 const hoverId = ref<string | null>(null);
+const pressedId = ref<string | null>(null);
+let pressClearTimer: ReturnType<typeof setTimeout> | null = null;
 const capturing = ref(false);
 const captureError = ref<string | null>(null);
 const liveLabels = ref<string[]>([]);
@@ -368,6 +372,31 @@ function onCardHover(id: string | null) {
   updateLine();
 }
 
+/** 实体键：复用 hover/active 高亮 ~0.75s */
+watch(
+  () => props.pressPulse,
+  (p) => {
+    if (!p?.id) return;
+    const id = p.id === "voice" ? "mic" : p.id;
+    hoverId.value = id;
+    pressedId.value = id;
+    updateLine();
+    if (pressClearTimer) clearTimeout(pressClearTimer);
+    pressClearTimer = setTimeout(() => {
+      if (pressedId.value === id) {
+        pressedId.value = null;
+        hoverId.value = null;
+        updateLine();
+      }
+      pressClearTimer = null;
+    }, 750);
+  },
+);
+
+onUnmounted(() => {
+  if (pressClearTimer) clearTimeout(pressClearTimer);
+});
+
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -607,6 +636,7 @@ onUnmounted(() => {
           :class="{
             active: selectedId === btn.id,
             hover: hoverId === btn.id && selectedId !== btn.id,
+            pressed: pressedId === btn.id,
           }"
           @mouseenter="onCardHover(btn.id)"
           @mouseleave="onCardHover(null)"
@@ -713,6 +743,7 @@ onUnmounted(() => {
             :class="{
               active: selectedId === btn.id,
               hover: hoverId === btn.id && selectedId !== btn.id,
+              pressed: pressedId === btn.id,
             }"
             @mouseenter="onCardHover(btn.id)"
             @mouseleave="onCardHover(null)"
@@ -888,6 +919,12 @@ onUnmounted(() => {
 .map-card.hover {
   border-color: var(--primary);
   background: var(--surface-hover);
+}
+
+.map-card.pressed {
+  border-color: var(--primary);
+  background: var(--surface-selected);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 .map-card.active {

@@ -86,6 +86,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .demo-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;padding:10px 14px;background:transparent;font-size:12px;color:var(--muted);max-width:960px;margin:0 auto}
 .demo-bar button{border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--muted);padding:3px 10px;font-size:12px}
 .demo-bar button.on{color:var(--ink);border-color:var(--signal);background:#1a2c29}
+.press-hint{color:#93c5fd;font-family:var(--mono);font-size:11.5px;min-width:9em}
 
 .work{display:flex;flex-direction:column;gap:12px;padding:12px;min-width:0;flex:0 0 auto}
 
@@ -558,6 +559,11 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .key-cap:hover,.key-cap.hover,.dpad-dir:hover,.dpad-dir.hover,.key-ok:hover,.key-ok.hover,.vol-half:hover .vol-hit,.vol-half.hover .vol-hit{
   color:#eaf2ff;background:rgba(37,99,235,.9);box-shadow:inset 0 0 0 1.5px rgba(147,197,253,.95)}
 .key-cap-sm:hover,.key-cap-sm.hover{color:#eaf2ff;border-color:#93c5fd;background:rgba(37,99,235,.9);box-shadow:none}
+/* 实体键按下：与 hover 同色系，略强一点光晕 */
+.key-cap.pressed,.dpad-dir.pressed,.key-ok.pressed,.vol-half.pressed .vol-hit,.key-cap-sm.pressed{
+  color:#eaf2ff;background:rgba(37,99,235,.95);box-shadow:inset 0 0 0 1.5px #93c5fd,0 0 0 3px rgba(59,130,246,.22)}
+.key-cap-sm.pressed{border-color:#93c5fd;background:rgba(37,99,235,.95)}
+.map-card.pressed{border-color:var(--link);background:#243044;box-shadow:0 0 0 1px rgba(59,130,246,.25)}
 .key-cap.active,.dpad-dir.active,.key-ok.active,.vol-half.active .vol-hit,.key-cap-sm.active{
   color:#eaf2ff;background:rgba(37,99,235,.9);box-shadow:inset 0 0 0 1.5px rgba(147,197,253,.95)}
 .dpad{position:relative;width:100%;height:100%;border-radius:50%;background:var(--key);overflow:hidden}
@@ -615,6 +621,10 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
   <button type="button" data-state="err_cable">异常·声卡</button>
   <button type="button" data-state="err_route">异常·语音路由</button>
   <button type="button" data-state="err_bridge">异常·桥接</button>
+  <span style="width:8px"></span>
+  <button type="button" id="btnSimPress">模拟实体按键</button>
+  <button type="button" id="btnPressCycle">连按演示</button>
+  <span class="press-hint" id="pressHint" aria-live="polite"></span>
 </div>
 
 <div class="app" id="app" data-state="ready">
@@ -1093,6 +1103,38 @@ function setHover(id){
   updateLink();
 }
 
+/* 实体键反馈：复用 hover/active 高亮，不另开顶部文案条 */
+let pressClearTimer=null;
+let pressCycleTimer=null;
+let pressIdx=0;
+const PRESS_SEQ=["ok","up","right","down","left","home","back","menu","power","mic","volume_up","volume_down","tv"];
+
+function clearPressedVisual(){
+  document.querySelectorAll(".pressed").forEach(el=>el.classList.remove("pressed"));
+}
+
+function simulatePress(id){
+  if(!id) return;
+  if(pressClearTimer){clearTimeout(pressClearTimer);pressClearTimer=null}
+  clearPressedVisual();
+  setHover(id);
+  document.querySelectorAll(`#remote [data-key-id="${id}"], .map-card[data-key-id="${id}"]`).forEach(el=>{
+    el.classList.add("pressed");
+  });
+  const k=KEYS.find(x=>x.id===id);
+  if($("pressHint")) $("pressHint").textContent=k?`${k.label} → ${k.bind}`:"";
+  log("info",`实体键 ${k?k.label:id}${k?` → ${k.bind}`:""}`);
+  pressClearTimer=setTimeout(()=>{
+    clearPressedVisual();
+    setHover(selectedKey);
+    pressClearTimer=null;
+  },750);
+}
+
+function stopPressCycle(){
+  if(pressCycleTimer){clearInterval(pressCycleTimer);pressCycleTimer=null}
+}
+
 const LOGS=[];
 function ts(){return new Date().toTimeString().slice(0,8)}
 function log(cls,msg){
@@ -1194,6 +1236,19 @@ document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.addEventListene
   if(bootSeqTimer){clearTimeout(bootSeqTimer);bootSeqTimer=null}
   applyState(b.dataset.state);
 }));
+
+$("btnSimPress").addEventListener("click",()=>{
+  stopPressCycle();
+  $("btnPressCycle").classList.remove("on");
+  simulatePress(PRESS_SEQ[pressIdx++%PRESS_SEQ.length]);
+});
+$("btnPressCycle").addEventListener("click",()=>{
+  if(pressCycleTimer){stopPressCycle();$("btnPressCycle").classList.remove("on");return}
+  $("btnPressCycle").classList.add("on");
+  pressCycleTimer=setInterval(()=>{
+    simulatePress(PRESS_SEQ[pressIdx++%PRESS_SEQ.length]);
+  },850);
+});
 
 $("remote").addEventListener("mouseover",e=>{const t=e.target.closest("[data-key-id]");if(t)setHover(t.dataset.keyId)});
 $("remote").addEventListener("mouseleave",()=>setHover(selectedKey));
