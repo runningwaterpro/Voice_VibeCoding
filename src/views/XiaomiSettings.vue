@@ -3402,6 +3402,11 @@ async function retryLoadConfig() {
   height: auto;
   position: relative;
 }
+/* 映射卡只包内容，不吸收父级剩余高度 */
+.mapping-layout.card {
+  height: auto;
+  flex: 0 0 auto;
+}
 .action-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
