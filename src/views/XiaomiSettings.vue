@@ -191,7 +191,7 @@ type RailState =
 
 const connBusy = ref(false);
 
-/** 启动宽限：桥接尚未起来时先展示波形启动态，超时后再落到真实异常 */
+/** 启动宽限：就绪前一律波形启动态；避免 ATVV 等中间态闪异常 */
 const BOOT_GRACE_MS = 12_000;
 const inBootGrace = ref(true);
 let bootGraceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -219,11 +219,10 @@ const railStateRaw = computed<RailState>(() => {
 
 const railState = computed<RailState>(() => {
   const raw = railStateRaw.value;
-  // 宽限期内：未连接/桥接未起/连接中 → 启动中（波形），不抢琥珀异常
-  if (
-    inBootGrace.value &&
-    (raw === "err_bridge" || raw === "connecting" || raw === "idle")
-  ) {
+  // 宽限期内：除已就绪外都保持启动中。
+  // 桥接已起但 ATVV/声卡尚未就绪是启动过程中的正常中间态，
+  // 不能闪一下琥珀「异常」再自动消失。
+  if (inBootGrace.value && raw !== "ready" && raw !== "voice") {
     return "booting";
   }
   return raw;
