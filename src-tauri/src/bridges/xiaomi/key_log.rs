@@ -63,10 +63,6 @@ impl KeyEmitGate {
     }
 }
 
-pub fn emit_key(app: &AppHandle, button_id: &str, label: &str) {
-    emit_key_phase(app, button_id, label, true);
-}
-
 pub fn emit_key_phase(app: &AppHandle, button_id: &str, label: &str, pressed: bool) {
     let _ = app.emit(
         "xiaomi-key",
@@ -189,18 +185,6 @@ pub fn start_key_logger(
                 .ok();
         }
 
-        {
-            let app2 = app.clone();
-            let runtime2 = Arc::clone(&runtime);
-            let gate2 = Arc::clone(&gate);
-            std::thread::Builder::new()
-                .name("xiaomi-vk-poll".into())
-                .spawn(move || {
-                    windows_vk_poll_logger(app2, runtime2, gate2);
-                })
-                .ok();
-        }
-
         emit_message(
             &app,
             "按键监听已启动（HID-Tap 返回/音量 + ATVV 语音/音频）",
@@ -209,39 +193,5 @@ pub fn start_key_logger(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (app, runtime, address_u64, atvv_interface_id);
-    }
-}
-
-/// VK 轮询：仅作 UI/诊断兜底，不执行映射（避免与系统原生气 + HID 映射双触发）
-#[cfg(target_os = "windows")]
-fn windows_vk_poll_logger(app: AppHandle, runtime: Arc<XiaomiRuntime>, gate: Arc<KeyEmitGate>) {
-    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-
-    // 勿轮询 VK_RETURN(0x0D)：电源等键映射为 Shift+Enter 时，
-    // 注入的 Enter 会被当成「确定」高亮，盖住真实按键反馈。
-    // 「确定」只由 HID Tap / 设备路径 emit，不靠系统键盘状态。
-    let keys: &[(i32, &str)] = &[
-        (0xAF, "volume_up"),
-        (0xAE, "volume_down"),
-        (0xAD, "volume_mute"),
-        (0x26, "up"),
-        (0x28, "down"),
-        (0x25, "left"),
-        (0x27, "right"),
-        (0x24, "home"),
-    ];
-
-    let mut prev: HashMap<i32, bool> = HashMap::new();
-    while !runtime.should_stop() {
-        for &(vk, id) in keys {
-            let down = unsafe { GetAsyncKeyState(vk) as u16 } & 0x8000 != 0;
-            let was = prev.get(&vk).copied().unwrap_or(false);
-            if down && !was && gate.try_emit(id) {
-                emit_key(&app, id, button_label(id));
-                log::info!("XIAOMI VK observe key={id} vk=0x{vk:02X} (no map)");
-            }
-            prev.insert(vk, down);
-        }
-        std::thread::sleep(Duration::from_millis(25));
     }
 }
