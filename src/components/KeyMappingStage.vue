@@ -17,8 +17,8 @@ import { MEDIA_PICK_KEYS, vkDisplayName } from "../utils/vkDisplay";
 
 const props = defineProps<{
   config: DeviceConfig;
-  /** 实体键按下脉冲：仅高亮对应键位，不另开文案条 */
-  pressPulse?: { id: string; seq: number } | null;
+  /** 实体键：与遥控同步——按下亮、按住保持、抬起灭 */
+  pressPulse?: { id: string; seq: number; phase: "down" | "up" } | null;
 }>();
 
 const emit = defineEmits<{
@@ -252,7 +252,7 @@ const rightButtons = computed<RightCard[]>(() => {
 });
 
 const activeLineId = computed(
-  () => selectedId.value || hoverId.value || null
+  () => selectedId.value || hoverId.value || pressedId.value || null
 );
 
 function edgeToward(
@@ -372,24 +372,33 @@ function onCardHover(id: string | null) {
   updateLine();
 }
 
-/** 实体键：复用 hover/active 高亮 ~0.75s */
+/** 实体键与遥控器同步：down 亮、按住保持、up 灭；漏 up 时兜底清除 */
+function clearPressed(id?: string) {
+  if (pressClearTimer) {
+    clearTimeout(pressClearTimer);
+    pressClearTimer = null;
+  }
+  if (id && pressedId.value && pressedId.value !== id) return;
+  pressedId.value = null;
+  updateLine();
+}
+
 watch(
   () => props.pressPulse,
   (p) => {
     if (!p?.id) return;
     const id = p.id === "voice" ? "mic" : p.id;
-    hoverId.value = id;
+    if (p.phase === "up") {
+      clearPressed(id);
+      return;
+    }
     pressedId.value = id;
     updateLine();
+    // 兜底：丢 up 事件时不一直亮
     if (pressClearTimer) clearTimeout(pressClearTimer);
     pressClearTimer = setTimeout(() => {
-      if (pressedId.value === id) {
-        pressedId.value = null;
-        hoverId.value = null;
-        updateLine();
-      }
-      pressClearTimer = null;
-    }, 750);
+      clearPressed(id);
+    }, 15000);
   },
 );
 
@@ -635,7 +644,9 @@ onUnmounted(() => {
           class="map-card"
           :class="{
             active: selectedId === btn.id,
-            hover: hoverId === btn.id && selectedId !== btn.id,
+            hover:
+              (hoverId === btn.id || pressedId === btn.id) &&
+              selectedId !== btn.id,
             pressed: pressedId === btn.id,
           }"
           @mouseenter="onCardHover(btn.id)"
@@ -715,7 +726,7 @@ onUnmounted(() => {
         <RemoteHotspot
           ref="remoteRef"
           :selected-id="selectedId"
-          :hover-id="hoverId"
+          :hover-id="pressedId || hoverId"
           @select="selectButton"
           @hover="onRemoteHover"
         />
@@ -742,7 +753,9 @@ onUnmounted(() => {
             class="map-card"
             :class="{
               active: selectedId === btn.id,
-              hover: hoverId === btn.id && selectedId !== btn.id,
+              hover:
+                (hoverId === btn.id || pressedId === btn.id) &&
+                selectedId !== btn.id,
               pressed: pressedId === btn.id,
             }"
             @mouseenter="onCardHover(btn.id)"

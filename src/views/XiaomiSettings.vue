@@ -118,8 +118,12 @@ const voiceMeter = ref<VoiceMeterSnapshot>({
   atvvOk: false,
 });
 
-/** 实体键按下：只驱动映射区键位高亮脉冲 */
-const keyPressPulse = ref<{ id: string; seq: number } | null>(null);
+/** 实体键与遥控同步：down/up 驱动映射区键位高亮 */
+const keyPressPulse = ref<{
+  id: string;
+  seq: number;
+  phase: "down" | "up";
+} | null>(null);
 let keyPressSeq = 0;
 
 const bleSignalLabel = computed(() => {
@@ -1216,9 +1220,7 @@ function showKeyPressPulse(
   buttonId: string,
   phase: "down" | "up" = "down"
 ) {
-  if (phase === "down") {
-    keyPressPulse.value = { id: buttonId, seq: ++keyPressSeq };
-  }
+  keyPressPulse.value = { id: buttonId, seq: ++keyPressSeq, phase };
   // 状态日志只记配置映射，不再汇总漏键/吞键/真实输出
   if (phase === "down") {
     prependLog(formatKeyEventLine(phase, remoteLabel, mappedLabel));
