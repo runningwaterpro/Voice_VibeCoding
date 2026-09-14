@@ -2,6 +2,8 @@
 
 基于 [mwlt/Voice_VibeCoding](https://github.com/mwlt/Voice_VibeCoding)（作者 **mwlt**）的 Fork。
 
+上游代码与资源版权属 **mwlt** 及其贡献者。本仓库在其之上的修改归本仓库维护者，遵循上游许可；分发时请保留上游署名。手动组合参考 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime)，致谢。
+
 ---
 
 ## 这是什么
@@ -34,9 +36,3 @@ npm run tauri:build
 
 日志：`%APPDATA%\com.remote-bridge-hub.app\logs\app.log`  
 修复类操作会写入 `XIAOMI ATVV` / `VOICE env` / `WINUHID` / `restart` 等便于排查的行。
-
----
-
-## 许可与归属
-
-上游代码与资源版权属 **mwlt** 及其贡献者。本仓库在其之上的修改归本仓库维护者，遵循上游许可；分发时请保留上游署名。手动组合参考 [LightyearXizIl/Nexus-Prime](https://github.com/LightyearXizIl/Nexus-Prime)，致谢。
