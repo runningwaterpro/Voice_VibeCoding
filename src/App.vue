@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { RouterView, useRouter } from "vue-router";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import SideNav from "./components/SideNav.vue";
 import AppUpdateModal from "./components/AppUpdateModal.vue";
 import { useAppUpdateStore } from "./stores/appUpdate";
@@ -127,6 +128,31 @@ async function dismissConflict() {
   }
 }
 
+/** 把主窗口高度贴到内容，避免机身下大片视口空白；仅启动时执行一次 */
+async function fitWindowHeightToContent() {
+  try {
+    const win = getCurrentWindow();
+    if (await win.isMaximized()) return;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const chassis = document.querySelector<HTMLElement>(".app-container");
+    if (!chassis) return;
+    const contentH = Math.ceil(chassis.getBoundingClientRect().height);
+    if (contentH < 200) return;
+    // 机身 margin 上下各 12 + 边框 2 + 底部主内容 padding 已在 height 内
+    const desiredInner = contentH + 24;
+    const minH = 720;
+    const maxH = 900;
+    const height = Math.min(maxH, Math.max(minH, desiredInner));
+    const cur = await win.innerSize();
+    const scale = await win.scaleFactor();
+    const curLogicalH = cur.height / (scale || 1);
+    if (Math.abs(curLogicalH - height) < 4) return;
+    await win.setSize(new LogicalSize(900, height));
+  } catch (e) {
+    console.warn("fit window height failed:", e);
+  }
+}
+
 onMounted(async () => {
   // 页面就绪后再显示；启动策略为托盘时由后端 minimize（禁止 hide，防 WebView2 白屏）
   try {
@@ -135,6 +161,7 @@ onMounted(async () => {
     // 不盲目 show()：开启「启动后最小化到托盘」时 fallback show 会误弹窗；用户可点托盘打开
     console.warn("reveal main window failed:", e);
   }
+  void fitWindowHeightToContent();
   await appUpdate.init();
   if (!globalSettings.loaded) {
     await globalSettings.load();
@@ -329,12 +356,12 @@ body {
   background: #0e1014;
   color: var(--text);
   overflow: auto;
-  min-height: 100vh;
+  min-height: 0;
   height: auto;
 }
 
 #app {
-  min-height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
