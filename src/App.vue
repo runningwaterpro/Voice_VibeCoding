@@ -128,27 +128,51 @@ async function dismissConflict() {
   }
 }
 
-/** 把主窗口高度贴到内容：机身 margin 上下各 12px。不强制 min 720，避免内容矮时仍留大空白 */
+/** 自动贴合窗口高度：以「最终内容高」为准，并补偿标题栏；启动期只增不减 */
+let fitMaxApplied = 0;
+
 async function fitWindowHeightToContent() {
   try {
     const win = getCurrentWindow();
     if (await win.isMaximized()) return;
+
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
+
     const chassis = document.querySelector<HTMLElement>(".app-container");
-    if (!chassis) return;
-    const contentH = Math.ceil(chassis.getBoundingClientRect().height);
+    const main = document.querySelector<HTMLElement>(".main-content");
+    if (!chassis || !main) return;
+
+    // 取机身高与文档可滚高，避免示意图/字体晚到时量矮
+    const chassisH = Math.ceil(chassis.getBoundingClientRect().height);
+    const docH = Math.max(
+      document.documentElement.scrollHeight,
+      document.body?.scrollHeight ?? 0,
+    );
+    const contentH = Math.max(chassisH, docH, main.scrollHeight + 24);
     if (contentH < 200) return;
-    // 机身 margin 上下各 12
-    const desired = contentH + 24;
-    const maxH = 900;
-    const height = Math.min(maxH, Math.max(420, desired));
-    const scale = await win.scaleFactor();
-    const cur = await win.innerSize();
-    const curW = Math.round(cur.width / (scale || 1));
-    const curH = Math.round(cur.height / (scale || 1));
-    if (Math.abs(curH - height) < 4) return;
+
+    const scale = (await win.scaleFactor()) || 1;
+    const outer = await win.outerSize();
+    const inner = await win.innerSize();
+    // Windows 装饰窗 setSize 常按外框高：需加上标题栏厚度
+    const chromeH = Math.max(
+      0,
+      Math.round((outer.height - inner.height) / scale),
+    );
+    const curW = Math.round(inner.width / scale);
+    const curInnerH = Math.round(inner.height / scale);
+
+    // 机身上下 margin 12×2 + 底部余量 8 + 标题栏
+    const desiredInner = contentH + 24 + 8;
+    const desiredOuter = desiredInner + chromeH;
+    const maxH = 960;
+    const height = Math.min(maxH, Math.max(desiredOuter, fitMaxApplied));
+
+    if (height > fitMaxApplied) fitMaxApplied = height;
+    // 已足够高则不再压矮（防字体加载后再缩一刀）
+    if (curInnerH + chromeH >= height - 4) return;
     await win.setSize(new LogicalSize(curW, height));
   } catch (e) {
     console.warn("fit window height failed:", e);
@@ -156,10 +180,8 @@ async function fitWindowHeightToContent() {
 }
 
 function scheduleFitWindowHeight() {
-  // 字体/远程示意图加载后高度会变：多试几次
   void fitWindowHeightToContent();
-  const delays = [400, 1200, 2400];
-  for (const d of delays) {
+  for (const d of [500, 1500, 3000, 5000]) {
     setTimeout(() => {
       void fitWindowHeightToContent();
     }, d);
