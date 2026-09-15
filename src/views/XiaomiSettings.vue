@@ -375,14 +375,26 @@ const railFocus = computed<RailFocus>(() => {
   }
 });
 
-const showActionBar = computed(
-  () => railState.value !== "ready" && railState.value !== "voice",
-);
+/** 启动/异常：统一居中卡；桥接未活不可「稍后」，其余异常可稍后 */
+const repairDismissed = ref(false);
+const bridgeDown = computed(() => {
+  const st = railState.value;
+  return st === "booting" || st === "idle" || st === "err_bridge" || st === "connecting";
+});
 
-/** 异常条主操作：一键按当前 host 实际状态修复 */
+const showRepairModal = computed(() => {
+  const st = railState.value;
+  if (st === "ready" || st === "voice") return false;
+  if (bridgeDown.value && st !== "connecting") return true;
+  if (st === "connecting") return !repairDismissed.value;
+  return !repairDismissed.value;
+});
+
+const showActionBar = computed(() => false);
+
 const autoRepairing = ref(false);
 const primaryLabel = computed(() => {
-  if (!showActionBar.value || railState.value === "booting") return null;
+  if (railState.value === "booting" || !showRepairModal.value) return null;
   if (autoRepairing.value) return "修复中…";
   return "一键修复";
 });
@@ -397,6 +409,19 @@ const primaryDisabled = computed(
     atvvRepairing.value,
 );
 
+function dismissRepairCard() {
+  repairDismissed.value = true;
+}
+
+watch(
+  () => railState.value,
+  (st) => {
+    if (st === "ready" || st === "voice") {
+      repairDismissed.value = false;
+    }
+  },
+);
+
 /**
  * 一键修复：按依赖顺序处理实际未就绪项。
  * 桥接未活时用 restart（比单纯 start 更能清残留，对齐用户实测）。
@@ -404,6 +429,7 @@ const primaryDisabled = computed(
 async function autoRepairAll() {
   if (primaryDisabled.value) return;
   autoRepairing.value = true;
+  repairDismissed.value = false;
   prependLog("一键修复：开始");
   try {
     for (let step = 0; step < 4; step++) {
@@ -1925,60 +1951,45 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
-    <!-- 全局状态条：浮在内容上方，不占文档流，避免把电平/映射往下挤 -->
-      <Transition name="action-bar">
-        <section
-          v-if="showActionBar"
-          class="card action-bar"
-          :class="{
-            'no-primary': !primaryLabel,
-            booting: railState === 'booting',
-          }"
-          aria-label="异常处理"
-        >
-          <div class="status-line" role="status" aria-live="polite">
-            <span
-              v-if="railState === 'booting'"
-              class="booting-wave"
-              aria-hidden="true"
-            >
+    <!-- 启动 / 异常：窗口居中卡，不挤电平与映射 -->
+    <Transition name="repair-modal">
+      <div
+        v-if="showRepairModal"
+        class="repair-modal"
+        :class="{ booting: railState === 'booting' }"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="repair-title"
+      >
+        <div class="repair-card">
+          <div v-if="railState === 'booting'" class="boot-row">
+            <span class="booting-wave" aria-hidden="true">
               <i></i><i></i><i></i><i></i><i></i>
             </span>
-            <b>{{ railFocus.qHeadline }}</b>
-            <span class="status-sub">{{ railFocus.qSub }}</span>
+            <h3 id="repair-title">正在启动…</h3>
           </div>
-          <div v-if="primaryLabel" class="repair-group">
-            <button
-              type="button"
-              class="btn btn-attention action-primary"
-              :disabled="primaryDisabled"
-              @click="autoRepairAll"
-            >
-              {{ primaryLabel }}
-            </button>
-          </div>
-          <details class="more-ops">
-            <summary>更多</summary>
-            <div class="ops-body">
-              <button type="button" class="btn" :disabled="voiceRepairing || restarting || connBusy" @click="voiceDetectAndRepair">
-                虚拟声卡修复
-              </button>
-              <button type="button" class="btn" :disabled="winuhidRepairing || restarting || connBusy" @click="repairWinUHid">
-                修复虚拟键盘
-              </button>
-              <button type="button" class="btn" :disabled="atvvRepairing || restarting || connBusy" @click="repairAtvv">
-                修复 ATVV 连接
-              </button>
-              <button type="button" class="btn" :disabled="restarting || connBusy" @click="restartBridge">
-                重启桥接
-              </button>
-              <button type="button" class="btn" :disabled="connBusy || railState === 'connecting'" @click="toggleRailConnect">
-                {{ railFocus.connLabel }}
-              </button>
-            </div>
-          </details>
-        </section>
-      </Transition>
+          <h3 v-else id="repair-title">{{ railFocus.qHeadline }}</h3>
+          <p class="repair-desc">{{ railFocus.qSub }}</p>
+          <button
+            v-if="railState !== 'booting' && primaryLabel"
+            type="button"
+            class="btn btn-attention repair-primary"
+            :disabled="primaryDisabled"
+            @click="autoRepairAll"
+          >
+            {{ primaryLabel }}
+          </button>
+          <button
+            v-if="railState !== 'booting' && !bridgeDown && railState !== 'connecting'"
+            type="button"
+            class="btn btn-secondary repair-later"
+            @click="dismissRepairCard"
+          >
+            稍后处理
+          </button>
+        </div>
+      </div>
+    </Transition>
 
     <div class="vol-meters-card vol-meters-full">
           <CableVolRuler
@@ -3414,108 +3425,96 @@ async function retryLoadConfig() {
   height: auto;
   position: relative;
 }
-/* 异常条：绝对浮层，不参与文档流，出现时不挤电平/映射 */
-.action-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 8px 12px;
+/* 启动/异常：窗口居中浮层，不占文档流 */
+.repair-modal {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  z-index: 30;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(1px);
 }
-/* 进出场：仅 opacity/transform，180ms strong ease-out */
-.action-bar-enter-active,
-.action-bar-leave-active {
-  transition:
-    opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+.repair-card {
+  width: min(360px, calc(100% - 32px));
+  background: var(--card-bg, #1f242b);
+  border: 1px solid var(--border, #343b46);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
-.action-bar-enter-from,
-.action-bar-leave-to {
+.repair-modal-enter-active,
+.repair-modal-leave-active {
+  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.repair-modal-leave-active .repair-card {
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.repair-modal-enter-from,
+.repair-modal-leave-to {
   opacity: 0;
-  transform: translateY(-4px) scale(0.98);
 }
-.action-bar-leave-active {
-  position: absolute;
-  left: 0;
-  right: 0;
-  width: auto;
-  pointer-events: none;
+.repair-modal-enter-from .repair-card {
+  transform: translateY(8px) scale(0.98);
 }
-/* 无主操作：一句 + 更多，不占空按钮列 */
-.action-bar.no-primary {
-  grid-template-columns: minmax(0, 1fr) auto;
+.repair-modal-leave-to .repair-card {
+  transform: translateY(4px) scale(0.98);
 }
-.action-bar.booting {
+.repair-card h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.repair-desc {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.repair-primary {
+  width: 100%;
+  height: 36px;
+  margin-bottom: 8px;
+}
+.repair-later {
+  width: 100%;
+  height: 32px;
+}
+.repair-modal.booting .repair-card {
   border-color: #24384c;
   background: #141c26;
 }
-.action-bar.booting .status-line b {
+.repair-modal.booting .repair-card h3 {
   color: #93c5fd;
   font-weight: 500;
 }
-.action-bar .status-line {
+.boot-row {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  overflow: hidden;
-  height: 34px;
-  border: none;
-  background: transparent;
-  border-radius: 0;
-}
-.action-bar .status-line b {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-.action-bar .status-line > .status-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.action-bar.booting .status-line {
   gap: 10px;
+  margin: 0 0 6px;
+  min-height: 22px;
 }
-.action-bar.booting .booting-wave {
-  flex: 0 0 auto;
-}
-.action-bar.booting .status-line > .status-sub {
-  flex: 0 1 auto;
-  color: #8b9bb0;
-  padding-left: 10px;
-  border-left: 1px solid #2a3a4d;
+.boot-row h3 {
+  margin: 0;
 }
 .booting-wave {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-start;
   gap: 2px;
   width: 22px;
   height: 16px;
   flex: 0 0 auto;
-  flex-shrink: 0;
+  margin: 0;
 }
 .booting-wave i {
   display: block;
   width: 2px;
-  height: 4px;
+  height: 14px;
   border-radius: 1px;
   background: #7dd3fc;
   opacity: 0.75;
@@ -3540,50 +3539,29 @@ async function retryLoadConfig() {
 @keyframes boot-wave {
   0%,
   100% {
-    height: 4px;
-    opacity: 0.45;
+    transform: scaleY(0.28);
+    opacity: 0.4;
   }
   50% {
-    height: 14px;
+    transform: scaleY(1);
     opacity: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .action-bar-enter-active,
-  .action-bar-leave-active {
+  .repair-modal-enter-active,
+  .repair-modal-leave-active {
     transition: opacity 120ms linear;
-  }
-  .action-bar-enter-from,
-  .action-bar-leave-to {
-    transform: none;
   }
   .booting-wave i {
     animation: none;
-    height: 8px;
+    transform: scaleY(0.55);
     opacity: 0.55;
   }
   .booting-wave i:nth-child(2),
   .booting-wave i:nth-child(4) {
-    height: 12px;
+    transform: scaleY(0.85);
     opacity: 0.75;
   }
-}
-.action-bar .repair-group {
-  display: flex;
-  gap: 6px;
-  margin: 0;
-  min-width: 112px;
-  align-items: center;
-}
-.action-bar .repair-group .action-primary {
-  width: auto;
-  min-width: 112px;
-  white-space: nowrap;
-  height: 34px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 .btn-attention {
   border-color: var(--warning) !important;
@@ -4026,7 +4004,7 @@ async function retryLoadConfig() {
 .log-aside { display: none !important; }
 .vol-meters-full { width: 100%; margin-top: 12px; }
 /* 状态条退场时电平上移不留双倍空隙 */
-.action-bar { margin-bottom: 0; }
+
 /* keep voice-quick dark in mapping */
 .mapping-layout .voice-quick-setup {
   background: var(--card-bg) !important;
