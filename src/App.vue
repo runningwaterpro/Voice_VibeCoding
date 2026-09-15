@@ -128,28 +128,41 @@ async function dismissConflict() {
   }
 }
 
-/** 把主窗口高度贴到内容，避免机身下大片视口空白；仅启动时执行一次 */
+/** 把主窗口高度贴到内容：机身 margin 上下各 12px。不强制 min 720，避免内容矮时仍留大空白 */
 async function fitWindowHeightToContent() {
   try {
     const win = getCurrentWindow();
     if (await win.isMaximized()) return;
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r)),
+    );
     const chassis = document.querySelector<HTMLElement>(".app-container");
     if (!chassis) return;
     const contentH = Math.ceil(chassis.getBoundingClientRect().height);
     if (contentH < 200) return;
-    // 机身 margin 上下各 12 + 边框 2 + 底部主内容 padding 已在 height 内
-    const desiredInner = contentH + 24;
-    const minH = 720;
+    // 机身 margin 上下各 12
+    const desired = contentH + 24;
     const maxH = 900;
-    const height = Math.min(maxH, Math.max(minH, desiredInner));
-    const cur = await win.innerSize();
+    const height = Math.min(maxH, Math.max(420, desired));
     const scale = await win.scaleFactor();
-    const curLogicalH = cur.height / (scale || 1);
-    if (Math.abs(curLogicalH - height) < 4) return;
-    await win.setSize(new LogicalSize(900, height));
+    const cur = await win.innerSize();
+    const curW = Math.round(cur.width / (scale || 1));
+    const curH = Math.round(cur.height / (scale || 1));
+    if (Math.abs(curH - height) < 4) return;
+    await win.setSize(new LogicalSize(curW, height));
   } catch (e) {
     console.warn("fit window height failed:", e);
+  }
+}
+
+function scheduleFitWindowHeight() {
+  // 字体/远程示意图加载后高度会变：多试几次
+  void fitWindowHeightToContent();
+  const delays = [400, 1200, 2400];
+  for (const d of delays) {
+    setTimeout(() => {
+      void fitWindowHeightToContent();
+    }, d);
   }
 }
 
@@ -161,7 +174,7 @@ onMounted(async () => {
     // 不盲目 show()：开启「启动后最小化到托盘」时 fallback show 会误弹窗；用户可点托盘打开
     console.warn("reveal main window failed:", e);
   }
-  void fitWindowHeightToContent();
+  scheduleFitWindowHeight();
   await appUpdate.init();
   if (!globalSettings.loaded) {
     await globalSettings.load();

@@ -97,8 +97,8 @@ pub fn try_reload_main(app: &AppHandle) -> Result<(), String> {
 fn build_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     WebviewWindowBuilder::new(app, MAIN_LABEL, WebviewUrl::App("index.html".into()))
         .title("Voice VibeCoding")
-        .inner_size(900.0, 900.0)
-        .min_inner_size(880.0, 720.0)
+        .inner_size(900.0, 640.0)
+        .min_inner_size(880.0, 480.0)
         .resizable(true)
         .center()
         .decorations(true)

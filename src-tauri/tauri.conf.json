@@ -14,9 +14,9 @@
       {
         "title": "Voice VibeCoding",
         "width": 900,
-        "height": 900,
+        "height": 640,
         "minWidth": 880,
-        "minHeight": 720,
+        "minHeight": 480,
         "resizable": true,
         "maxWidth": 960,
         "maxHeight": 900,
