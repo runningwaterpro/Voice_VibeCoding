@@ -263,12 +263,12 @@ const railFocus = computed<RailFocus>(() => {
     case "err_bridge":
       return {
         led: st === "idle" ? "idle" : "fail",
-        headline: "未连接遥控器",
-        sub: "启动会自动连接；也可点「重新连接」",
+        headline: st === "idle" ? "未连接遥控器" : "桥接未运行",
+        sub: "点「一键修复」自动处理",
         qHeadline: st === "idle" ? "未连接" : "桥接未运行",
-        qSub: "点「重新连接」或等待自动重连",
+        qSub: "点「一键修复」自动启动并修复",
         connLabel: connBusy.value ? "连接中…" : "重新连接",
-        connCls: "primary",
+        connCls: "ghost",
         primary: "conn",
         secondary: null,
         showRepairs: true,
@@ -320,9 +320,9 @@ const railFocus = computed<RailFocus>(() => {
       return {
         led: "warn",
         headline: "语音通道未就绪",
-        sub: "点「修复 ATVV 连接」",
+        sub: "点「一键修复」自动处理",
         qHeadline: "语音通道异常",
-        qSub: "按键映射仍可用",
+        qSub: "点「一键修复」，无需逐项选择",
         connLabel: connBusy.value ? "断开中…" : "断开遥控器",
         connCls: "ghost",
         primary: "atvv",
@@ -334,9 +334,9 @@ const railFocus = computed<RailFocus>(() => {
       return {
         led: "warn",
         headline: "虚拟键盘未就绪",
-        sub: "语音唤醒需要虚拟键盘",
+        sub: "点「一键修复」自动处理",
         qHeadline: "虚拟键盘异常",
-        qSub: "点「修复虚拟键盘」",
+        qSub: "点「一键修复」自动处理",
         connLabel: connBusy.value ? "断开中…" : "断开遥控器",
         connCls: "ghost",
         primary: "winuhid",
@@ -348,9 +348,9 @@ const railFocus = computed<RailFocus>(() => {
       return {
         led: "warn",
         headline: "虚拟声卡未就绪",
-        sub: "点「虚拟声卡修复」",
+        sub: "点「一键修复」自动处理",
         qHeadline: "虚拟声卡异常",
-        qSub: "未检测到 VB-CABLE",
+        qSub: "点「一键修复」自动检测并修复",
         connLabel: connBusy.value ? "断开中…" : "断开遥控器",
         connCls: "ghost",
         primary: "cable",
@@ -362,13 +362,13 @@ const railFocus = computed<RailFocus>(() => {
       return {
         led: "warn",
         headline: "语音路由未就绪",
-        sub: "点「重启桥接」或「虚拟声卡修复」",
+        sub: "点「一键修复」自动处理",
         qHeadline: "语音路由异常",
-        qSub: "音频通路未就绪",
+        qSub: "点「一键修复」自动处理",
         connLabel: connBusy.value ? "断开中…" : "断开遥控器",
         connCls: "ghost",
         primary: "restart",
-        secondary: "cable",
+        secondary: null,
         showRepairs: true,
         healthyText: null,
       };
@@ -379,76 +379,86 @@ const showActionBar = computed(
   () => railState.value !== "ready" && railState.value !== "voice",
 );
 
+/** 异常条主操作：一键按当前 host 实际状态修复 */
+const autoRepairing = ref(false);
 const primaryLabel = computed(() => {
-  const p = railFocus.value.primary;
-  if (!p) return null;
-  switch (p) {
-    case "conn":
-      return connBusy.value ? "连接中…" : "重新连接";
-    case "cable":
-      return voiceRepairing.value ? "处理中..." : "虚拟声卡修复";
-    case "winuhid":
-      return winuhidRepairing.value ? "修复中..." : "修复虚拟键盘";
-    case "atvv":
-      return atvvRepairing.value ? "修复中..." : "修复 ATVV 连接";
-    case "restart":
-      return restarting.value ? "重启中..." : "重启桥接";
-    default:
-      return null;
-  }
+  if (!showActionBar.value || railState.value === "booting") return null;
+  if (autoRepairing.value) return "修复中…";
+  return "一键修复";
 });
 
-const primaryDisabled = computed(() => {
-  switch (railFocus.value.primary) {
-    case "conn":
-      return connBusy.value;
-    case "cable":
-      return voiceRepairing.value || restarting.value || connBusy.value;
-    case "winuhid":
-      return (
-        winuhidRepairing.value ||
-        voiceRepairing.value ||
-        atvvRepairing.value ||
-        restarting.value ||
-        connBusy.value
-      );
-    case "atvv":
-      return (
-        atvvRepairing.value ||
-        restarting.value ||
-        voiceRepairing.value ||
-        winuhidRepairing.value ||
-        connBusy.value
-      );
-    case "restart":
-      return (
-        restarting.value ||
-        voiceRepairing.value ||
-        atvvRepairing.value ||
-        connBusy.value
-      );
-    default:
-      return false;
-  }
-});
+const primaryDisabled = computed(
+  () =>
+    autoRepairing.value ||
+    connBusy.value ||
+    restarting.value ||
+    voiceRepairing.value ||
+    winuhidRepairing.value ||
+    atvvRepairing.value,
+);
 
-function runPrimary() {
-  switch (railFocus.value.primary) {
-    case "conn":
-      void toggleRailConnect();
-      break;
-    case "cable":
-      void voiceDetectAndRepair();
-      break;
-    case "winuhid":
-      void repairWinUHid();
-      break;
-    case "atvv":
-      void repairAtvv();
-      break;
-    case "restart":
-      void restartBridge();
-      break;
+/**
+ * 一键修复：按依赖顺序处理实际未就绪项。
+ * 桥接未活时用 restart（比单纯 start 更能清残留，对齐用户实测）。
+ */
+async function autoRepairAll() {
+  if (primaryDisabled.value) return;
+  autoRepairing.value = true;
+  prependLog("一键修复：开始");
+  try {
+    for (let step = 0; step < 4; step++) {
+      await refreshHost();
+      const h = host.value;
+      if (
+        h.bridge_alive &&
+        h.winuhid_ready &&
+        h.atvv_ok &&
+        h.cable_ready &&
+        h.audio_alive
+      ) {
+        prependLog("一键修复：各项已就绪");
+        break;
+      }
+
+      if (!h.bridge_alive) {
+        prependLog(`一键修复：桥接未运行，执行重启桥接（${step + 1}）`);
+        await restartBridge();
+        await refreshHost();
+        continue;
+      }
+
+      if (!h.cable_ready) {
+        prependLog("一键修复：虚拟声卡未就绪，自动检测");
+        await runVoiceAutoRepair();
+        await refreshHost();
+        continue;
+      }
+
+      if (!h.winuhid_ready) {
+        prependLog("一键修复：虚拟键盘未就绪，使用内嵌源自动修复");
+        await chooseWinuhidSource("embedded");
+        await refreshHost();
+        continue;
+      }
+
+      if (!h.atvv_ok) {
+        prependLog("一键修复：修复 ATVV 连接");
+        await repairAtvv();
+        await refreshHost();
+        continue;
+      }
+
+      if (!h.audio_alive) {
+        prependLog("一键修复：语音路由未就绪，重启桥接");
+        await restartBridge();
+        await refreshHost();
+      }
+    }
+    prependLog("一键修复：结束");
+  } catch (e) {
+    prependLog(`一键修复异常: ${String(e)}`);
+  } finally {
+    autoRepairing.value = false;
   }
 }
 
@@ -1942,7 +1952,7 @@ async function retryLoadConfig() {
               type="button"
               class="btn btn-attention action-primary"
               :disabled="primaryDisabled"
-              @click="runPrimary"
+              @click="autoRepairAll"
             >
               {{ primaryLabel }}
             </button>
@@ -1964,9 +1974,6 @@ async function retryLoadConfig() {
               </button>
               <button type="button" class="btn" :disabled="connBusy || railState === 'connecting'" @click="toggleRailConnect">
                 {{ railFocus.connLabel }}
-              </button>
-              <button type="button" class="btn" @click="showSetupTips = true">
-                输入法设置
               </button>
             </div>
           </details>
