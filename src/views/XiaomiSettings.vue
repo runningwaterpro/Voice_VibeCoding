@@ -1925,7 +1925,7 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
-    <!-- 全局状态条：顶栏之下、电平之上；仅启动/异常出现 -->
+    <!-- 全局状态条：浮在内容上方，不占文档流，避免把电平/映射往下挤 -->
       <Transition name="action-bar">
         <section
           v-if="showActionBar"
@@ -2469,6 +2469,7 @@ async function retryLoadConfig() {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+  position: relative;
 }
 .mapping-layout.card {
   /* 相对 .card 的 10px，下边减半 */
@@ -3399,7 +3400,11 @@ async function retryLoadConfig() {
   color: var(--text-secondary);
   opacity: 0.75;
 }
-/* V4.3 异常操作条：一句 + 固定主操作槽 + 更多 */
+/* 映射卡只包内容，不吸收父级剩余高度 */
+.mapping-layout.card {
+  height: auto;
+  flex: 0 0 auto;
+}
 .page-body.stage-stack {
   display: flex !important;
   flex-direction: column;
@@ -3409,11 +3414,7 @@ async function retryLoadConfig() {
   height: auto;
   position: relative;
 }
-/* 映射卡只包内容，不吸收父级剩余高度 */
-.mapping-layout.card {
-  height: auto;
-  flex: 0 0 auto;
-}
+/* 异常条：绝对浮层，不参与文档流，出现时不挤电平/映射 */
 .action-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -3421,10 +3422,12 @@ async function retryLoadConfig() {
   gap: 10px;
   min-height: 42px;
   padding: 8px 12px;
-  margin-bottom: 12px;
-  /* 整条抬高层叠：展开的「更多」必须盖在电平之上 */
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
   z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 /* 进出场：仅 opacity/transform，180ms strong ease-out */
 .action-bar-enter-active,
