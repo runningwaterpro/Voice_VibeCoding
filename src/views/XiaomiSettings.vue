@@ -206,11 +206,11 @@ const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
 const railStateRaw = computed<RailState>(() => {
   const h = host.value;
   if (connectingNow.value) return "connecting";
-  if (!h.bridge_alive) return "err_bridge";
-  if (!h.winuhid_ready) return "err_hid";
-  if (!h.atvv_ok) return "error";
-  if (!h.cable_ready) return "err_cable";
-  if (!h.audio_alive) return "err_route";
+  if (!h?.bridge_alive) return "err_bridge";
+  if (!h?.winuhid_ready) return "err_hid";
+  if (!h?.atvv_ok) return "error";
+  if (!h?.cable_ready) return "err_cable";
+  if (!h?.audio_alive) return "err_route";
   if (receivingNow.value) return "voice";
   return "ready";
 });
@@ -399,16 +399,22 @@ const bridgeDown = computed(() => {
 const debugInfo = ref("");
 const showRepairModal = computed(() => {
   const st = railState.value;
-  if (!st) return false;
+  const raw = railStateRaw.value;
+  const bd = bridgeDown.value;
+  const rd = repairDismissed.value;
+  if (!st) {
+    debugInfo.value = `rail=UNDEF raw=${raw} bridgeDown=${bd} dismissed=${rd} show=false`;
+    return false;
+  }
   const result =
     st === "ready" || st === "voice"
       ? false
-      : bridgeDown.value && st !== "connecting"
+      : bd && st !== "connecting"
         ? true
         : st === "connecting"
-          ? !repairDismissed.value
-          : !repairDismissed.value;
-  debugInfo.value = `rail=${st} raw=${railStateRaw.value} bridgeDown=${bridgeDown.value} dismissed=${repairDismissed.value} show=${result}`;
+          ? !rd
+          : !rd;
+  debugInfo.value = `rail=${st} raw=${raw} bridgeDown=${bd} dismissed=${rd} show=${result}`;
   return result;
 });
 
