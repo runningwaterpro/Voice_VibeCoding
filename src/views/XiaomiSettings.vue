@@ -382,6 +382,7 @@ const bridgeDown = computed(() => {
   return st === "booting" || st === "idle" || st === "err_bridge" || st === "connecting";
 });
 
+const debugInfo = ref("");
 const showRepairModal = computed(() => {
   const st = railState.value;
   const result =
@@ -392,9 +393,7 @@ const showRepairModal = computed(() => {
         : st === "connecting"
           ? !repairDismissed.value
           : !repairDismissed.value;
-  console.log(
-    `[DEBUG-modal] railState=${st} bridgeDown=${bridgeDown.value} raw=${railStateRaw.value} repairDismissed=${repairDismissed.value} showRepairModal=${result}`,
-  );
+  debugInfo.value = `rail=${st} raw=${railStateRaw.value} bridgeDown=${bridgeDown.value} dismissed=${repairDismissed.value} show=${result}`;
   return result;
 });
 
@@ -424,7 +423,6 @@ function dismissRepairCard() {
 watch(
   () => railState.value,
   (st) => {
-    console.log(`[DEBUG-modal] railState changed → ${st}`);
     if (st === "ready" || st === "voice") {
       repairDismissed.value = false;
     }
@@ -1960,6 +1958,8 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
+    <!-- DEBUG: 临时调试浮层 -->
+    <div style="position:fixed;top:4px;right:4px;z-index:9999;background:#000;color:#0f0;font:11px monospace;padding:4px 8px;border-radius:4px;pointer-events:none;white-space:nowrap;">{{ debugInfo }}</div>
     <!-- 启动 / 异常：窗口居中卡，不挤电平与映射 -->
     <Transition name="repair-modal">
       <div
