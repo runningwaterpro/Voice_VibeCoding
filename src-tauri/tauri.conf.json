@@ -22,6 +22,7 @@
         "maxHeight": 900,
         "center": true,
         "decorations": true,
+        "devTools": true,
         "visible": false
       }
     ],
