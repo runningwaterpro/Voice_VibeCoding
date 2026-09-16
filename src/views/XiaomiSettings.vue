@@ -384,10 +384,18 @@ const bridgeDown = computed(() => {
 
 const showRepairModal = computed(() => {
   const st = railState.value;
-  if (st === "ready" || st === "voice") return false;
-  if (bridgeDown.value && st !== "connecting") return true;
-  if (st === "connecting") return !repairDismissed.value;
-  return !repairDismissed.value;
+  const result =
+    st === "ready" || st === "voice"
+      ? false
+      : bridgeDown.value && st !== "connecting"
+        ? true
+        : st === "connecting"
+          ? !repairDismissed.value
+          : !repairDismissed.value;
+  console.log(
+    `[DEBUG-modal] railState=${st} bridgeDown=${bridgeDown.value} raw=${railStateRaw.value} repairDismissed=${repairDismissed.value} showRepairModal=${result}`,
+  );
+  return result;
 });
 
 const showActionBar = computed(() => false);
@@ -416,6 +424,7 @@ function dismissRepairCard() {
 watch(
   () => railState.value,
   (st) => {
+    console.log(`[DEBUG-modal] railState changed → ${st}`);
     if (st === "ready" || st === "voice") {
       repairDismissed.value = false;
     }
