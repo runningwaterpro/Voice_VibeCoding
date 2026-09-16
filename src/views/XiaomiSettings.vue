@@ -216,7 +216,7 @@ const railStateRaw = computed<RailState>(() => {
 });
 
 const railState = computed<RailState>(() => {
-  const raw = railStateRaw.value;
+  const raw = railStateRaw.value ?? "err_bridge";
   // 宽限期内：除已就绪外都保持启动中。
   // 桥接已起但 ATVV/声卡尚未就绪是启动过程中的正常中间态，
   // 不能闪一下琥珀「异常」再自动消失。
@@ -370,6 +370,20 @@ const railFocus = computed<RailFocus>(() => {
         primary: "restart",
         secondary: null,
         showRepairs: true,
+        healthyText: null,
+      };
+    default:
+      return {
+        led: "warn",
+        headline: "状态异常",
+        sub: "点「一键修复」自动处理",
+        qHeadline: "状态异常",
+        qSub: "点「一键修复」自动处理",
+        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
+        connCls: "ghost",
+        primary: null,
+        secondary: null,
+        showRepairs: false,
         healthyText: null,
       };
   }
