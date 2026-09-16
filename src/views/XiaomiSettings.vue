@@ -198,7 +198,7 @@ const connectingNow = computed(
   () =>
     connBusy.value ||
     restarting.value ||
-    bridge.devices.xiaomi.status === "Connecting",
+    bridge.devices?.xiaomi?.status === "Connecting",
 );
 
 const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
@@ -402,19 +402,15 @@ const showRepairModal = computed(() => {
   const raw = railStateRaw.value;
   const bd = bridgeDown.value;
   const rd = repairDismissed.value;
-  if (!st) {
-    debugInfo.value = `rail=UNDEF raw=${raw} bridgeDown=${bd} dismissed=${rd} show=false`;
-    return false;
-  }
   const result =
-    st === "ready" || st === "voice"
+    !st || st === "ready" || st === "voice"
       ? false
       : bd && st !== "connecting"
         ? true
         : st === "connecting"
           ? !rd
           : !rd;
-  debugInfo.value = `rail=${st} raw=${raw} bridgeDown=${bd} dismissed=${rd} show=${result}`;
+  debugInfo.value = `rail=${st ?? "UNDEF"} raw=${raw ?? "UNDEF"} bd=${bd} rd=${rd} show=${result}`;
   return result;
 });
 
