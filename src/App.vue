@@ -418,7 +418,7 @@ body {
 
 .main-content {
   flex: 0 0 auto;
-  overflow-x: hidden;
+  overflow-x: clip;
   overflow-y: visible;
   padding: 10px 12px 12px;
   background: var(--chassis);
