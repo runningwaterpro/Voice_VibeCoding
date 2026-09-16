@@ -399,6 +399,7 @@ const bridgeDown = computed(() => {
 const debugInfo = ref("");
 const showRepairModal = computed(() => {
   const st = railState.value;
+  if (!st) return false;
   const result =
     st === "ready" || st === "voice"
       ? false
