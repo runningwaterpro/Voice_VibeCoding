@@ -41,6 +41,8 @@ export interface DeviceConfig {
   bluetooth_address: string | null;
   /** 麦克风增益 dB（对齐 Python gain_db，默认 10） */
   gain_db?: number;
+  /** 自动增益（true 时增益由输入电平自动调节） */
+  gain_auto?: boolean;
   /** 是否注入语音快捷键（传声与此项无关） */
   voice_shortcut_enabled?: boolean;
   /** 语音键抬起后的附加行为（缺省 None，兼容旧配置） */

@@ -85,6 +85,9 @@ pub struct DeviceConfig {
     /// 语音增益 dB（对齐 Python gain_db）
     #[serde(default = "default_gain_db")]
     pub gain_db: f32,
+    /// 自动增益（true 时增益由输入电平自动调节）
+    #[serde(default)]
+    pub gain_auto: bool,
     /// 断线重连间隔秒
     #[serde(default = "default_retry_delay")]
     pub retry_delay: f32,
@@ -125,6 +128,7 @@ impl DeviceConfig {
             voice_release_behavior: VoiceReleaseBehavior::None,
             bluetooth_address: None,
             gain_db: default_gain_db(),
+            gain_auto: false,
             retry_delay: default_retry_delay(),
             voice_shortcut_enabled: true,
             tv_action_ready_delay: default_tv_delay(),
@@ -307,6 +311,7 @@ impl ConfigManager {
 
         if device == "xiaomi" {
             crate::bridges::xiaomi::voice_gain::set_gain_db(config.gain_db);
+            crate::bridges::xiaomi::voice_gain::set_auto_enabled(config.gain_auto);
         }
 
         self.device_cache

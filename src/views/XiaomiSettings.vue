@@ -106,6 +106,8 @@ interface VoiceMeterSnapshot {
   waveform: number[];
   cableActive: boolean;
   cableLevel: number;
+  gainDb: number;
+  gainAuto: boolean;
   atvvOk: boolean;
 }
 
@@ -115,6 +117,8 @@ const voiceMeter = ref<VoiceMeterSnapshot>({
   waveform: Array(28).fill(0),
   cableActive: false,
   cableLevel: 0,
+  gainDb: 10,
+  gainAuto: false,
   atvvOk: false,
 });
 
@@ -512,6 +516,8 @@ function applyVoiceMeter(p: Record<string, unknown>) {
     waveform: Array.isArray(waveform) && waveform.length ? [...waveform] : Array(28).fill(0),
     cableActive: Boolean(p.cableActive ?? p.cable_active ?? false),
     cableLevel: Number(p.cableLevel ?? p.cable_level ?? 0),
+    gainDb: Number(p.gainDb ?? p.gain_db ?? 10),
+    gainAuto: Boolean(p.gainAuto ?? p.gain_auto ?? false),
     atvvOk: Boolean(p.atvvOk ?? p.atvv_ok ?? false),
   };
 }
@@ -951,6 +957,33 @@ const gainDb = computed({
     scheduleGainPersist();
   },
 });
+
+const gainAuto = computed({
+  get: () => config.value?.gain_auto ?? false,
+  set: (v: boolean) => {
+    if (!config.value) return;
+    config.value.gain_auto = v;
+    scheduleGainPersist();
+  },
+});
+
+/** 自动模式下从前端事件同步显示的增益值（不写回 config） */
+const autoGainDisplay = ref(10);
+watch(
+  () => voiceMeter.value.gainDb,
+  (v) => {
+    if (gainAuto.value) {
+      autoGainDisplay.value = Math.min(GAIN_MAX, Math.max(GAIN_MIN, v));
+    }
+  },
+);
+watch(gainAuto, (on) => {
+  if (on) autoGainDisplay.value = gainDb.value;
+});
+
+function toggleGainAuto() {
+  gainAuto.value = !gainAuto.value;
+}
 
 function stepGain(delta: number) {
   gainDb.value = Math.min(GAIN_MAX, Math.max(GAIN_MIN, gainDb.value + delta));
@@ -2003,7 +2036,7 @@ async function retryLoadConfig() {
                 type="button"
                 class="stepper-btn"
                 aria-label="减小增益"
-                :disabled="gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
+                :disabled="gainAuto || gainDb <= GAIN_MIN || configStore.saving || configSectionLoading"
                 @click="stepGain(-GAIN_STEP)"
               >
                 −
@@ -2011,23 +2044,35 @@ async function retryLoadConfig() {
               <input
                 type="number"
                 class="gain-input"
-                v-model.number="gainDb"
+                :value="gainAuto ? autoGainDisplay : gainDb"
                 :min="GAIN_MIN"
                 :max="GAIN_MAX"
                 :step="GAIN_STEP"
-                :disabled="configStore.saving || configSectionLoading"
+                :disabled="gainAuto || configStore.saving || configSectionLoading"
                 @blur="clampGainOnBlur"
               />
               <button
                 type="button"
                 class="stepper-btn"
                 aria-label="增大增益"
-                :disabled="gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
+                :disabled="gainAuto || gainDb >= GAIN_MAX || configStore.saving || configSectionLoading"
                 @click="stepGain(GAIN_STEP)"
               >
                 +
               </button>
             </div>
+            <span class="gain-auto-toggle">
+              <button
+                type="button"
+                class="toggle-switch"
+                :class="{ on: gainAuto }"
+                role="switch"
+                :aria-checked="gainAuto"
+                aria-label="自动增益"
+                @click="toggleGainAuto"
+              ></button>
+              <span class="gain-auto-text">自动</span>
+            </span>
           </div>
         </div>
 
@@ -3401,6 +3446,47 @@ async function retryLoadConfig() {
   font-size: 12px;
   color: var(--text-secondary);
   opacity: 0.75;
+}
+.gain-auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.gain-auto-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.toggle-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 99px;
+  border: none;
+  background: #3a424e;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  flex-shrink: 0;
+}
+.toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #c5cad1;
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.toggle-switch.on {
+  background: #2f6a5f;
+}
+.toggle-switch.on::after {
+  transform: translateX(14px);
+  background: var(--success);
 }
 /* 映射卡只包内容，不吸收父级剩余高度 */
 .mapping-layout.card {

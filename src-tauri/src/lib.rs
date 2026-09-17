@@ -66,6 +66,7 @@ pub fn run() {
             if let Some(mgr) = app.try_state::<config::manager::ConfigManager>() {
                 if let Ok(cfg) = mgr.get_device_config("xiaomi") {
                     bridges::xiaomi::voice_gain::set_gain_db(cfg.gain_db);
+                    bridges::xiaomi::voice_gain::set_auto_enabled(cfg.gain_auto);
                 }
             }
 

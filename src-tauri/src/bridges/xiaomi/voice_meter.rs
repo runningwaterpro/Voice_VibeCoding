@@ -36,6 +36,10 @@ pub struct VoiceMeterSnapshot {
     pub cable_active: bool,
     /// 增益后送声 RMS（0..1）
     pub cable_level: f32,
+    /// 当前增益 dB
+    pub gain_db: f32,
+    /// 自动增益是否开启
+    pub gain_auto: bool,
     /// ATVV 控制/音频 GATT 是否已订阅
     pub atvv_ok: bool,
 }
@@ -86,6 +90,8 @@ impl MeterInner {
             waveform,
             cable_active,
             cable_level,
+            gain_db: crate::bridges::xiaomi::voice_gain::gain_db(),
+            gain_auto: crate::bridges::xiaomi::voice_gain::auto_enabled(),
             atvv_ok: crate::bridges::xiaomi::connect::atvv_subscribed(),
         }
     }
@@ -249,6 +255,11 @@ fn emit_if_needed(force: bool) {
     if let Some(app) = app {
         let _ = app.emit("xiaomi-voice-meter", snap);
     }
+}
+
+/// 当前输入电平（0..1），供自动增益使用
+pub fn current_level() -> Option<f32> {
+    METER.lock().ok().map(|g| g.ble_level)
 }
 
 /// 供轮询兜底（页面刚打开时）

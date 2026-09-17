@@ -1325,6 +1325,10 @@ fn handle_atvv_audio(state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
         let raw = st.decoder.decode_bytes(&frame);
         // 输入电平：增益前，供 UI 判断是否需要加增益
         crate::bridges::xiaomi::voice_meter::on_input_pcm(&raw);
+        // 自动增益：根据输入电平调整（仅 auto 模式下生效）
+        if let Some(level) = crate::bridges::xiaomi::voice_meter::current_level() {
+            crate::bridges::xiaomi::voice_gain::auto_adjust(level);
+        }
         // 用 live 增益（UI 拧到的值），避免会话启动时快照导致与界面不一致
         let live_gain = crate::bridges::xiaomi::voice_gain::gain_db();
         st.gain_db = live_gain;
