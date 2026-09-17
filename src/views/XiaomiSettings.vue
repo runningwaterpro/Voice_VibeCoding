@@ -399,13 +399,34 @@ const bridgeDown = computed(() => {
 const debugInfo = ref("");
 const showRepairModal = computed(() => {
   const h = host.value;
-  const rd = repairDismissed.value;
   const connecting = connBusy.value || restarting.value;
   const allReady =
     h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
   const result = !allReady && !connecting;
-  debugInfo.value = `alive=${h?.bridge_alive} hid=${h?.winuhid_ready} atvv=${h?.atvv_ok} cable=${h?.cable_ready} audio=${h?.audio_alive} connecting=${connecting} show=${result}`;
   return result;
+});
+const bootingPhase = computed(() => inBootGrace.value && !host.value?.bridge_alive);
+const bootStepText = computed(() => {
+  const h = host.value;
+  if (!h?.bridge_alive) return "正在启动桥接…";
+  if (!h?.winuhid_ready) return "正在初始化虚拟键盘…";
+  if (!h?.cable_ready) return "正在检测虚拟声卡…";
+  if (!h?.audio_alive) return "正在建立语音路由…";
+  if (!h?.atvv_ok) return "正在连接 ATVV…";
+  return "即将就绪…";
+});
+const errorTitle = computed(() => {
+  const h = host.value;
+  if (!h?.bridge_alive) return "桥接未运行";
+  if (!h?.winuhid_ready) return "虚拟键盘未就绪";
+  if (!h?.cable_ready) return "虚拟声卡未就绪";
+  if (!h?.audio_alive) return "语音路由未就绪";
+  if (!h?.atvv_ok) return "ATVV 未就绪";
+  return "状态异常";
+});
+const canDismiss = computed(() => {
+  const h = host.value;
+  return h?.bridge_alive && !inBootGrace.value;
 });
 
 const showActionBar = computed(() => false);
@@ -1976,22 +1997,22 @@ async function retryLoadConfig() {
       <div
         v-if="showRepairModal"
         class="repair-modal"
-        :class="{ booting: inBootGrace && !host.bridge_alive }"
+        :class="{ booting: bootingPhase }"
         role="dialog"
         aria-modal="true"
         aria-labelledby="repair-title"
       >
         <div class="repair-card">
-          <div v-if="inBootGrace && !host.bridge_alive" class="boot-row">
+          <div v-if="bootingPhase" class="boot-row">
             <span class="booting-wave" aria-hidden="true">
               <i></i><i></i><i></i><i></i><i></i>
             </span>
             <h3 id="repair-title">正在启动…</h3>
           </div>
-          <h3 v-else id="repair-title">{{ !host.bridge_alive ? '桥接未运行' : '语音通道未就绪' }}</h3>
-          <p class="repair-desc">点「一键修复」自动处理</p>
+          <h3 v-else id="repair-title">{{ errorTitle }}</h3>
+          <p class="repair-desc">{{ bootingPhase ? bootStepText : '点「一键修复」自动处理' }}</p>
           <button
-            v-if="!(inBootGrace && !host.bridge_alive)"
+            v-if="!bootingPhase"
             type="button"
             class="btn btn-attention repair-primary"
             :disabled="primaryDisabled"
@@ -2000,7 +2021,7 @@ async function retryLoadConfig() {
             {{ primaryLabel || '一键修复' }}
           </button>
           <button
-            v-if="host.bridge_alive && !inBootGrace"
+            v-if="canDismiss"
             type="button"
             class="btn btn-secondary repair-later"
             @click="dismissRepairCard"
