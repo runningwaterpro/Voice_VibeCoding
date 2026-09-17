@@ -274,6 +274,8 @@ pub fn current_snapshot() -> VoiceMeterSnapshot {
             waveform: vec![0.0; WAVE_BINS],
             cable_active: false,
             cable_level: 0.0,
+            gain_db: crate::bridges::xiaomi::voice_gain::gain_db(),
+            gain_auto: crate::bridges::xiaomi::voice_gain::auto_enabled(),
             atvv_ok: crate::bridges::xiaomi::connect::atvv_subscribed(),
         })
 }
