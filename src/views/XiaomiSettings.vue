@@ -245,6 +245,28 @@ interface RailFocus {
 /** 启动/异常：统一居中卡；桥接未活不可「稍后」，其余异常可稍后 */
 const repairDismissed = ref(false);
 
+interface RepairStep {
+  label: string;
+  ok: boolean;
+  msg: string;
+  suggestion?: string;
+}
+const repairStepLog = ref<RepairStep[]>([]);
+const repairFinished = ref(false);
+
+function describeStepError(raw: string): string {
+  const s = raw.toLowerCase();
+  if (s.includes("port") || s.includes("占用") || s.includes("bind") || s.includes("in use"))
+    return "关闭占用程序后重试，或重启电脑";
+  if (s.includes("bluetooth") || s.includes("蓝牙") || s.includes("ble"))
+    return "检查蓝牙开关，靠近设备后重试";
+  if (s.includes("cable") || s.includes("声卡") || s.includes("vb-cable") || s.includes("独占"))
+    return "关闭正在使用麦克风的应用后重试";
+  if (s.includes("timeout") || s.includes("超时"))
+    return "等待时间过长，检查设备是否在附近";
+  return raw.length > 80 ? raw.slice(0, 80) + "…" : raw;
+}
+
 const showRepairModal = computed(() => {
   if (repairDismissed.value) return false;
   const h = host.value;
@@ -275,6 +297,14 @@ const errorTitle = computed(() => {
 const canDismiss = computed(() => {
   const h = host.value;
   return h?.bridge_alive && !inBootGrace.value;
+});
+
+const repairResultTitle = computed(() => {
+  const log = repairStepLog.value;
+  if (!log.length) return "修复完成";
+  const okCount = log.filter((s) => s.ok).length;
+  if (okCount === log.length) return "修复完成";
+  return `修复完成（${okCount}/${log.length} 步成功）`;
 });
 
 const showActionBar = computed(() => false);
@@ -317,6 +347,8 @@ async function autoRepairAll() {
   if (primaryDisabled.value) return;
   autoRepairing.value = true;
   repairDismissed.value = false;
+  repairStepLog.value = [];
+  repairFinished.value = false;
   prependLog("一键修复：开始");
   try {
     for (let step = 0; step < 4; step++) {
@@ -337,6 +369,13 @@ async function autoRepairAll() {
         prependLog(`一键修复：桥接未运行，执行重启桥接（${step + 1}）`);
         await restartBridge();
         await refreshHost();
+        const ok = !!host.value.bridge_alive;
+        repairStepLog.value.push({
+          label: "重启桥接",
+          ok,
+          msg: ok ? "已重启" : describeStepError(host.value.detail || "启动失败"),
+          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+        });
         continue;
       }
 
@@ -344,6 +383,13 @@ async function autoRepairAll() {
         prependLog("一键修复：虚拟声卡未就绪，自动检测");
         await runVoiceAutoRepair();
         await refreshHost();
+        const ok = !!host.value.cable_ready;
+        repairStepLog.value.push({
+          label: "虚拟声卡",
+          ok,
+          msg: ok ? "已就绪" : describeStepError(host.value.detail || "未就绪"),
+          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+        });
         continue;
       }
 
@@ -351,6 +397,13 @@ async function autoRepairAll() {
         prependLog("一键修复：虚拟键盘未就绪，使用内嵌源自动修复");
         await chooseWinuhidSource("embedded");
         await refreshHost();
+        const ok = !!host.value.winuhid_ready;
+        repairStepLog.value.push({
+          label: "虚拟键盘",
+          ok,
+          msg: ok ? "已就绪" : describeStepError(host.value.detail || "未就绪"),
+          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+        });
         continue;
       }
 
@@ -358,6 +411,13 @@ async function autoRepairAll() {
         prependLog("一键修复：修复 ATVV 连接");
         await repairAtvv();
         await refreshHost();
+        const ok = !!host.value.atvv_ok;
+        repairStepLog.value.push({
+          label: "ATVV 连接",
+          ok,
+          msg: ok ? "已连接" : describeStepError(host.value.detail || "未就绪"),
+          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+        });
         continue;
       }
 
@@ -365,6 +425,13 @@ async function autoRepairAll() {
         prependLog("一键修复：语音路由未就绪，重启桥接");
         await restartBridge();
         await refreshHost();
+        const ok = !!host.value.audio_alive;
+        repairStepLog.value.push({
+          label: "语音路由",
+          ok,
+          msg: ok ? "已恢复" : describeStepError(host.value.detail || "未就绪"),
+          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+        });
       }
     }
     prependLog("一键修复：结束");
@@ -372,6 +439,7 @@ async function autoRepairAll() {
     prependLog(`一键修复异常: ${String(e)}`);
   } finally {
     autoRepairing.value = false;
+    repairFinished.value = true;
   }
 }
 
@@ -1007,6 +1075,23 @@ async function onKeyMappingSave(cfg: DeviceConfig) {
 let hostPollTimer: ReturnType<typeof setInterval> | null = null;
 let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
+function applyPollInterval(ms: number) {
+  if (hostPollTimer) clearInterval(hostPollTimer);
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  hostPollTimer = setInterval(refreshHost, ms);
+  devicePollTimer = setInterval(() => void bridge.refreshStatus(type), ms);
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    applyPollInterval(5000);
+  } else {
+    applyPollInterval(1000);
+    void refreshHost();
+    void bridge.refreshStatus(type);
+  }
+}
+
 interface LogEntry {
   id: number;
   time: string;
@@ -1574,7 +1659,7 @@ onMounted(async () => {
       .then((s) => applyVoiceMeter(s as Record<string, unknown>))
       .catch(() => undefined),
   ]);
-  hostPollTimer = setInterval(refreshHost, 1000);
+  applyPollInterval(1000);
   unlistenTrayRepair = await listen("tray-auto-repair", () => {
     void autoRepairAll();
   });
@@ -1595,10 +1680,8 @@ onMounted(async () => {
     },
     { immediate: true },
   );
-  // 持续拉取设备信息（含电量），避免必须切页才刷新
-  devicePollTimer = setInterval(() => {
-    void bridge.refreshStatus(type);
-  }, 1500);
+  // 窗口隐藏时降频到 5s，恢复时立即拉一次并回到 1s
+  document.addEventListener("visibilitychange", onVisibilityChange);
   window.addEventListener("resize", onViewportChange);
   window.addEventListener("scroll", onViewportChange, true);
 
@@ -1805,6 +1888,7 @@ onUnmounted(() => {
   }
   window.removeEventListener("resize", onViewportChange);
   window.removeEventListener("scroll", onViewportChange, true);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
 watch(
@@ -1860,8 +1944,23 @@ async function retryLoadConfig() {
             </span>
             <h3 id="repair-title">正在启动…</h3>
           </div>
-          <h3 v-else id="repair-title">{{ errorTitle }}</h3>
-          <p class="repair-desc">{{ bootingPhase ? bootStepText : '点「一键修复」自动处理' }}</p>
+          <h3 v-else id="repair-title">
+            {{ repairFinished && repairStepLog.length ? repairResultTitle : errorTitle }}
+          </h3>
+          <p v-if="!repairFinished || !repairStepLog.length" class="repair-desc">
+            {{ bootingPhase ? bootStepText : '点「一键修复」自动处理' }}
+          </p>
+          <div v-if="repairFinished && repairStepLog.length" class="repair-steps">
+            <div class="repair-steps-title">修复步骤</div>
+            <div v-for="(st, i) in repairStepLog" :key="i" class="repair-step" :class="st.ok ? 'ok' : 'fail'">
+              <span class="repair-step-icon" :class="st.ok ? 'ok' : 'fail'">{{ st.ok ? '✓' : '✗' }}</span>
+              <div class="repair-step-body">
+                <div class="repair-step-label">{{ st.label }}</div>
+                <div class="repair-step-msg">{{ st.msg }}</div>
+                <div v-if="st.suggestion" class="repair-step-suggest">建议：{{ st.suggestion }}</div>
+              </div>
+            </div>
+          </div>
           <button
             v-if="!bootingPhase"
             type="button"
@@ -3374,6 +3473,63 @@ async function retryLoadConfig() {
 .repair-later {
   width: 100%;
   height: 32px;
+}
+.repair-steps {
+  margin: 0 0 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.repair-steps-title {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  opacity: 0.7;
+}
+.repair-step {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+.repair-step-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.repair-step-icon.ok {
+  background: rgba(77, 182, 164, 0.15);
+  color: var(--success);
+}
+.repair-step-icon.fail {
+  background: rgba(224, 107, 107, 0.15);
+  color: var(--danger);
+}
+.repair-step-body {
+  flex: 1;
+  min-width: 0;
+}
+.repair-step-label {
+  color: var(--text);
+  font-weight: 500;
+}
+.repair-step-msg {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 1px;
+}
+.repair-step-suggest {
+  color: var(--warning);
+  font-size: 11.5px;
+  margin-top: 3px;
+  line-height: 1.4;
 }
 .repair-modal.booting .repair-card {
   border-color: #24384c;
