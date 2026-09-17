@@ -398,19 +398,13 @@ const bridgeDown = computed(() => {
 
 const debugInfo = ref("");
 const showRepairModal = computed(() => {
-  const st = railState.value;
-  const raw = railStateRaw.value;
-  const bd = bridgeDown.value;
+  const h = host.value;
   const rd = repairDismissed.value;
-  const result =
-    !st || st === "ready" || st === "voice"
-      ? false
-      : bd && st !== "connecting"
-        ? true
-        : st === "connecting"
-          ? !rd
-          : !rd;
-  debugInfo.value = `rail=${st ?? "UNDEF"} raw=${raw ?? "UNDEF"} bd=${bd} rd=${rd} show=${result}`;
+  const connecting = connBusy.value || restarting.value;
+  const allReady =
+    h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
+  const result = !allReady && !connecting;
+  debugInfo.value = `alive=${h?.bridge_alive} hid=${h?.winuhid_ready} atvv=${h?.atvv_ok} cable=${h?.cable_ready} audio=${h?.audio_alive} connecting=${connecting} show=${result}`;
   return result;
 });
 
@@ -418,7 +412,7 @@ const showActionBar = computed(() => false);
 
 const autoRepairing = ref(false);
 const primaryLabel = computed(() => {
-  if (railState.value === "booting" || !showRepairModal.value) return null;
+  if (!showRepairModal.value) return null;
   if (autoRepairing.value) return "修复中…";
   return "一键修复";
 });
@@ -1982,31 +1976,31 @@ async function retryLoadConfig() {
       <div
         v-if="showRepairModal"
         class="repair-modal"
-        :class="{ booting: railState === 'booting' }"
+        :class="{ booting: inBootGrace && !host.bridge_alive }"
         role="dialog"
         aria-modal="true"
         aria-labelledby="repair-title"
       >
         <div class="repair-card">
-          <div v-if="railState === 'booting'" class="boot-row">
+          <div v-if="inBootGrace && !host.bridge_alive" class="boot-row">
             <span class="booting-wave" aria-hidden="true">
               <i></i><i></i><i></i><i></i><i></i>
             </span>
             <h3 id="repair-title">正在启动…</h3>
           </div>
-          <h3 v-else id="repair-title">{{ railFocus.qHeadline }}</h3>
-          <p class="repair-desc">{{ railFocus.qSub }}</p>
+          <h3 v-else id="repair-title">{{ !host.bridge_alive ? '桥接未运行' : '语音通道未就绪' }}</h3>
+          <p class="repair-desc">点「一键修复」自动处理</p>
           <button
-            v-if="railState !== 'booting' && primaryLabel"
+            v-if="!(inBootGrace && !host.bridge_alive)"
             type="button"
             class="btn btn-attention repair-primary"
             :disabled="primaryDisabled"
             @click="autoRepairAll"
           >
-            {{ primaryLabel }}
+            {{ primaryLabel || '一键修复' }}
           </button>
           <button
-            v-if="railState !== 'booting' && !bridgeDown && railState !== 'connecting'"
+            v-if="host.bridge_alive && !inBootGrace"
             type="button"
             class="btn btn-secondary repair-later"
             @click="dismissRepairCard"
