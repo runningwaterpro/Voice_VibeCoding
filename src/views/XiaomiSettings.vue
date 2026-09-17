@@ -242,168 +242,16 @@ interface RailFocus {
   healthyText: string | null;
 }
 
-const railFocus = computed<RailFocus>(() => {
-  const st = railState.value;
-  switch (st) {
-    case "booting":
-      return {
-        led: "idle",
-        headline: "正在启动桥接…",
-        sub: "首次连接可能需要几秒",
-        qHeadline: "正在启动…",
-        qSub: "桥接与语音通道初始化中",
-        connLabel: "取消连接",
-        connCls: "ghost",
-        primary: null,
-        secondary: null,
-        showRepairs: false,
-        healthyText: null,
-      };
-    case "idle":
-    case "err_bridge":
-      return {
-        led: st === "idle" ? "idle" : "fail",
-        headline: st === "idle" ? "未连接遥控器" : "桥接未运行",
-        sub: "点「一键修复」自动处理",
-        qHeadline: st === "idle" ? "未连接" : "桥接未运行",
-        qSub: "点「一键修复」自动启动并修复",
-        connLabel: connBusy.value ? "连接中…" : "重新连接",
-        connCls: "ghost",
-        primary: "conn",
-        secondary: null,
-        showRepairs: true,
-        healthyText: null,
-      };
-    case "connecting":
-      return {
-        led: "warn",
-        headline: "正在连接遥控器…",
-        sub: "正在建立蓝牙与语音通道",
-        qHeadline: "连接中",
-        qSub: "请稍候",
-        connLabel: "取消连接",
-        connCls: "ghost",
-        primary: null,
-        secondary: null,
-        showRepairs: false,
-        healthyText: null,
-      };
-    case "voice":
-      return {
-        led: "",
-        headline: "采音中",
-        sub: "松开语音键结束",
-        qHeadline: "采音中",
-        qSub: "松开语音键结束",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: null,
-        secondary: null,
-        showRepairs: false,
-        healthyText: "采音送声中",
-      };
-    case "ready":
-      return {
-        led: "",
-        headline: "语音可用",
-        sub: "",
-        qHeadline: "语音可用",
-        qSub: "已自动连接",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: null,
-        secondary: null,
-        showRepairs: false,
-        healthyText: null,
-      };
-    case "error":
-      return {
-        led: "warn",
-        headline: "语音通道未就绪",
-        sub: "点「一键修复」自动处理",
-        qHeadline: "语音通道异常",
-        qSub: "点「一键修复」，无需逐项选择",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: "atvv",
-        secondary: null,
-        showRepairs: true,
-        healthyText: null,
-      };
-    case "err_hid":
-      return {
-        led: "warn",
-        headline: "虚拟键盘未就绪",
-        sub: "点「一键修复」自动处理",
-        qHeadline: "虚拟键盘异常",
-        qSub: "点「一键修复」自动处理",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: "winuhid",
-        secondary: null,
-        showRepairs: true,
-        healthyText: null,
-      };
-    case "err_cable":
-      return {
-        led: "warn",
-        headline: "虚拟声卡未就绪",
-        sub: "点「一键修复」自动处理",
-        qHeadline: "虚拟声卡异常",
-        qSub: "点「一键修复」自动检测并修复",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: "cable",
-        secondary: null,
-        showRepairs: true,
-        healthyText: null,
-      };
-    case "err_route":
-      return {
-        led: "warn",
-        headline: "语音路由未就绪",
-        sub: "点「一键修复」自动处理",
-        qHeadline: "语音路由异常",
-        qSub: "点「一键修复」自动处理",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: "restart",
-        secondary: null,
-        showRepairs: true,
-        healthyText: null,
-      };
-    default:
-      return {
-        led: "warn",
-        headline: "状态异常",
-        sub: "点「一键修复」自动处理",
-        qHeadline: "状态异常",
-        qSub: "点「一键修复」自动处理",
-        connLabel: connBusy.value ? "断开中…" : "断开遥控器",
-        connCls: "ghost",
-        primary: null,
-        secondary: null,
-        showRepairs: false,
-        healthyText: null,
-      };
-  }
-});
-
 /** 启动/异常：统一居中卡；桥接未活不可「稍后」，其余异常可稍后 */
 const repairDismissed = ref(false);
-const bridgeDown = computed(() => {
-  const st = railState.value;
-  return st === "booting" || st === "idle" || st === "err_bridge" || st === "connecting";
-});
 
-const debugInfo = ref("");
 const showRepairModal = computed(() => {
+  if (repairDismissed.value) return false;
   const h = host.value;
   const connecting = connBusy.value || restarting.value;
   const allReady =
     h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
-  const result = !allReady && !connecting;
-  return result;
+  return !allReady && !connecting;
 });
 const bootingPhase = computed(() => inBootGrace.value);
 const bootStepText = computed(() => {
@@ -1990,8 +1838,6 @@ async function retryLoadConfig() {
 
 <template>
   <div class="page">
-    <!-- DEBUG: 临时调试浮层 -->
-    <div style="position:fixed;top:4px;right:4px;z-index:9999;background:#000;color:#0f0;font:11px monospace;padding:4px 8px;border-radius:4px;pointer-events:none;white-space:nowrap;">{{ debugInfo }}</div>
     <!-- 启动 / 异常：窗口居中卡，不挤电平与映射 -->
     <Transition name="repair-modal">
       <div
