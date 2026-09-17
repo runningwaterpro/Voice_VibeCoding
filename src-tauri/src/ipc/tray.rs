@@ -152,22 +152,23 @@ pub fn quit_app_public(app: &AppHandle) {
 }
 
 fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    // 显示主界面 / 按键与语音设置 / 重启桥接 / 刷新 / 重启软件 / 退出
     let restore = MenuItemBuilder::with_id("restore", "显示主界面").build(app)?;
-    let settings = MenuItemBuilder::with_id("xiaomi_settings", "按键与语音设置").build(app)?;
-    let restart = MenuItemBuilder::with_id("restart_bridge", "重启桥接").build(app)?;
+    let separator1 = PredefinedMenuItem::separator(app)?;
+    let auto_repair = MenuItemBuilder::with_id("auto_repair", "一键修复").build(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
     let refresh = MenuItemBuilder::with_id("refresh_ui", "刷新界面（白屏自救）").build(app)?;
     let restart_app = MenuItemBuilder::with_id("restart_app", "重启软件").build(app)?;
-    let separator1 = PredefinedMenuItem::separator(app)?;
+    let separator3 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
     MenuBuilder::new(app)
         .item(&restore)
-        .item(&settings)
-        .item(&restart)
+        .item(&separator1)
+        .item(&auto_repair)
+        .item(&separator2)
         .item(&refresh)
         .item(&restart_app)
-        .item(&separator1)
+        .item(&separator3)
         .item(&quit)
         .build()
 }
@@ -177,29 +178,8 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         "restore" | "show" => crate::webview_recovery::restore_main_window(app),
         "refresh_ui" => crate::webview_recovery::manual_refresh_ui(app),
         "restart_app" => crate::webview_recovery::restart_application(app),
-        "xiaomi_settings" => {
-            crate::webview_recovery::restore_main_window(app);
-            let _ = app.emit("navigate", "/xiaomi");
-        }
-        "restart_bridge" => {
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let Some(state) = app.try_state::<crate::bridges::BridgeState>() else {
-                    return;
-                };
-                let Some(config_manager) =
-                    app.try_state::<crate::config::manager::ConfigManager>()
-                else {
-                    return;
-                };
-                if let Err(e) =
-                    crate::ipc::commands::restart_xiaomi_bridge_inner(&app, &state, &config_manager)
-                {
-                    log::warn!("Tray restart bridge failed: {e}");
-                }
-                // 重启桥接后先显示初始化中
-                crate::ipc::tray::sync_runtime_icons(&app, TrayIconKind::Init);
-            });
+        "auto_repair" => {
+            let _ = app.emit("tray-auto-repair", ());
         }
         "quit" => quit_app(app),
         _ => {}

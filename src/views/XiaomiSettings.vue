@@ -1018,6 +1018,7 @@ const logAreaRef = ref<HTMLElement | null>(null);
 let logSeq = 0;
 let unlistenKey: UnlistenFn | null = null;
 let unlistenMeter: UnlistenFn | null = null;
+let unlistenTrayRepair: UnlistenFn | null = null;
 let unlistenAtvvRepair: UnlistenFn | null = null;
 let unlistenAtvvCancel: UnlistenFn | null = null;
 let unlistenWinuhidProgress: UnlistenFn | null = null;
@@ -1574,6 +1575,9 @@ onMounted(async () => {
       .catch(() => undefined),
   ]);
   hostPollTimer = setInterval(refreshHost, 1000);
+  unlistenTrayRepair = await listen("tray-auto-repair", () => {
+    void autoRepairAll();
+  });
   // 启动宽限：桥接起来或超时后结束 booting 展示
   bootGraceTimer = setTimeout(() => {
     inBootGrace.value = false;
@@ -1771,6 +1775,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unlistenKey?.();
   unlistenMeter?.();
+  unlistenTrayRepair?.();
   unlistenAtvvRepair?.();
   unlistenAtvvCancel?.();
   unlistenWinuhidProgress?.();
