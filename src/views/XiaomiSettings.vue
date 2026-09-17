@@ -405,7 +405,7 @@ const showRepairModal = computed(() => {
   const result = !allReady && !connecting;
   return result;
 });
-const bootingPhase = computed(() => inBootGrace.value && !host.value?.bridge_alive);
+const bootingPhase = computed(() => inBootGrace.value);
 const bootStepText = computed(() => {
   const h = host.value;
   if (!h?.bridge_alive) return "正在启动桥接…";
