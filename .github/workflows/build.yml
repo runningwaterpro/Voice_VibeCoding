@@ -114,6 +114,8 @@ jobs:
             }
             Write-Host "Stale asset cleanup done for $tag"
           }
+          # gh release view returns exit 1 when release doesn't exist; that's expected here.
+          exit 0
 
       # 上传到 Release：push tag v* 或 release published 都触发。
       # 用户手动发布 Release 时，GitHub 会创建/指向对应 tag → 自动编译并附带安装包。
