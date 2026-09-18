@@ -14,7 +14,7 @@ commits: cdd0a33d9084e23ae557348381e75eb4c17000ef..bd5c4c1d59bcddaa8a66e01818cfb
 
 **Verification** — worktree 内 `npm run build` PASS（vue-tsc + vite，含 WindowTitlebar focus 类型修正后）；`npm test` PASS（4 files / 23 tests）。人工窗口路径（无边框拖拽、三钮、托盘退出）需 `tauri dev` 点检，未自动化。
 
-**Journey log** — demo 灰线有两条根因：flex 收缩压扁卡片、`overflow-y:auto` 隐式 `overflow-x:auto` 露出横滚条；产品侧列一并修。`outer−inner` 在无边框下≈0，高度公式仍测 chrome 以免 recreate 窗口回弹。Review 子代理曾空转，已改主任务自审（非必要不用子代理）。
+**Journey log** — demo 灰线有两条根因：flex 收缩压扁卡片、`overflow-y:auto` 隐式 `overflow-x:auto` 露出横滚条；产品侧列一并修。`outer−inner` 在无边框下≈0，高度公式仍测 chrome 以免 recreate 窗口回弹。CI 只监听 `main`/`fix/*`/`v*`，故 `feat/*` push 不起 run；用 `workflow_dispatch` 触发。Review 子代理曾空转，已改主任务自审。交接见 `ui-v5-land-handoff.md`。
 
 ## [S1] Problem
 
