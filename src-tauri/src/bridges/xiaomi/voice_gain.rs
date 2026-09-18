@@ -104,12 +104,15 @@ pub fn auto_adjust(input_level: f32) {
     }
 
     // 误差 → 增益步长（非对称 attack/release）
-    let err = AGC_TARGET_DBFS - smoothed;
+    // 关键：比较目标与「输出电平」(输入+增益)，而非仅输入。
+    // 否则增益越高误差越偏正 → 正反馈锁死在高增益。
+    let output_db = smoothed + gain_db();
+    let err = AGC_TARGET_DBFS - output_db;
     let rate = if err < 0.0 {
-        // 输入已超目标 → 降增益（attack，快）
+        // 输出已超目标 → 降增益（attack，快）
         AGC_ATTACK
     } else {
-        // 输入低于目标 → 升增益（release，慢）
+        // 输出低于目标 → 升增益（release，慢）
         AGC_RELEASE
     };
     let step = (err * rate).clamp(-AGC_MAX_STEP_DB, AGC_MAX_STEP_DB);
@@ -181,6 +184,54 @@ mod tests {
             auto_adjust(0.5);
         }
         assert!(gain_db() < 0.0, "gain should decrease, got {}", gain_db());
+        set_auto_enabled(false);
+    }
+
+    /// 复现用户症状：先变小，再变大，之后不再变小。
+    /// 用户观察：开启 auto → gain 先降 → 后升 → 之后不再降。
+    #[test]
+    fn auto_adjust_should_decrease_again_after_increase() {
+        set_auto_enabled(true);
+        set_gain_db(10.0);
+
+        // 阶段1：安静输入（0.01 ≈ -40dBFS），release 升增益
+        for _ in 0..100 {
+            auto_adjust(0.01);
+        }
+        let after_quiet = gain_db();
+        assert!(after_quiet > 10.0, "phase1 quiet should raise gain, got {}", after_quiet);
+
+        // 阶段2：大声输入 0.5 ≈ -6dBFS，输出 = -6+gain 远超目标，attack 应降增益
+        for _ in 0..200 {
+            auto_adjust(0.5);
+        }
+        let after_loud = gain_db();
+        assert!(
+            after_loud < after_quiet,
+            "phase2 loud should DECREASE gain from {}, but got {}",
+            after_quiet, after_loud
+        );
+        set_auto_enabled(false);
+    }
+
+    /// 核心 bug 回归：高增益 + 中等输入，输出已爆但旧算法误判为安静。
+    /// 旧算法 err = target - input（漏了 gain）→ 正反馈锁死高增益。
+    #[test]
+    fn auto_adjust_high_gain_moderate_input_decreases() {
+        set_auto_enabled(true);
+        // 增益拉到最大
+        set_gain_db(GAIN_DB_MAX);
+        // 输入 -20 dBFS ≈ 0.1，输出 = -20+30 = +10 dBFS（严重爆音）
+        // 正确算法：err = -18 - 10 = -28 → attack 降增益
+        // 旧算法：err = -18 - (-20) = +2 → release 升增益（锁死）
+        for _ in 0..200 {
+            auto_adjust(0.1);
+        }
+        assert!(
+            gain_db() < GAIN_DB_MAX,
+            "gain should drop from max, but stuck at {}",
+            gain_db()
+        );
         set_auto_enabled(false);
     }
 }
