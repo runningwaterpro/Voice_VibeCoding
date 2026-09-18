@@ -159,9 +159,16 @@ async function fitWindowHeightToContent() {
     const win = getCurrentWindow();
     if (await win.isMaximized()) return;
 
-    await new Promise((r) =>
-      requestAnimationFrame(() => requestAnimationFrame(r)),
-    );
+    // 等布局稳定（最多 ~2 帧 rAF；窗口未 show 时 rAF 可能不跑，超时兜底）
+    await new Promise<void>((resolve) => {
+      let n = 0;
+      const tick = () => {
+        if (++n >= 2) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      setTimeout(resolve, 120);
+    });
 
     const contentH = measureNaturalContentHeight();
     if (contentH < 200) return;
@@ -185,7 +192,7 @@ async function fitWindowHeightToContent() {
 
 function scheduleFitWindowHeight() {
   void fitWindowHeightToContent();
-  for (const d of [500, 1500, 3000, 5000]) {
+  for (const d of [300, 800, 1500, 3000, 5000]) {
     setTimeout(() => {
       void fitWindowHeightToContent();
     }, d);
@@ -193,6 +200,19 @@ function scheduleFitWindowHeight() {
 }
 
 onMounted(async () => {
+  // 先贴高再显示：避免启动瞬间露出初始 760 高的底部黑边
+  try {
+    await appUpdate.init();
+    if (!globalSettings.loaded) {
+      await globalSettings.load();
+    }
+  } catch (e) {
+    console.warn("init before reveal failed:", e);
+  }
+
+  await fitWindowHeightToContent();
+  scheduleFitWindowHeight();
+
   // 页面就绪后再显示；启动策略为托盘时由后端 minimize（禁止 hide，防 WebView2 白屏）
   try {
     await invoke("reveal_main_on_frontend_ready");
@@ -200,11 +220,7 @@ onMounted(async () => {
     // 不盲目 show()：开启「启动后最小化到托盘」时 fallback show 会误弹窗；用户可点托盘打开
     console.warn("reveal main window failed:", e);
   }
-  scheduleFitWindowHeight();
-  await appUpdate.init();
-  if (!globalSettings.loaded) {
-    await globalSettings.load();
-  }
+
   unlistenNav = await listen<string>("navigate", (ev) => {
     if (ev.payload) router.push(ev.payload);
   });
