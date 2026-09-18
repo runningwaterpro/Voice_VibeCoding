@@ -167,24 +167,17 @@ async function fitWindowHeightToContent() {
     if (contentH < 200) return;
 
     const scale = (await win.scaleFactor()) || 1;
-    const outer = await win.outerSize();
     const inner = await win.innerSize();
-    // 无边框窗：outer−inner ≈ 无系统标题栏；仍兼容 recreate 前残留 chrome
-    const chromeH = Math.max(
-      0,
-      Math.round((outer.height - inner.height) / scale),
-    );
     const curW = Math.round(inner.width / scale);
     const curInnerH = Math.round(inner.height / scale);
 
-    // 仅留少量底部余量；与 tauri.conf.json maxHeight 一致
-    const desiredInner = contentH + 4;
+    // setSize = 内容区（inner）高度；与 tauri.conf.json max/minHeight 一致
     const maxH = 900;
-    const height = Math.min(maxH, Math.max(desiredInner, 480));
+    const height = Math.min(maxH, Math.max(contentH + 4, 480));
 
     // 与目标差 ≤4px 不动，避免抖动
     if (Math.abs(curInnerH - height) <= 4) return;
-    await win.setSize(new LogicalSize(curW, height + chromeH));
+    await win.setSize(new LogicalSize(curW, height));
   } catch (e) {
     console.warn("fit window height failed:", e);
   }
