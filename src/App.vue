@@ -141,17 +141,23 @@ async function fitWindowHeightToContent() {
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
 
-    const chassis = document.querySelector<HTMLElement>(".app-container");
     const main = document.querySelector<HTMLElement>(".main-content");
-    if (!chassis || !main) return;
+    const titlebar = document.querySelector<HTMLElement>(".titlebar");
+    if (!main) return;
 
-    // 取机身高与文档可滚高，避免示意图/字体晚到时量矮
-    const chassisH = Math.ceil(chassis.getBoundingClientRect().height);
+    // 机身已随视口拉满：只量标题栏+主内容，避免把撑满后的壳高当内容高
+    const titlebarH = Math.ceil(
+      titlebar?.getBoundingClientRect().height ?? 36,
+    );
     const docH = Math.max(
       document.documentElement.scrollHeight,
       document.body?.scrollHeight ?? 0,
     );
-    const contentH = Math.max(chassisH, docH, main.scrollHeight + 24);
+    const contentH = Math.max(
+      titlebarH + main.scrollHeight,
+      titlebarH + main.clientHeight,
+      docH,
+    );
     if (contentH < 200) return;
 
     const scale = (await win.scaleFactor()) || 1;
@@ -165,8 +171,8 @@ async function fitWindowHeightToContent() {
     const curW = Math.round(inner.width / scale);
     const curInnerH = Math.round(inner.height / scale);
 
-    // 机身上下 margin 12×2 + 底部余量 8（不再虚构系统标题栏高度）
-    const desiredInner = contentH + 24 + 8;
+    // 整窗铺满、无机身外边距：仅留少量底部余量（不再虚构系统标题栏高度）
+    const desiredInner = contentH + 8;
     const desiredOuter = desiredInner + chromeH;
     // 与 tauri.conf.json maxHeight 一致
     const maxH = 900;
@@ -391,42 +397,45 @@ input[type="number"]::-webkit-inner-spin-button {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #0e1014;
+  /* 与机身同色：无边框窗边缘不留更深的「外框」 */
+  background: var(--chassis);
   color: var(--text);
-  overflow: auto;
+  overflow: hidden;
   min-height: 0;
-  height: auto;
+  height: 100%;
 }
 
 #app {
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
 }
 
-/* 机身只包内容，不随视口拉高；外边距上下左右一致 */
+/* 无边框窗：机身铺满视口，不留 max-width/margin 悬浮卡片外框 */
 .app-container {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 820px;
-  margin: 8px auto;
+  max-width: none;
+  margin: 0;
   background: var(--chassis);
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.35);
-  flex: 0 0 auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
 }
 
 .main-content {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   overflow-x: clip;
-  overflow-y: visible;
+  overflow-y: auto;
   padding: 10px 12px 12px;
   background: var(--chassis);
-  border-radius: 0 0 10px 10px;
+  border-radius: 0;
 }
 
 .conflict-backdrop {

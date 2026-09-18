@@ -130,16 +130,12 @@ onUnmounted(() => {
   position: sticky;
   top: 0;
   z-index: 30;
-  border-radius: 11px 11px 0 0;
+  border-radius: 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.4);
   padding-left: 14px;
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
-}
-
-.titlebar[data-maximized="true"] {
-  border-radius: 0;
 }
 
 .titlebar[data-active="false"] {
