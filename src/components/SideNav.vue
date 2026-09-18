@@ -74,7 +74,7 @@ async function refreshSession() {
       tone: string;
     }>("get_xiaomi_host_status");
     if (!h.bridge_alive) {
-      session.value = { tone: "idle", title: "未连接遥控器", sub: "点左栏「重新连接」或等待自动重连" };
+      session.value = { tone: "idle", title: "未连接遥控器", sub: "" };
       return;
     }
     const voiceOk = h.atvv_ok && h.cable_ready && h.winuhid_ready;
@@ -84,7 +84,7 @@ async function refreshSession() {
       session.value = {
         tone: h.tone === "error" ? "fail" : "warn",
         title: h.status_text || "语音未就绪",
-        sub: "在左栏点对应修复",
+        sub: "",
       };
     }
   } catch {
