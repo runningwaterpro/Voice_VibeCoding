@@ -63,8 +63,8 @@ onMounted(async () => {
   try {
     const win = getCurrentWindow();
     const un1 = await win.onResized(() => void refreshMaximized());
-    const un2 = await win.onFocusChanged(({ focused }) => {
-      active.value = focused;
+    const un2 = await win.onFocusChanged((e) => {
+      active.value = !!(e as unknown as { focused?: boolean }).focused;
     });
     unsub = [un1, un2];
   } catch {
