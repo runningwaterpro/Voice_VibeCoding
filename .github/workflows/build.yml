@@ -92,8 +92,14 @@ jobs:
           Write-Host "Installer OK: $installer"
 
           # First tag push may run before any Release exists; cleanup then is a no-op.
-          $releaseJson = gh release view $tag --json id,assets 2>$null
-          if ($LASTEXITCODE -ne 0) {
+          # gh writes to stderr when release not found; suppress with try-catch.
+          $releaseJson = $null
+          try {
+            $releaseJson = gh release view $tag --json id,assets 2>$null
+          } catch {
+            $releaseJson = $null
+          }
+          if (-not $releaseJson -or $LASTEXITCODE -ne 0) {
             Write-Host "Release for $tag not found yet; skipping stale asset cleanup"
           } else {
             $release = $releaseJson | ConvertFrom-Json
