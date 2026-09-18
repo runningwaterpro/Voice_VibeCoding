@@ -273,6 +273,7 @@ function describeStepError(raw: string): string {
 
 const showRepairModal = computed(() => {
   if (repairDismissed.value) return false;
+  if (autoRepairing.value) return false;
   const h = host.value;
   const connecting = connBusy.value || restarting.value;
   const allReady =
@@ -314,6 +315,7 @@ const repairResultTitle = computed(() => {
 const showActionBar = computed(() => false);
 
 const autoRepairing = ref(false);
+const inAutoRepair = ref(false);
 const primaryLabel = computed(() => {
   if (!showRepairModal.value) return null;
   if (autoRepairing.value) return "修复中…";
@@ -350,12 +352,15 @@ watch(
 async function autoRepairAll() {
   if (primaryDisabled.value) return;
   autoRepairing.value = true;
+  inAutoRepair.value = true;
   repairDismissed.value = false;
   repairStepLog.value = [];
   repairFinished.value = false;
   prependLog("一键修复：开始");
+  let prevSnapshot = "";
+  let stagnantRounds = 0;
   try {
-    for (let step = 0; step < 4; step++) {
+    for (let round = 0; round < 10; round++) {
       await refreshHost();
       const h = host.value;
       if (
@@ -369,8 +374,26 @@ async function autoRepairAll() {
         break;
       }
 
+      const snapshot = [
+        h.bridge_alive,
+        h.cable_ready,
+        h.winuhid_ready,
+        h.atvv_ok,
+        h.audio_alive,
+      ].join(",");
+      if (snapshot === prevSnapshot) {
+        stagnantRounds++;
+        if (stagnantRounds >= 2) {
+          prependLog("一键修复：状态无变化，停止");
+          break;
+        }
+      } else {
+        stagnantRounds = 0;
+        prevSnapshot = snapshot;
+      }
+
       if (!h.bridge_alive) {
-        prependLog(`一键修复：桥接未运行，执行重启桥接（${step + 1}）`);
+        prependLog(`一键修复：桥接未运行，执行重启桥接（${round + 1}）`);
         await restartBridge();
         await refreshHost();
         const ok = !!host.value.bridge_alive;
@@ -391,9 +414,20 @@ async function autoRepairAll() {
         repairStepLog.value.push({
           label: "虚拟声卡",
           ok,
-          msg: ok ? "已就绪" : describeStepError(host.value.detail || "未就绪"),
-          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+          msg: ok
+            ? "已就绪"
+            : showVoiceReboot.value
+              ? "需重启后生效"
+              : describeStepError(host.value.detail || "未就绪"),
+          ...(ok
+            ? {}
+            : {
+                suggestion: showVoiceReboot.value
+                  ? "重启电脑后重新打开软件"
+                  : describeStepError(host.value.detail || ""),
+              }),
         });
+        if (showVoiceReboot.value) break;
         continue;
       }
 
@@ -416,11 +450,22 @@ async function autoRepairAll() {
         await repairAtvv();
         await refreshHost();
         const ok = !!host.value.atvv_ok;
+        const conflict = !ok && host.value.detail?.includes("占用");
         repairStepLog.value.push({
           label: "ATVV 连接",
           ok,
-          msg: ok ? "已连接" : describeStepError(host.value.detail || "未就绪"),
-          ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
+          msg: ok
+            ? "已连接"
+            : conflict
+              ? "端口被占用"
+              : describeStepError(host.value.detail || "未就绪"),
+          ...(ok
+            ? {}
+            : {
+                suggestion: conflict
+                  ? "关闭占用程序后重试，或重启电脑"
+                  : describeStepError(host.value.detail || ""),
+              }),
         });
         continue;
       }
@@ -442,8 +487,10 @@ async function autoRepairAll() {
   } catch (e) {
     prependLog(`一键修复异常: ${String(e)}`);
   } finally {
-    autoRepairing.value = false;
     repairFinished.value = true;
+    await nextTick();
+    inAutoRepair.value = false;
+    autoRepairing.value = false;
   }
 }
 
@@ -1356,7 +1403,7 @@ async function repairAtvv() {
       tone: "error",
     };
   } finally {
-    if (!awaitingClear) {
+    if (!awaitingClear || inAutoRepair.value) {
       atvvRepairing.value = false;
     }
   }
@@ -1403,7 +1450,13 @@ async function runVoiceAutoRepair() {
       `虚拟声卡检测 ok=${result.ok} ready=${result.ready} needsChoice=${result.needsChoice} needsReboot=${result.needsReboot} — ${result.message}`,
     );
     if (result.needsChoice) {
-      // 未装驱动：回到选择窗，保留下载 / 内嵌安装等选项
+      if (inAutoRepair.value) {
+        // 一键修复中：直接走内嵌源，失败写入 stepLog 而非弹选择窗
+        prependLog("虚拟声卡：一键修复中，自动选择内嵌源");
+        showVoiceChoice.value = false;
+        await chooseVoiceSource("embedded");
+        return;
+      }
       voiceChoiceMsg.value = result.message;
       showVoiceChoice.value = true;
       return;
@@ -1414,6 +1467,9 @@ async function runVoiceAutoRepair() {
     const msg = `虚拟声卡检测失败: ${e}`;
     prependLog(msg);
     host.value = { ...host.value, detail: msg, tone: "error" };
+    if (inAutoRepair.value) {
+      return;
+    }
     voiceChoiceMsg.value = msg;
     showVoiceChoice.value = true;
   } finally {
@@ -1477,7 +1533,7 @@ function applyWinuhidResult(result: WinUHidActionResult) {
     voiceRebootMsg.value = result.message;
     showVoiceReboot.value = true;
   }
-  if (result.needsChoice) {
+  if (result.needsChoice && !inAutoRepair.value) {
     winuhidChoiceMsg.value = result.message;
     showWinuhidChoice.value = true;
   }
@@ -1514,6 +1570,7 @@ async function chooseWinuhidSource(
     const msg = `虚拟键盘处理失败: ${e}`;
     prependLog(msg);
     host.value = { ...host.value, detail: msg, tone: "error" };
+    if (inAutoRepair.value) return;
     winuhidChoiceMsg.value = msg;
     showWinuhidChoice.value = true;
   } finally {
