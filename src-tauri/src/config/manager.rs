@@ -310,7 +310,10 @@ impl ConfigManager {
         fs::rename(&tmp_path, &path).map_err(|e| format!("替换配置文件失败: {}", e))?;
 
         if device == "xiaomi" {
-            crate::bridges::xiaomi::voice_gain::set_gain_db(config.gain_db);
+            // 自动增益模式下不覆盖 live 值，否则每次保存配置会把手动旧值写回
+            if !config.gain_auto {
+                crate::bridges::xiaomi::voice_gain::set_gain_db(config.gain_db);
+            }
             crate::bridges::xiaomi::voice_gain::set_auto_enabled(config.gain_auto);
         }
 

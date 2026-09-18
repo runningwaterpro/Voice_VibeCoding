@@ -52,7 +52,9 @@
       },
       "nsis": {
         "languages": ["SimpChinese", "English"],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installMode": "currentUser",
+        "deleteAppDataOnUninstall": false
       }
     }
   },
