@@ -18,6 +18,7 @@
         "minWidth": 880,
         "minHeight": 480,
         "resizable": true,
+        "maximizable": false,
         "maxWidth": 960,
         "maxHeight": 900,
         "center": true,

@@ -4,16 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const appVersion = ref("…");
-const maximized = ref(false);
 const active = ref(true);
-
-async function refreshMaximized() {
-  try {
-    maximized.value = await getCurrentWindow().isMaximized();
-  } catch {
-    /* ignore */
-  }
-}
 
 async function refreshActive() {
   try {
@@ -28,17 +19,6 @@ async function minimize() {
     await getCurrentWindow().minimize();
   } catch (e) {
     console.warn("minimize failed:", e);
-  }
-}
-
-async function toggleMaximize() {
-  try {
-    const win = getCurrentWindow();
-    if (await win.isMaximized()) await win.unmaximize();
-    else await win.maximize();
-    await refreshMaximized();
-  } catch (e) {
-    console.warn("maximize failed:", e);
   }
 }
 
@@ -58,15 +38,13 @@ onMounted(async () => {
   } catch {
     appVersion.value = "v1.1.1";
   }
-  await refreshMaximized();
   await refreshActive();
   try {
     const win = getCurrentWindow();
-    const un1 = await win.onResized(() => void refreshMaximized());
-    const un2 = await win.onFocusChanged((e) => {
+    const un = await win.onFocusChanged((e) => {
       active.value = !!(e as unknown as { focused?: boolean }).focused;
     });
-    unsub = [un1, un2];
+    unsub = [un];
   } catch {
     /* optional events */
   }
@@ -87,7 +65,6 @@ onUnmounted(() => {
   <header
     class="titlebar"
     data-tauri-drag-region
-    :data-maximized="maximized ? 'true' : 'false'"
     :data-active="active ? 'true' : 'false'"
   >
     <div class="brand" data-tauri-drag-region>
@@ -97,21 +74,6 @@ onUnmounted(() => {
     <div class="win-controls" role="group" aria-label="窗口控制">
       <button type="button" class="win-ctl" aria-label="最小化" title="最小化" @click="minimize">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
-      </button>
-      <button
-        type="button"
-        class="win-ctl"
-        :aria-label="maximized ? '还原' : '最大化'"
-        :title="maximized ? '还原' : '最大化'"
-        @click="toggleMaximize"
-      >
-        <svg v-if="!maximized" class="ico-max" viewBox="0 0 16 16" aria-hidden="true">
-          <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
-        </svg>
-        <svg v-else class="ico-restore" viewBox="0 0 16 16" aria-hidden="true">
-          <rect x="3" y="5.5" width="7.5" height="7.5" rx="1" />
-          <path d="M5.5 5.5V3.5a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1h-2" />
-        </svg>
       </button>
       <button type="button" class="win-ctl close" aria-label="关闭" title="关闭" @click="close">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
@@ -125,13 +87,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   height: 36px;
-  background: #12151a;
+  /* 比机身更深一档，与状态栏/内容分层可辨 */
+  background: #0b0d11;
   flex-shrink: 0;
   position: sticky;
   top: 0;
   z-index: 30;
   border-radius: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid var(--edge, #343b46);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.45);
   padding-left: 14px;
   -webkit-app-region: drag;
   app-region: drag;
@@ -139,7 +103,7 @@ onUnmounted(() => {
 }
 
 .titlebar[data-active="false"] {
-  opacity: 0.92;
+  opacity: 0.88;
 }
 
 .brand {
@@ -153,12 +117,12 @@ onUnmounted(() => {
 .brand b {
   font-size: 12.5px;
   font-weight: 600;
-  color: #8b95a3;
+  color: #c5cdd8;
 }
 
 .brand span {
   font-size: 10.5px;
-  color: #5c6673;
+  color: #6b7685;
   font-family: "Cascadia Mono", ui-monospace, Consolas, monospace;
 }
 

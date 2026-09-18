@@ -182,7 +182,8 @@ function isActive(path: string) {
   gap: 16px;
   height: 40px;
   padding: 0 16px;
-  background: #161a20;
+  /* 略深于机身，与标题栏、内容三区分层 */
+  background: #12151a;
   color: var(--sidebar-text);
   user-select: none;
   flex-shrink: 0;

@@ -129,8 +129,30 @@ async function dismissConflict() {
   }
 }
 
-/** 自动贴合窗口高度：以「最终内容高」为准，并补偿标题栏；启动期只增不减 */
-let fitMaxApplied = 0;
+/** 自动贴合窗口高度：量「自然内容高」（不受 flex 撑满影响），可增可减 */
+function measureNaturalContentHeight(): number {
+  const titlebar = document.querySelector<HTMLElement>(".titlebar");
+  const topnav = document.querySelector<HTMLElement>(".topnav");
+  const main = document.querySelector<HTMLElement>(".main-content");
+  if (!main) return 0;
+
+  const titlebarH = Math.ceil(titlebar?.getBoundingClientRect().height ?? 36);
+  const topnavH = Math.ceil(topnav?.getBoundingClientRect().height ?? 40);
+
+  // 临时取消 flex 撑满，量主内容自然高（含 padding）
+  const prevFlex = main.style.flex;
+  const prevHeight = main.style.height;
+  const prevOverflow = main.style.overflowY;
+  main.style.flex = "0 0 auto";
+  main.style.height = "auto";
+  main.style.overflowY = "visible";
+  const mainH = Math.ceil(main.getBoundingClientRect().height);
+  main.style.flex = prevFlex;
+  main.style.height = prevHeight;
+  main.style.overflowY = prevOverflow;
+
+  return titlebarH + topnavH + mainH;
+}
 
 async function fitWindowHeightToContent() {
   try {
@@ -141,23 +163,7 @@ async function fitWindowHeightToContent() {
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
 
-    const main = document.querySelector<HTMLElement>(".main-content");
-    const titlebar = document.querySelector<HTMLElement>(".titlebar");
-    if (!main) return;
-
-    // 机身已随视口拉满：只量标题栏+主内容，避免把撑满后的壳高当内容高
-    const titlebarH = Math.ceil(
-      titlebar?.getBoundingClientRect().height ?? 36,
-    );
-    const docH = Math.max(
-      document.documentElement.scrollHeight,
-      document.body?.scrollHeight ?? 0,
-    );
-    const contentH = Math.max(
-      titlebarH + main.scrollHeight,
-      titlebarH + main.clientHeight,
-      docH,
-    );
+    const contentH = measureNaturalContentHeight();
     if (contentH < 200) return;
 
     const scale = (await win.scaleFactor()) || 1;
@@ -171,17 +177,14 @@ async function fitWindowHeightToContent() {
     const curW = Math.round(inner.width / scale);
     const curInnerH = Math.round(inner.height / scale);
 
-    // 整窗铺满、无机身外边距：仅留少量底部余量（不再虚构系统标题栏高度）
-    const desiredInner = contentH + 8;
-    const desiredOuter = desiredInner + chromeH;
-    // 与 tauri.conf.json maxHeight 一致
+    // 仅留少量底部余量；与 tauri.conf.json maxHeight 一致
+    const desiredInner = contentH + 4;
     const maxH = 900;
-    const height = Math.min(maxH, Math.max(desiredOuter, fitMaxApplied));
+    const height = Math.min(maxH, Math.max(desiredInner, 480));
 
-    if (height > fitMaxApplied) fitMaxApplied = height;
-    // 已足够高则不再压矮（防字体加载后再缩一刀）
-    if (curInnerH + chromeH >= height - 4) return;
-    await win.setSize(new LogicalSize(curW, height));
+    // 与目标差 ≤4px 不动，避免抖动
+    if (Math.abs(curInnerH - height) <= 4) return;
+    await win.setSize(new LogicalSize(curW, height + chromeH));
   } catch (e) {
     console.warn("fit window height failed:", e);
   }
@@ -436,6 +439,11 @@ body {
   padding: 10px 12px 12px;
   background: var(--chassis);
   border-radius: 0;
+  /* 内容不足时不靠底部留白撑开：对齐顶部，空白只来自窗口过高 */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .conflict-backdrop {
