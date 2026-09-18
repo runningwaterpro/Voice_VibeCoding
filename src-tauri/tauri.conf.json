@@ -21,7 +21,7 @@
         "maxWidth": 960,
         "maxHeight": 900,
         "center": true,
-        "decorations": true,
+        "decorations": false,
         "visible": false
       }
     ],

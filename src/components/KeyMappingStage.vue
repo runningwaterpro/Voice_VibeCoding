@@ -80,10 +80,13 @@ function openManualShortcutEditor() {
   manualEditor.value = { buttonId: id, initialKeys: keys };
   capturing.value = false;
   void cancelCapture();
+  lineOpacity.value = 0;
+  linePath.value = "";
 }
 
 function closeManualShortcutEditor() {
   manualEditor.value = null;
+  void nextTick().then(scheduleUpdateLine);
 }
 
 function applyManualShortcut(keys: number[]) {
@@ -91,6 +94,7 @@ function applyManualShortcut(keys: number[]) {
   if (!editor) return;
   manualEditor.value = null;
   applyCapturedKeys(editor.buttonId, keys);
+  void nextTick().then(scheduleUpdateLine);
 }
 
 const stageRef = ref<HTMLElement | null>(null);
@@ -296,7 +300,8 @@ function scheduleUpdateLine() {
 function updateLine() {
   const id = activeLineId.value;
   const stage = stageRef.value;
-  if (!id || !stage) {
+  // composer 打开：一律隐藏连线，避免回流期端点乱跳（对齐 v5.0）
+  if (manualEditor.value || !id || !stage) {
     if (lineOpacity.value !== 0) lineOpacity.value = 0;
     if (linePath.value) linePath.value = "";
     return;
@@ -536,7 +541,7 @@ function clearBinding(buttonId: string) {
   emit("save", next);
 }
 
-watch([selectedId, hoverId], () => {
+watch([selectedId, hoverId, manualEditor], () => {
   void nextTick().then(scheduleUpdateLine);
 });
 
@@ -843,7 +848,7 @@ onUnmounted(() => {
 
 <style scoped>
 .stage-scroll {
-  overflow-x: auto;
+  overflow-x: hidden;
   margin: 0 -4px;
   padding-bottom: 4px;
 }
@@ -857,7 +862,7 @@ onUnmounted(() => {
   justify-content: center;
   max-width: 720px;
   margin: 0 auto;
-  min-width: 560px;
+  min-width: 0;
   width: 100%;
   padding: 4px 0 8px;
   box-sizing: border-box;
@@ -879,8 +884,34 @@ onUnmounted(() => {
   gap: 8px;
   z-index: 2;
   min-width: 0;
-  width: 224px;
+  width: 100%;
+  max-width: 224px;
   padding-top: 0;
+  /* 溢出只允许纵向，子项不压扁（对齐 v5.0 灰线修复） */
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: var(--col-max, 480px);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #3a424e transparent;
+}
+
+.side-col > * {
+  flex-shrink: 0;
+}
+
+.side-col::-webkit-scrollbar {
+  width: 6px;
+  height: 0;
+}
+
+.side-col::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.side-col::-webkit-scrollbar-thumb {
+  background: #3a424e;
+  border-radius: 99px;
 }
 
 .left-col {
@@ -910,14 +941,15 @@ onUnmounted(() => {
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   min-width: 0;
-  width: 224px;
+  width: 100%;
   max-width: 224px;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 /* 右列空槽：同尺寸虚线框，不可点（V4.2） */
 .map-card-spacer {
-  width: 224px;
+  width: 100%;
   max-width: 224px;
   min-height: 38px;
   box-sizing: border-box;

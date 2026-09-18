@@ -5,6 +5,7 @@ import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import SideNav from "./components/SideNav.vue";
+import WindowTitlebar from "./components/WindowTitlebar.vue";
 import AppUpdateModal from "./components/AppUpdateModal.vue";
 import { useAppUpdateStore } from "./stores/appUpdate";
 import { useGlobalSettingsStore } from "./stores/globalSettings";
@@ -156,7 +157,7 @@ async function fitWindowHeightToContent() {
     const scale = (await win.scaleFactor()) || 1;
     const outer = await win.outerSize();
     const inner = await win.innerSize();
-    // Windows 装饰窗 setSize 常按外框高：需加上标题栏厚度
+    // 无边框窗：outer−inner ≈ 无系统标题栏；仍兼容 recreate 前残留 chrome
     const chromeH = Math.max(
       0,
       Math.round((outer.height - inner.height) / scale),
@@ -164,10 +165,11 @@ async function fitWindowHeightToContent() {
     const curW = Math.round(inner.width / scale);
     const curInnerH = Math.round(inner.height / scale);
 
-    // 机身上下 margin 12×2 + 底部余量 8 + 标题栏
+    // 机身上下 margin 12×2 + 底部余量 8（不再虚构系统标题栏高度）
     const desiredInner = contentH + 24 + 8;
     const desiredOuter = desiredInner + chromeH;
-    const maxH = 960;
+    // 与 tauri.conf.json maxHeight 一致
+    const maxH = 900;
     const height = Math.min(maxH, Math.max(desiredOuter, fitMaxApplied));
 
     if (height > fitMaxApplied) fitMaxApplied = height;
@@ -229,6 +231,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app-container">
+    <WindowTitlebar />
     <SideNav />
     <main class="main-content">
       <RouterView />
@@ -408,12 +411,13 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: 820px;
-  margin: 12px auto;
+  margin: 8px auto;
   background: var(--chassis);
   border: 1px solid var(--edge);
-  border-radius: 12px;
-  box-shadow: 0 0 0 1px #343b46;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.35);
   flex: 0 0 auto;
+  overflow: hidden;
 }
 
 .main-content {
@@ -422,7 +426,7 @@ body {
   overflow-y: visible;
   padding: 10px 12px 12px;
   background: var(--chassis);
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 10px 10px;
 }
 
 .conflict-backdrop {

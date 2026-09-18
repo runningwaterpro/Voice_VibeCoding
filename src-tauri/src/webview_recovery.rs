@@ -101,7 +101,7 @@ fn build_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .min_inner_size(880.0, 480.0)
         .resizable(true)
         .center()
-        .decorations(true)
+        .decorations(false)
         .visible(false)
         .build()
         .map_err(|e| e.to_string())

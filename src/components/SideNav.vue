@@ -2,7 +2,6 @@
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
 import { storeToRefs } from "pinia";
 import { useBridgeStore } from "../stores/bridge";
 import { useAppUpdateStore } from "../stores/appUpdate";
@@ -18,8 +17,6 @@ const globalSettings = useGlobalSettingsStore();
 const { hideDevMenus } = storeToRefs(globalSettings);
 const { updateInfo, shouldShowPassivePrompt } = storeToRefs(appUpdate);
 
-const showQuitConfirm = ref(false);
-const quitting = ref(false);
 const showSettingsSheet = ref(false);
 
 /** 顶栏会话摘要：来自主机状态（阶段 A） */
@@ -92,16 +89,9 @@ async function refreshSession() {
   }
 }
 
-const appVersion = ref("…");
-
 onMounted(async () => {
   if (!globalSettings.loaded) {
     await globalSettings.load();
-  }
-  try {
-    appVersion.value = `v${await getVersion()}`;
-  } catch {
-    appVersion.value = "v1.6.0";
   }
   await bridge.refreshStatus("xiaomi");
   await refreshSession();
@@ -123,44 +113,21 @@ function isActive(path: string) {
   return route.path === path || route.path.startsWith(path + "/");
 }
 
-function openQuitConfirm() {
-  showQuitConfirm.value = true;
-}
-
-function cancelQuit() {
-  if (quitting.value) return;
-  showQuitConfirm.value = false;
-}
-
-async function confirmQuit() {
-  if (quitting.value) return;
-  quitting.value = true;
-  try {
-    await invoke("quit_application");
-  } catch (e) {
-    console.error("quit_application failed:", e);
-    quitting.value = false;
-  }
-}
 </script>
 
 <template>
+  <!-- 状态栏：应用状态 + 应用操作（品牌与窗口控制在 WindowTitlebar） -->
   <header class="topnav">
-    <div class="brand">
-      <span class="brand-name">Voice VibeCoding</span>
-      <span class="brand-ver">{{ appVersion }}</span>
+    <div class="session-chip" role="status" aria-live="polite">
+      <span :class="['session-dot', `tone-${session.tone}`]" />
+      <span class="session-title">{{ session.title }}</span>
+      <span v-if="session.sub" class="session-sub">{{ session.sub }}</span>
       <template v-if="shouldShowPassivePrompt">
         <span class="brand-update-badge">新版本 V{{ updateInfo!.latestVersion }}</span>
         <button type="button" class="brand-update-btn" @click="appUpdate.openModal()">
           查看更新内容
         </button>
       </template>
-    </div>
-
-    <div class="session-chip" role="status" aria-live="polite">
-      <span :class="['session-dot', `tone-${session.tone}`]" />
-      <span class="session-title">{{ session.title }}</span>
-      <span v-if="session.sub" class="session-sub">{{ session.sub }}</span>
     </div>
 
     <div
@@ -201,35 +168,11 @@ async function confirmQuit() {
       >
         <span class="nav-label">设置</span>
       </button>
-      <button type="button" class="nav-item nav-exit" @click="openQuitConfirm">
-        <span class="nav-label">退出</span>
-      </button>
+      <!-- 退出只在托盘：窗口内不暴露进程级退出 -->
     </div>
   </header>
 
   <SettingsSheet v-if="showSettingsSheet" @close="showSettingsSheet = false" />
-
-  <Teleport to="body">
-    <div
-      v-if="showQuitConfirm"
-      class="quit-backdrop"
-      role="presentation"
-      @click.self="cancelQuit"
-    >
-      <div class="quit-dialog" role="dialog" aria-modal="true" aria-labelledby="quit-title">
-        <h3 id="quit-title">退出应用？</h3>
-        <p>将彻底关闭软件（不会最小化到托盘）。确定要退出吗？</p>
-        <div class="quit-actions">
-          <button type="button" class="quit-btn quit-btn-ghost" :disabled="quitting" @click="cancelQuit">
-            取消
-          </button>
-          <button type="button" class="quit-btn quit-btn-danger" :disabled="quitting" @click="confirmQuit">
-            {{ quitting ? "退出中..." : "退出" }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
 </template>
 
 <style scoped>
@@ -237,15 +180,16 @@ async function confirmQuit() {
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 44px;
+  height: 40px;
   padding: 0 16px;
-  background: var(--sidebar-bg);
+  background: #161a20;
   color: var(--sidebar-text);
   user-select: none;
   flex-shrink: 0;
   min-width: 0;
-  /* 与机身圆角对齐：父级 border-radius 不裁子元素 */
-  border-radius: 11px 11px 0 0;
+  border-bottom: 1px solid var(--edge, #343b46);
+  /* 标题栏已在上：状态栏不再抢顶圆角 */
+  border-radius: 0;
 }
 
 .session-chip {
@@ -255,6 +199,7 @@ async function confirmQuit() {
   min-width: 0;
   flex: 1;
   font-size: 12.5px;
+  overflow: hidden;
 }
 .session-dot {
   width: 8px;
@@ -281,6 +226,7 @@ async function confirmQuit() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 .session-sub {
   color: #94a3b8;
@@ -289,6 +235,7 @@ async function confirmQuit() {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
 }
 .battery-chip {
   display: inline-flex;
@@ -442,11 +389,6 @@ async function confirmQuit() {
   color: #fff;
 }
 
-.nav-exit:hover {
-  background: rgba(239, 68, 68, 0.18);
-  color: #fecaca;
-}
-
 .dot {
   width: 7px;
   height: 7px;
@@ -471,90 +413,11 @@ async function confirmQuit() {
   background: #64748b;
 }
 
-.quit-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(15, 23, 42, 0.45);
-}
-
-.quit-dialog {
-  width: min(360px, 100%);
-  padding: 18px 18px 14px;
-  border-radius: 10px;
-  background: var(--card-bg);
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
-  color: var(--text, #1e293b);
-}
-
-.quit-dialog h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.quit-dialog p {
-  margin: 0 0 16px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-secondary, #64748b);
-}
-
-.quit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.quit-btn {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.quit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.quit-btn-ghost {
-  background: var(--card-bg);
-  border-color: var(--border, #e2e8f0);
-  color: var(--text, #1e293b);
-}
-
-.quit-btn-ghost:hover:not(:disabled) {
-  background: var(--panel-2);
-}
-
-.quit-btn-danger {
-  background: var(--danger);
-  color: #fff;
-}
-
-.quit-btn-danger:hover:not(:disabled) {
-  filter: brightness(0.95);
-}
-
-.quit-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nav-item,
   .nav-item:active,
   .nav-btn,
-  .battery-chip,
-  .quit-btn,
-  .quit-btn:active {
+  .battery-chip {
     transition: none !important;
     transform: none !important;
   }
