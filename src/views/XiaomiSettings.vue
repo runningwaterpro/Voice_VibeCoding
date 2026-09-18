@@ -973,7 +973,7 @@ watch(
   () => voiceMeter.value.gainDb,
   (v) => {
     if (gainAuto.value) {
-      autoGainDisplay.value = Math.min(GAIN_MAX, Math.max(GAIN_MIN, v));
+      autoGainDisplay.value = Math.round(Math.min(GAIN_MAX, Math.max(GAIN_MIN, v)));
     }
   },
 );
