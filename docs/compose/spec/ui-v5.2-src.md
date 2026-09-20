@@ -1,18 +1,28 @@
 ---
 feature: ui-v5.2-src
-status: designed
+status: delivered
 updated: 2026-09-20
 branch: feat/ui-demo-v5.2
-commits:
+commits: 69bc721..3022939
 ---
 
 # 产品 src 对齐 Demo v5.2
 
 ## Report
 
+**What was built** — 产品 `src/` 对齐 demo v5.2 的 8 条合同：修复中悬浮卡常驻（灰钮「修复中…」、步骤实时、无「稍后」）、遮罩 `.55`+`blur(2px)`、电平非就绪 `.is-idle`、设置齿轮、未映射虚线 pill，并删除 `.more-ops`/`showActionBar` 死代码。未加 `.is-not-ready`（遮罩已挡点击）。demo 文件未改。
+
+**Verification** — `npm run build` PASS；`npm test` 23/23 PASS。Review：Spec C1–C8 全 PASS，Correctness PASS（无 critical；boot grace+托盘修复 ≤12s 标题走启动文案，与 demo booting 优先级一致），Codebase consistency PASS（引号风格轻微混用，非阻塞）。
+
+**Journey log**
+- v5.1 曾故意对齐程序基线；v5.2 仅 demo，`src/` 相对 `gh/main` 零改动——本次补上。
+- 遮罩 `position:absolute; inset:0` 已拦点击，不重复加锁层（ponytail）。
+- Pre-existing：`repairFinished`/`repairStepLog` ready 后不清，下次异常可能显示上次成功标题；可另开小任务。
+- 托盘 `tray-auto-repair` 可在 12s boot grace 内触发：卡不丢，标题暂为「正在启动…」。
+
 ## [S1] Problem
 
-Demo `ui-redesign-demo-v5.2.html` 已定稿 6 夡体验合同；产品 `src/` 相对 `gh/main` 零改动，安装包仍是旧行为：修复中藏卡、遮罩偏轻、电平不降权、设置无齿轮、未映射无 pill、修复步骤不实时。
+Demo `ui-redesign-demo-v5.2.html` 已定稿 6 处体验合同；产品 `src/` 相对 `gh/main` 零改动，安装包仍是旧行为：修复中藏卡、遮罩偏轻、电平不降权、设置无齿轮、未映射无 pill、修复步骤不实时。
 
 ## [S2] Design
 
@@ -42,7 +52,7 @@ Demo `ui-redesign-demo-v5.2.html` 已定稿 6 夡体验合同；产品 `src/` �
 
 ## Tasks
 
-- [ ] T1: spec — 验收: 本文件 status 设计完成 (covers: S2)
-- [ ] T2: C1–C5、C8 in `XiaomiSettings.vue` — 验收: 修复中卡在+步骤实时+无稍后；CSS 数值对齐；无 `more-ops` (covers: S2; depends: T1)
-- [ ] T3: C6 `SideNav.vue` + C7 `KeyMappingStage.vue` — 验收: 齿轮在；未映射虚线 pill (covers: S2; depends: T1)
-- [ ] T4: `npm run build` + `npm test` — 验收: 全绿或 PRE-EXISTING 有记录 (covers: S2; depends: T2, T3)
+- [x] T1: spec — 验收: 本文件 status 设计完成 (covers: S2)
+- [x] T2: C1–C5、C8 in `XiaomiSettings.vue` — 验收: 修复中卡在+步骤实时+无稍后；CSS 数值对齐；无 `more-ops` (covers: S2; depends: T1)
+- [x] T3: C6 `SideNav.vue` + C7 `KeyMappingStage.vue` — 验收: 齿轮在；未映射虚线 pill (covers: S2; depends: T1)
+- [x] T4: `npm run build` + `npm test` — 验收: 全绿或 PRE-EXISTING 有记录 (covers: S2; depends: T2, T3)
