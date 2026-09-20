@@ -248,7 +248,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 }
 .app.is-not-ready .work{
   pointer-events:none;
-  opacity:.72;
+  opacity:.55;
   user-select:none;
 }
 /* 修复中主钮：常驻 DOM、禁用，避免 show/hide 闪 */
@@ -663,12 +663,13 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .note{margin:8px 0 0;font-size:12px;color:var(--muted)}
 
 /* 桥接失败：窗口居中一键修复（不挤内容、不模态盖映射细节之外的可点区） */
-/* P1: 遮罩减重 — 单按钮异常不需重模糊 */
+/* P1 修正（用户）：未就绪遮罩加重，凸显卡、压暗主界面；配合 .work 锁死 */
 .repair-modal{
   position:absolute;inset:0;z-index:35;
   display:flex;align-items:flex-start;justify-content:center;
   padding-top:120px;
-  background:rgba(0,0,0,.35);
+  background:rgba(0,0,0,.55);
+  backdrop-filter:blur(2px);
 }
 .repair-modal[hidden]{display:none!important}
 .hide{display:none!important}
@@ -736,7 +737,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 <body>
 <!-- 预览控制：机身外，不进入 .app -->
 <div class="demo-bar" role="region" aria-label="预览控制">
-  <span>预览控制 · v5.2：未就绪卡常驻锁主界面 · 一键修复 · 电平降权</span>
+  <span>预览控制 · v5.2：未就绪重遮罩锁界面 · 修复中卡常驻 · 一键修复</span>
   <button type="button" data-state="booting">启动中</button>
   <button type="button" data-state="err_bridge">桥接未运行</button>
   <button type="button" data-state="error">语音异常</button>

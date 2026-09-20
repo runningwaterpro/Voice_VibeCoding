@@ -36,7 +36,8 @@ v5.1 已是对齐产品的基线（居中卡 + 一键修复 + 无顶栏异常条
 
 - `ready`/`voice`：电平常显。  
 - 其它态：`.meters` 加 `.is-idle`（`opacity:.35` + 非交互感）。  
-- `.repair-modal` 背景：`rgba(0,0,0,.35)`，无 blur。
+- **遮罩加重（用户定稿）**：未就绪卡出现时 `background: rgba(0,0,0,.55)` + 轻 `blur(2px)`，凸显悬浮卡、压暗主界面；**不要**更透明。  
+- `.work` 继续 `is-not-ready` 锁死（`pointer-events:none`）。
 
 ### P1b 未就绪锁（用户确认的统一原则）
 
