@@ -272,12 +272,13 @@ function describeStepError(raw: string): string {
 }
 
 const showRepairModal = computed(() => {
-  if (repairDismissed.value) return false;
-  if (autoRepairing.value) return false;
   const h = host.value;
-  const connecting = connBusy.value || restarting.value;
   const allReady =
     h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
+  // v5.2: 修复中卡常驻；仅全就绪收卡（不被 restarting/dismiss 藏）
+  if (autoRepairing.value) return !allReady;
+  if (repairDismissed.value) return false;
+  const connecting = connBusy.value || restarting.value;
   return !allReady && !connecting;
 });
 const bootingPhase = computed(() => inBootGrace.value);
@@ -311,8 +312,6 @@ const repairResultTitle = computed(() => {
   if (okCount === log.length) return "修复完成";
   return `修复完成（${okCount}/${log.length} 步成功）`;
 });
-
-const showActionBar = computed(() => false);
 
 const autoRepairing = ref(false);
 const inAutoRepair = ref(false);
@@ -2035,12 +2034,24 @@ async function retryLoadConfig() {
             <h3 id="repair-title">正在启动…</h3>
           </div>
           <h3 v-else id="repair-title">
-            {{ repairFinished && repairStepLog.length ? repairResultTitle : errorTitle }}
+            {{
+              autoRepairing
+                ? "正在修复…"
+                : repairFinished && repairStepLog.length
+                  ? repairResultTitle
+                  : errorTitle
+            }}
           </h3>
-          <p v-if="!repairFinished || !repairStepLog.length" class="repair-desc">
-            {{ bootingPhase ? bootStepText : '点「一键修复」自动处理' }}
+          <p v-if="!repairFinished || !repairStepLog.length || autoRepairing" class="repair-desc">
+            {{
+              bootingPhase
+                ? bootStepText
+                : autoRepairing
+                  ? "一键修复进行中，无需操作"
+                  : "点「一键修复」自动处理"
+            }}
           </p>
-          <div v-if="repairFinished && repairStepLog.length" class="repair-steps">
+          <div v-if="repairStepLog.length" class="repair-steps">
             <div class="repair-steps-title">修复步骤</div>
             <div v-for="(st, i) in repairStepLog" :key="i" class="repair-step" :class="st.ok ? 'ok' : 'fail'">
               <span class="repair-step-icon" :class="st.ok ? 'ok' : 'fail'">{{ st.ok ? '✓' : '✗' }}</span>
@@ -2061,7 +2072,7 @@ async function retryLoadConfig() {
             {{ primaryLabel || '一键修复' }}
           </button>
           <button
-            v-if="canDismiss"
+            v-if="canDismiss && !autoRepairing"
             type="button"
             class="btn btn-secondary repair-later"
             @click="dismissRepairCard"
@@ -2072,7 +2083,10 @@ async function retryLoadConfig() {
       </div>
     </Transition>
 
-    <div class="vol-meters-card vol-meters-full">
+    <div
+      class="vol-meters-card vol-meters-full"
+      :class="{ 'is-idle': railState !== 'ready' && railState !== 'voice' }"
+    >
           <CableVolRuler
             :level="voiceMeter.bleLevel"
             :active="voiceMeter.bleState === 'receiving'"
@@ -3048,7 +3062,6 @@ async function retryLoadConfig() {
   .setup-tips-modal,
   .btn,
   .stepper-btn,
-  .more-ops > summary,
   .ruler-marker {
     animation: none !important;
     transition: none !important;
@@ -3460,6 +3473,11 @@ async function retryLoadConfig() {
   min-width: 120px;
 }
 
+/* v5.2: 非就绪电平降权 */
+.vol-meters-card.is-idle {
+  opacity: 0.35;
+  pointer-events: none;
+}
 .vol-meters-card {
   display: flex;
   flex-direction: column;
@@ -3568,16 +3586,16 @@ async function retryLoadConfig() {
   align-items: flex-start;
   justify-content: center;
   padding-top: 120px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(1px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
 }
 .repair-card {
   width: min(360px, calc(100% - 32px));
   background: var(--card-bg, #1f242b);
   border: 1px solid var(--border, #343b46);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 16px 18px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 .repair-modal-enter-active,
 .repair-modal-leave-active {
@@ -3760,77 +3778,6 @@ async function retryLoadConfig() {
   background: #3d3220 !important;
   font-weight: 600;
 }
-.more-ops {
-  position: relative;
-  margin: 0;
-  border: none;
-  padding: 0;
-  justify-self: end;
-}
-.more-ops > summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  list-style: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--edge);
-  border-radius: 8px;
-  background: var(--panel-2);
-  white-space: nowrap;
-  transition: color 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.more-ops > summary:hover {
-  color: var(--text);
-}
-.more-ops > summary:active {
-  transform: scale(0.97);
-}
-.more-ops > summary::-webkit-details-marker {
-  display: none;
-}
-.more-ops > summary::before {
-  content: "▸ ";
-  color: var(--dim, #5c6673);
-}
-.more-ops[open] > summary::before {
-  content: "▾ ";
-}
-.more-ops .ops-body {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 160px;
-  padding: 8px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  margin-top: 0;
-}
-.more-ops .ops-body .btn {
-  width: 100%;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  font-size: 12.5px;
-  padding: 7px 10px;
-}
-.more-ops .ops-body .btn:hover:not(:disabled) {
-  border-color: var(--text-secondary);
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .vol-meter-block {
   display: flex;
   flex-direction: column;
