@@ -139,7 +139,8 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .led.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
 .led.fail{background:var(--fail);box-shadow:0 0 8px var(--fail)}
 .nav-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}
-.nav-btn{border:1px solid var(--edge);background:var(--panel);color:var(--muted);border-radius:6px;padding:5px 12px;font-size:12.5px;transition:transform var(--t-press) var(--ease-out),background-color 150ms var(--ease-out),border-color 150ms var(--ease-out),color 150ms var(--ease-out)}
+.nav-btn{border:1px solid var(--edge);background:var(--panel);color:var(--muted);border-radius:6px;padding:5px 12px;font-size:12.5px;transition:transform var(--t-press) var(--ease-out),background-color 150ms var(--ease-out),border-color 150ms var(--ease-out),color 150ms var(--ease-out);display:inline-flex;align-items:center;gap:6px}
+.nav-btn .ico-gear{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .nav-btn:hover{color:var(--ink);border-color:var(--muted)}
 .nav-btn:active{transform:scale(0.97)}
 .battery-chip{
@@ -795,7 +796,13 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
       <span id="batteryText">83%</span>
     </div>
     <div class="nav-actions">
-      <button type="button" class="nav-btn" id="btnSettings">设置</button>
+      <button type="button" class="nav-btn" id="btnSettings" title="设置" aria-label="设置">
+        <svg class="ico-gear" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        </svg>
+        设置
+      </button>
       <!-- 退出只在托盘菜单：进程级操作不重复暴露在窗口内 -->
     </div>
   </div>
