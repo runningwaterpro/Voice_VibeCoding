@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice VibeCoding · 界面 Demo v5.2（剃刀优化 · 一键修复基线）</title>
+<style>
+:root {
+  --chassis:#171a1f; --panel:#1f242b; --panel2:#262c35; --edge:#343b46;
+  --ink:#e8ecf1; --muted:#8b95a3; --dim:#5c6673;
+  --signal:#4db6a4; --warn:#d4a84b; --fail:#e06b6b;
+  --link:#3b82f6; --link-dim:#60a5fa;
+  --font:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"Cascadia Mono",ui-monospace,Consolas,monospace;
+  --r:10px;
+  --ease-out:cubic-bezier(0.23,1,0.32,1);
+  --t-press:160ms;
+  --t-ui:180ms;
+  --t-compose:200ms;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--font);color:var(--ink);background:#0e1014;font-size:13.5px;line-height:1.45;display:flex;flex-direction:column}
+button{font:inherit;cursor:pointer;color:inherit}
+button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+/* press feedback on pressables */
+.btn,.nav-btn,.gain-btn,.selection-action,.shortcut-composer-close,.demo-bar button,.kbtn,.switch{
+  transition:transform var(--t-press) var(--ease-out),
+    background-color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+.btn:active,.nav-btn:active,.gain-btn:active,.selection-action:active:not(:disabled),
+.shortcut-composer-close:active,.demo-bar button:active,.kbtn:active,.switch:active{
+  transform:scale(0.97);
+}
+/* hover only on fine pointers */
+@media (hover:hover) and (pointer:fine){
+  .btn:hover,.nav-btn:hover,.gain-btn:hover{border-color:var(--muted)}
+}
+
+/* ===== v5.0: 自实现窗口 chrome =====
+   分层原则：
+   - 标题栏 = 窗口身份 + 窗口控制（系统级）
+   - 状态栏 = 应用状态 + 应用操作（应用级）
+   两者职责不同，不混在一行。
+*/
+.app{
+  width:100%;max-width:820px;margin:0 auto;display:flex;flex-direction:column;
+  background:var(--chassis);
+  border:1px solid var(--edge);
+  box-shadow:0 8px 28px rgba(0,0,0,.38);
+  min-height:0;position:relative;
+  border-radius:10px;
+}
+@media(min-width:960px){
+  /* 窗口高度由内容决定，不强制撑满视口（避免遥控器下方大片空白） */
+  .app{max-width:820px;margin:8px auto}
+}
+
+/* ===== 标题栏：对齐产品 WindowTitlebar（无最大化） ===== */
+.titlebar{
+  display:flex;align-items:center;height:36px;
+  /* 比机身更深一档，与状态栏/内容分层可辨 — 同产品 #0b0d11 */
+  background:#0b0d11;flex-shrink:0;position:sticky;top:0;z-index:30;
+  /* Demo 机身仍有圆角：顶角随卡片；产品满窗时为 0 */
+  border-radius:9px 9px 0 0;
+  border-bottom:1px solid var(--edge);
+  box-shadow:inset 0 -1px 0 rgba(0,0,0,.45);
+  padding-left:14px;
+  -webkit-app-region:drag;
+  app-region:drag;
+  user-select:none;
+}
+.titlebar[data-active="false"]{opacity:.88}
+.titlebar .brand{display:flex;align-items:baseline;gap:8px;flex-shrink:0;min-width:0}
+.titlebar .brand b{font-size:12.5px;font-weight:600;color:#c5cdd8}
+.titlebar .brand span{font-size:10.5px;color:#6b7685;font-family:var(--mono)}
+/* 窗口控制不参与拖拽 */
+.titlebar .win-controls{-webkit-app-region:no-drag;app-region:no-drag;margin-left:auto}
+/* 标题栏内除窗口控制外无其他可点元素，无需额外 no-drag */
+
+/* ===== 状态栏：应用状态 + 应用操作 ===== */
+.statusbar{
+  display:flex;align-items:center;gap:12px;height:40px;
+  padding:0 12px 0 14px;
+  background:#161a20;flex-shrink:0;
+  border-bottom:1px solid var(--edge);
+  -webkit-app-region:no-drag;
+  app-region:no-drag;
+}
+.statusbar .nav-status{display:flex;align-items:center;gap:8px;min-width:0;flex:1;color:var(--muted);font-size:12.5px}
+.statusbar .nav-status strong{color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.statusbar .nav-status .sub-muted{color:var(--muted);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.statusbar .nav-actions{display:flex;gap:6px;flex-shrink:0}
+
+/* ===== 窗口控制按钮（仅最小化 / 关闭） ===== */
+.win-controls{display:flex;align-items:center;gap:0}
+.win-ctl{
+  width:40px;height:36px;border:none;background:transparent;color:#8b95a3;
+  display:flex;align-items:center;justify-content:center;
+  transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out);
+  padding:0;
+}
+.win-ctl:hover{background:rgba(255,255,255,.08);color:#e8ecf1}
+.win-ctl:active{background:rgba(255,255,255,.12)}
+.win-ctl.close:hover{background:#e81123;color:#fff}
+.win-ctl.close:active{background:#c50f1f}
+.win-ctl svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* ===== 自绘 resize 手柄 ===== */
+.rs{position:absolute;z-index:40;pointer-events:auto}
+.rs-n{top:-3px;left:8px;right:8px;height:7px;cursor:n-resize}
+.rs-s{bottom:-3px;left:8px;right:8px;height:7px;cursor:s-resize}
+.rs-e{right:-3px;top:8px;bottom:8px;width:7px;cursor:e-resize}
+.rs-w{left:-3px;top:8px;bottom:8px;width:7px;cursor:w-resize}
+.rs-ne{top:-3px;right:-3px;width:14px;height:14px;cursor:ne-resize}
+.rs-nw{top:-3px;left:-3px;width:14px;height:14px;cursor:nw-resize}
+.rs-se{bottom:-3px;right:-3px;width:14px;height:14px;cursor:se-resize}
+.rs-sw{bottom:-3px;left:-3px;width:14px;height:14px;cursor:sw-resize}
+.app[data-active="false"]{border-color:#2a2f37;box-shadow:0 0 0 1px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.2)}
+.app[data-maximized="true"]{border-radius:0;border:none;box-shadow:none}
+.app[data-maximized="true"] .rs{display:none}
+.brand{display:flex;align-items:baseline;gap:8px;flex-shrink:0}
+.brand b{font-size:13.5px}
+.brand span{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.nav-status{display:flex;align-items:center;gap:8px;min-width:0;flex:1;color:var(--muted);font-size:12.5px}
+.nav-status strong{color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-status .sub-muted{color:var(--muted);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.credit-line{
+  margin:12px 0 0;padding-top:10px;border-top:1px solid #2a3038;
+  font-size:11.5px;color:var(--dim);line-height:1.5;
+}
+.credit-line a{color:var(--link-dim);text-decoration:none}
+.credit-line a:hover{text-decoration:underline}
+.credit-line strong{color:var(--muted);font-weight:600}
+.led{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0}
+.led.ok{background:var(--signal);box-shadow:0 0 8px var(--signal)}
+.led.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.led.fail{background:var(--fail);box-shadow:0 0 8px var(--fail)}
+.nav-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}
+.nav-btn{border:1px solid var(--edge);background:var(--panel);color:var(--muted);border-radius:6px;padding:5px 12px;font-size:12.5px;transition:transform var(--t-press) var(--ease-out),background-color 150ms var(--ease-out),border-color 150ms var(--ease-out),color 150ms var(--ease-out)}
+.nav-btn:hover{color:var(--ink);border-color:var(--muted)}
+.nav-btn:active{transform:scale(0.97)}
+.battery-chip{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  padding:3px 8px;border-radius:999px;border:1px solid var(--edge);
+  background:var(--panel);color:var(--muted);font-size:11.5px;font-family:var(--mono);
+}
+.battery-chip .battery-ico{width:14px;height:14px;color:var(--signal)}
+.battery-chip.is-low .battery-ico{color:var(--warn)}
+.battery-chip.is-crit .battery-ico{color:var(--fail)}
+.battery-chip.is-unknown .battery-ico{color:var(--dim)}
+
+/* 预览控制在机身外：避免分栏干扰真实界面观感 */
+.demo-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;padding:10px 14px;background:transparent;font-size:12px;color:var(--muted);max-width:960px;margin:0 auto}
+.demo-bar button{border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--muted);padding:3px 10px;font-size:12px}
+.demo-bar button.on{color:var(--ink);border-color:var(--signal);background:#1a2c29}
+.press-hint{color:#93c5fd;font-family:var(--mono);font-size:11.5px;min-width:9em}
+
+.work{display:flex;flex-direction:column;gap:12px;padding:12px;min-width:0;flex:0 0 auto}
+
+/* meters: identical track columns so input vs send can be compared */
+.meters{display:flex;flex-direction:column;gap:3px;padding:7px 12px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);flex-shrink:0}
+.meter{
+  display:grid;
+  /* 固定右侧文案列宽：hint/db 不随字数挤轨，标尺宽度稳定可对比 */
+  grid-template-columns:7em minmax(80px,1fr) 5.2em 2.8em;
+  gap:10px;align-items:center;min-height:24px;font-size:12px;
+}
+.meter .cap{color:var(--muted);white-space:nowrap}
+.meter .track{position:relative;height:8px;border-radius:99px;border:1px solid var(--edge);
+  background:linear-gradient(90deg,#2a2e24 0 33%,#1e2e2a 33% 78%,#2e2424 78% 100%)}
+.meter .mark{
+  position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1.5px;
+  background:var(--ink);left:10%;
+  border-radius:2px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 6px rgba(232,236,241,.35);
+  transition:left 100ms linear,background-color 120ms ease-out;
+}
+/* 白线+暗边：黄/绿/红三区都醒目；分区色只作弱提示 */
+.meter.ok .mark{background:#e8ecf1}
+.meter.high .mark{background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 8px rgba(224,107,107,.55)}
+.meter .hint{color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter .db{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
+/* gain row aligned under meters; does not steal track width */
+.gain-row{
+  display:grid;
+  grid-template-columns:7em minmax(80px,1fr) 5.2em 2.8em;
+  gap:10px;align-items:center;min-height:26px;font-size:12px;
+  margin-top:2px;padding-top:4px;border-top:1px dashed #2a3038;
+}
+.gain-row .cap{color:var(--muted)}
+.gain-row .gain-ctl{grid-column:2/5;display:flex;align-items:center;gap:6px;justify-content:flex-start}
+.gain-ctl{display:inline-flex;align-items:center;gap:4px}
+.gain-btn{
+  width:26px;height:22px;border-radius:6px;border:1px solid var(--edge);
+  background:var(--panel2);color:var(--ink);font-size:14px;line-height:1;padding:0;
+}
+.gain-btn:hover{border-color:var(--muted)}
+.gain-val{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:3.4em;text-align:center}
+.gain-auto-label{
+  display:inline-flex;align-items:center;gap:5px;margin-left:8px;
+  font-size:11px;color:var(--muted);cursor:pointer;user-select:none;
+}
+.gain-auto-label .switch{width:30px;height:17px}
+.gain-auto-label .switch::after{top:2.5px;left:2.5px;width:12px;height:12px}
+.gain-auto-label .switch.on::after{transform:translateX(13px)}
+.gain-ctl.manual-off .gain-btn{opacity:.35;pointer-events:none}
+.gain-ctl.manual-off .gain-val{color:var(--signal)}
+.gain-ctl.manual-off .gain-auto-label{color:var(--signal)}
+
+/* v4.1: meters — fixed hint/db columns; topnav top radius */
+.switch{
+  position:relative;width:36px;height:20px;border-radius:99px;background:#3a424e;border:none;flex-shrink:0;cursor:pointer;padding:0;
+  transition:background-color 150ms var(--ease-out),transform 160ms var(--ease-out);
+}
+.switch::after{
+  content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#c5cad1;
+  transition:transform 150ms var(--ease-out);
+}
+.switch:active{transform:scale(0.97)}
+.switch.on{background:#2f6a5f}
+.switch.on::after{transform:translateX(16px);background:var(--signal)}
+.voice-quick-panel{
+  margin-top:8px;padding:10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel2);
+}
+.voice-quick-label{margin:0 0 8px;font-size:11.5px;color:var(--muted)}
+.voice-quick-grid{display:flex;flex-direction:column;gap:6px}
+.voice-quick-btn{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;
+  min-height:36px;padding:6px 8px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--edge);background:var(--panel);color:var(--ink);
+  font-size:12px;font-family:var(--mono);
+  transition:transform var(--t-press) var(--ease-out),border-color 150ms var(--ease-out),background-color 150ms var(--ease-out);
+}
+.voice-quick-btn:hover{border-color:var(--muted);background:#1a2a3d}
+.voice-quick-btn:active{transform:scale(0.97)}
+.voice-quick-btn .plus{color:var(--dim)}
+.voice-quick-btn .vq{white-space:nowrap}
+
+/* ===== v5.2: 电平随状态降权（P1） ===== */
+.meters.is-idle{opacity:.35;pointer-events:none}
+.meters.is-idle .hint{color:var(--dim)}
+/* stage: full-width map */
+.stage{display:flex;flex-direction:column;gap:10px;min-width:0}
+/* v5.2: action-bar 已删除（P0） */
+.booting-wave{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:2px;
+  width:22px;
+  height:16px;
+  flex:0 0 auto;
+  flex-shrink:0;
+}
+.booting-wave i{
+  display:block;
+  width:2px;
+  height:4px;
+  border-radius:1px;
+  background:#7dd3fc;
+  opacity:.75;
+  transform-origin:center bottom;
+  animation:boot-wave 1.05s ease-in-out infinite;
+}
+.booting-wave i:nth-child(1){animation-delay:0ms}
+.booting-wave i:nth-child(2){animation-delay:90ms}
+.booting-wave i:nth-child(3){animation-delay:180ms}
+.booting-wave i:nth-child(4){animation-delay:90ms}
+.booting-wave i:nth-child(5){animation-delay:0ms}
+@keyframes boot-wave{
+  0%,100%{height:4px;opacity:.45}
+  50%{height:14px;opacity:1}
+}
+@media (prefers-reduced-motion:reduce){
+/* reduced-motion: action-bar removed in v5.2 */
+  .booting-wave i{animation:none;height:8px;opacity:.55}
+  .booting-wave i:nth-child(2),
+  .booting-wave i:nth-child(4){height:12px;opacity:.75}
+}
+.status-line{
+  display:flex;flex-direction:row;align-items:center;gap:8px;
+  margin:0;padding:0;min-width:0;overflow:hidden;height:34px;
+}
+.status-line b{
+  font-size:12.5px;font-weight:600;color:var(--ink);
+  white-space:nowrap;flex:0 0 auto;
+}
+/* 仅说明文案可伸展；波形容器必须贴左侧固定宽 */
+.status-line > span:not(.booting-wave){
+  font-size:12px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;
+}
+.status-line[hidden]{display:none!important}
+/* v5.2 P0: action-bar / more-ops CSS removed */
+  padding:8px;background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+}
+.more-ops .ops-body .btn{width:100%}
+.map-work{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  height:auto;min-height:0;
+  background:var(--panel);
+  border:1px solid var(--edge);
+  border-radius:var(--r);
+  padding:12px;
+}
+.manual-host{display:none;margin:0 0 10px}
+.map-work.composer-open .manual-host{display:block}
+.map-cols{
+  flex:0 1 auto;min-height:0;
+  display:grid;
+  grid-template-columns:224px auto 224px;
+  gap:14px;
+  /* start：侧列不 stretch，行高不被 composer 泄漏 */
+  align-items:start;
+  justify-content:center;
+  max-width:720px;
+  margin:0 auto;
+  width:100%;
+}
+.map-cols .map-col{min-width:0;width:224px;justify-self:center}
+/* 局部滚动：侧列高度锚定遥控器，composer 再高也不推窗 */
+.map-col{
+  max-height:var(--col-max,480px);
+  /* 只纵滚：overflow-y:auto 会把 overflow-x 从 visible 算成 auto，2px 溢出就露出横滚条灰线 */
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  scrollbar-color:#3a424e transparent;
+  padding-right:2px;
+}
+.map-col::-webkit-scrollbar{width:6px;height:0}
+.map-col::-webkit-scrollbar-track{background:transparent}
+.map-col::-webkit-scrollbar-thumb{background:#3a424e;border-radius:99px}
+.map-col::-webkit-scrollbar-thumb:hover{background:#4a5360}
+.map-cols .remote-panel{display:flex;align-items:flex-start;justify-content:center;min-height:0;padding-top:0}
+.map-cols .remote-panel .remote-wrap{padding-top:0}
+/* 跟随内容盒宽度，避免写死 224px + padding-right 造成横向溢出 */
+.map-cols .map-col .map-card{max-width:224px;width:100%}
+@media(max-width:899px){
+  .map-cols{grid-template-columns:1fr;gap:12px;max-width:280px}
+  .map-cols .map-col{order:2;width:100%;justify-self:stretch;max-height:280px}
+  .map-cols .remote-panel{order:1}
+  .map-cols .map-col .map-card{max-width:none;width:100%}
+}
+
+.gain-ctl{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
+.gain-btn{
+  width:26px;height:22px;border-radius:6px;border:1px solid var(--edge);
+  background:var(--panel2);color:var(--ink);font-size:14px;line-height:1;padding:0;
+}
+.gain-btn:hover{border-color:var(--muted)}
+.gain-val{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:3.4em;text-align:center}
+
+/* repairs: progressive disclosure under repair-card only */
+.healthy-note{font-size:12px;color:var(--signal);padding:4px 0}
+.repair-group{display:flex;flex-direction:column;gap:6px}
+.status-line{display:flex;flex-direction:row;align-items:center;gap:8px;padding:0;border:none;background:transparent}
+.status-line[hidden]{display:none!important}
+.status-line b{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap}
+.status-line span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.chip-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px}
+.chip-grid[hidden]{display:none!important}
+.quick-spacer{flex:1 1 auto;min-height:0}
+.chip{display:flex;align-items:center;justify-content:center;padding:3px 6px;border-radius:999px;font-size:11.5px;background:#2a4a46;color:var(--signal);width:100%;box-sizing:border-box;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip.warn{background:#3d3220;color:var(--warn)}
+.chip.fail{background:#3d2424;color:var(--fail)}
+.chip.idle{background:var(--panel2);color:var(--muted)}
+.btn{border-radius:8px;padding:7px 10px;border:1px solid var(--edge);background:var(--panel2);color:var(--ink);font-size:12.5px;width:100%;box-sizing:border-box}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:#1e3d38;border-color:#2f6a5f;color:var(--signal)}
+.btn.danger{background:#3a2424;border-color:#6a3a3a;color:var(--fail)}
+.btn.ghost{background:transparent}
+.btn.attention{border-color:var(--warn);color:var(--warn);background:#3d3220;font-weight:600}
+.btn.attention-sec{border-color:#8a6d2f;color:var(--warn);background:transparent;font-weight:500}
+.btn.attention-sec:hover{border-color:var(--warn);background:#3d3220}
+.btn[hidden]{display:none}
+/* more-ops summary feedback */
+.more-ops>summary{transition:color 150ms var(--ease-out)}
+.more-ops>summary:hover{color:var(--ink)}
+.more-ops>summary:active{transform:scale(0.97)}
+.gain-btn:active{transform:scale(0.97)}
+/* card actions: compact, non-stretching, same row */
+.map-card-actions .btns .btn{
+  width:auto!important;flex:0 0 auto;padding:5px 10px;font-size:12px;
+  border-radius:6px;line-height:1.2;
+}
+.map-card-actions .btns .btn.primary{background:#1e3a5f;border-color:#2563eb;color:#c7d7fe}
+.map-card-actions .btns .btn.danger{background:transparent;border-color:transparent;color:var(--fail)}
+.map-card-actions .btns .btn.danger:hover{border-color:var(--fail);background:#3a2424}
+.row{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:2px 0}
+.row span:first-child{color:var(--muted)}
+.row span:last-child{font-family:var(--mono);color:var(--ink)}
+.presets{display:flex;flex-wrap:wrap;gap:5px}
+.preset{border:1px solid var(--edge);background:var(--panel2);border-radius:6px;padding:3px 7px;font-size:11.5px;color:var(--muted)}
+.preset.on{border-color:var(--signal);color:var(--signal);background:#1a2c29}
+
+/* map columns — top-aligned; local scroll caps height to remote */
+.map-col{display:flex;flex-direction:column;justify-content:flex-start;gap:8px;min-width:0;height:auto;min-height:0}
+/* 溢出只滚动不压扁：composer 撑高时子项不得 flex-shrink（否则卡片被压成一条线） */
+.map-col>*{flex-shrink:0}
+.map-card{
+  position:relative;background:var(--panel2);border:1px solid transparent;border-radius:8px;
+  cursor:pointer;overflow:hidden;
+  width:100%;
+  max-width:224px;
+  box-sizing:border-box;
+}
+/* 右列空槽：与卡片同尺寸，虚线边框 + 极淡底，不可点、不抢视线 */
+.map-card-spacer{
+  width:100%;
+  max-width:224px;
+  min-height:38px;
+  box-sizing:border-box;
+  flex:0 0 auto;
+  border:1px dashed rgba(52,59,70,0.9);
+  border-radius:8px;
+  background:transparent;
+  pointer-events:none;
+}
+.map-card .bind{
+  font-family:var(--mono);font-size:11px;color:var(--ink);
+  background:var(--panel2);
+  padding:2px 8px;
+  border-radius:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:72%;
+  text-align:right;flex:0 1 auto;
+  min-width:0;
+}
+.map-card .nm{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;flex:1 1 auto;overflow:hidden;flex-shrink:1}
+.map-card .nm svg{width:14px;height:14px;flex-shrink:0;color:var(--muted)}
+.map-card .bind.unbound{
+  background:transparent;color:var(--dim);
+  border:1px dashed #3a424e;
+  padding:1px 7px;border-radius:4px;
+}
+.map-card:hover,.map-card.hover{border-color:rgba(59,130,246,.45)}
+.map-card.active{border-color:var(--link);background:#243044;box-shadow:0 0 0 1px rgba(59,130,246,.25)}
+.map-card-main{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;min-height:38px}
+/* v5.1: actions 始终在 DOM，仅 .active 展开（对齐 KeyMappingStage） */
+.map-card-actions{
+  display:grid;grid-template-rows:0fr;
+  transition:grid-template-rows var(--t-ui) var(--ease-out);
+}
+.map-card-actions>div{overflow:hidden;min-height:0}
+.map-card.active .map-card-actions{grid-template-rows:1fr}
+.map-card-actions .btns,.map-card-actions .capture-live{
+  padding:0 10px;
+}
+.map-card-actions .btns{
+  display:flex;gap:4px;flex-wrap:nowrap;align-items:center;padding-top:8px;
+  opacity:0;transition:opacity 140ms var(--ease-out);
+}
+.map-card-actions .btns .btn{
+  width:auto;flex:0 0 auto;padding:4px 8px;font-size:11.5px;white-space:nowrap;
+}
+.map-card-actions .capture-live{
+  margin:4px 0 0;font-size:11px;color:var(--link-dim);line-height:1.4;
+}
+.map-card.active .map-card-actions .btns{opacity:1}
+.map-card .nm,.map-card .bind{transition:color 120ms var(--ease-out)}
+.map-card{transition:border-color 140ms var(--ease-out),background-color 140ms var(--ease-out)}
+/* composer lives inside the selected key's map column only (Nexus-Prime: list panel, not over remote) */
+.manual-host{
+  display:none;
+  margin:0 0 6px;
+  flex:0 0 auto;
+}
+.map-col.has-composer .manual-host{display:block}
+.map-col.has-composer{justify-content:flex-start}
+.shortcut-composer{
+  padding:12px 12px 14px;
+  border:1px solid #3d5a78;
+  border-radius:12px;
+  background:#1a2a3d;
+  opacity:0;
+  transform:translateY(6px);
+  transition:opacity var(--t-compose) var(--ease-out),
+    transform var(--t-compose) var(--ease-out);
+  animation:none;
+}
+.map-col.has-composer .manual-host .shortcut-composer{
+  opacity:1;
+  transform:translateY(0);
+}
+/* re-inserted each open: force enter via class applied next frame */
+.shortcut-composer.is-enter{
+  opacity:0;
+  transform:translateY(6px);
+}
+.manual-host.is-mounted .shortcut-composer{
+  opacity:1;
+  transform:translateY(0);
+}
+.shortcut-composer-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.shortcut-composer-heading span,.shortcut-composer-preview>span{
+  display:block;color:#8b95a3;font-size:11px;
+}
+.shortcut-composer-heading strong{display:block;margin-top:3px;color:var(--ink);font-size:13px}
+.shortcut-composer-close{
+  width:28px;height:28px;border:1px solid var(--edge);border-radius:8px;
+  color:var(--muted);background:var(--panel2);font-size:18px;line-height:1;cursor:pointer;
+}
+.shortcut-composer-close:hover{color:var(--ink);background:#2a3544}
+.shortcut-composer-note{margin:8px 0 10px;color:#8b95a3;font-size:11px;line-height:1.5}
+.shortcut-composer-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.shortcut-composer-fields label{
+  display:grid;gap:5px;min-width:0;color:#8b95a3;font-size:10px;font-weight:700;
+}
+.shortcut-composer-fields select{
+  width:100%;min-width:0;height:32px;padding:0 8px;
+  border:1px solid var(--edge);border-radius:7px;outline:0;
+  color:var(--ink);background:var(--panel);font:inherit;font-size:11px;
+}
+.shortcut-composer-fields select:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.2)}
+.shortcut-main-key{grid-column:1/-1}
+.shortcut-composer-preview{
+  display:grid;gap:4px;margin-top:10px;padding:10px;
+  border:1px solid var(--edge);border-radius:8px;background:var(--panel2);
+}
+.shortcut-composer-preview strong{
+  overflow-wrap:anywhere;color:var(--ink);
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.45;
+}
+.shortcut-composer-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:10px}
+.selection-action{
+  min-height:30px;padding:0 10px;border:1px solid var(--edge);border-radius:7px;
+  color:var(--ink);background:var(--panel2);font:inherit;font-size:11px;font-weight:700;cursor:pointer;
+}
+.selection-action:hover:not(:disabled){background:#2a3544}
+.selection-action.primary{border-color:#2563eb;color:#fff;background:#2563eb}
+.selection-action.primary:disabled{opacity:.55;cursor:not-allowed}
+.manual-set{display:none}
+.capture-live{margin:0;font-size:12px;color:var(--link-dim);min-height:1.2em}
+.capture-live.blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){
+  .capture-live.blink{animation:none}
+  .btn,.nav-btn,.gain-btn,.selection-action,.shortcut-composer-close,.demo-bar button,.kbtn,.switch,
+  .key-cap,.map-card,.map-card-actions,.map-card-actions .btns,
+  .shortcut-composer,.meter .mark,.switch::after,.adv-body,.adv-head .chev,
+  .link-svg path,.link-svg circle{
+    transition:none!important;
+    animation:none!important;
+  }
+  .btn:active,.nav-btn:active,.gain-btn:active,.selection-action:active,
+  .key-cap:active,.key-ok:active,.dpad-dir:active,.vol-half:active{transform:none!important}
+  .key-ok:active{transform:translate(-50%,-50%)!important}
+  .dpad-up:active{transform:translateX(-50%)!important}
+  .dpad-down:active{transform:translateX(-50%)!important}
+  .dpad-left:active{transform:translateY(-50%)!important}
+  .dpad-right:active{transform:translateY(-50%)!important}
+  .manual-host .shortcut-composer{opacity:1;transform:none}
+  .map-card-actions{grid-template-rows:0fr}
+  .map-card.active .map-card-actions{grid-template-rows:1fr}
+}
+.media-pick{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:11.5px;color:var(--muted)}
+.media-pick .btn{padding:2px 7px;font-size:11.5px}
+/* manual key set (when capture is awkward) */
+.manual-set{display:none;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid #2a3038;margin-top:4px}
+.map-card.active.manual-open .manual-set{display:flex}
+.manual-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.manual-row .lab{font-size:11.5px;color:var(--muted);min-width:3.2em}
+.kbtn{
+  min-width:28px;height:26px;padding:0 6px;border-radius:5px;
+  border:1px solid var(--edge);background:var(--panel);color:var(--muted);
+  font-size:12px;font-family:var(--mono);
+}
+.kbtn:hover{color:var(--ink);border-color:var(--muted)}
+.kbtn.on{background:#1e3d38;border-color:var(--signal);color:var(--signal)}
+.kbtn.main-key{min-width:36px}
+.manual-preview{
+  font-family:var(--mono);font-size:12px;color:var(--link-dim);
+  min-height:1.2em;
+}
+.manual-preview.empty{color:var(--dim);font-family:var(--font)}
+.capture-err{margin:0;font-size:12px;color:var(--fail)}
+
+/* remote schematic sits centered inside map-work */
+.remote-wrap{display:flex;justify-content:center;align-items:flex-start;padding:0;min-height:0}
+.remote-schematic{
+  --body-hi:#f6f7f9;--body-mid:#eef0f3;--body-lo:#e4e7ec;--key:#1c1d1f;--ink-key:#d7dbe0;
+  width:130px;display:flex;flex-direction:column;align-items:center;gap:14px;user-select:none;
+  padding:18px 6px 16px;border-radius:14px;border:1px solid #c5cad1;
+  background:linear-gradient(90deg,rgba(0,0,0,.03) 0%,transparent 14%,transparent 86%,rgba(0,0,0,.03) 100%),
+    linear-gradient(180deg,var(--body-hi) 0%,var(--body-mid) 42%,var(--body-lo) 100%);
+}
+.top-row{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;width:100%;padding:0 4px;justify-items:center;align-items:start}
+.well{display:inline-flex;align-items:center;justify-content:center;border-radius:999px}
+.well-sm{width:32px;height:32px}.well-md{width:40px;height:40px}
+.well-vol{width:40px;height:88px;border-radius:20px}.well-dpad{width:116px;height:116px;border-radius:50%}
+.key-icon{width:18px;height:18px;display:block;pointer-events:none}
+.key-icon-tv{width:21px;height:21px}
+.key-cap{width:100%;height:100%;padding:0;border:none;border-radius:50%;background:var(--key);color:var(--ink-key);
+  display:inline-flex;align-items:center;justify-content:center;transition:background-color 150ms var(--ease-out),box-shadow 150ms var(--ease-out),color 150ms var(--ease-out),transform 160ms var(--ease-out)}
+.key-cap-sm{background:#f0f2f5;color:#1a1b1d;border:1px solid #5c6370}
+.key-cap:hover,.key-cap.hover,.dpad-dir:hover,.dpad-dir.hover,.key-ok:hover,.key-ok.hover,.vol-half:hover .vol-hit,.vol-half.hover .vol-hit{
+  color:#eaf2ff;background:rgba(37,99,235,.9);box-shadow:inset 0 0 0 1.5px rgba(147,197,253,.95)}
+.key-cap-sm:hover,.key-cap-sm.hover{color:#eaf2ff;border-color:#93c5fd;background:rgba(37,99,235,.9);box-shadow:none}
+/* 实体键按下：与 hover 同色系，略强一点光晕 */
+.key-cap.pressed,.dpad-dir.pressed,.key-ok.pressed,.vol-half.pressed .vol-hit,.key-cap-sm.pressed{
+  color:#eaf2ff;background:rgba(37,99,235,.95);box-shadow:inset 0 0 0 1.5px #93c5fd,0 0 0 3px rgba(59,130,246,.22)}
+.key-cap-sm.pressed{border-color:#93c5fd;background:rgba(37,99,235,.95)}
+.map-card.pressed{border-color:var(--link);background:#243044;box-shadow:0 0 0 1px rgba(59,130,246,.25)}
+.key-cap.active,.dpad-dir.active,.key-ok.active,.vol-half.active .vol-hit,.key-cap-sm.active{
+  color:#eaf2ff;background:rgba(37,99,235,.9);box-shadow:inset 0 0 0 1.5px rgba(147,197,253,.95)}
+.dpad{position:relative;width:100%;height:100%;border-radius:50%;background:var(--key);overflow:hidden}
+.dpad-dir{position:absolute;z-index:2;border:none;background:transparent;color:#c9ced4;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:999px}
+.dpad-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.85}
+.key-ok{position:absolute;left:50%;top:50%;z-index:1;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;border:none;padding:0;background:#242628;box-shadow:0 0 0 1px #0f1011}
+.dpad-up{position:absolute;left:50%;top:2px;transform:translateX(-50%);width:46px;height:28px}
+.dpad-down{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);width:46px;height:28px}
+.dpad-left{position:absolute;left:2px;top:50%;transform:translateY(-50%);width:28px;height:46px}
+.dpad-right{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:28px;height:46px}
+.lower-keys{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;width:100%;align-items:start;justify-items:center;padding:0 4px}
+.lower-left,.lower-right{display:flex;flex-direction:column;align-items:center;gap:8px}
+.vol-rocker{width:100%;height:100%;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;background:var(--key)}
+.vol-half{flex:1;border:none;background:transparent;color:var(--ink-key);display:inline-flex;align-items:center;justify-content:center;padding:0}
+.vol-half+.vol-half{box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.vol-hit{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,box-shadow .15s,color .15s}
+.remote-footer{margin-top:6px;display:flex;flex-direction:column;align-items:center;gap:8px;color:#7a8088}
+.remote-footer .bx{font-size:11px;font-weight:600;letter-spacing:.04em;color:#6d737b}
+
+/* link overlay — full stage, pointer-events none */
+.stage{position:relative}
+.link-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8;overflow:visible}
+.link-svg path{fill:none;stroke:var(--link);stroke-width:1.4;stroke-linecap:round;opacity:0;transition:opacity .12s}
+.link-svg circle{fill:var(--link);opacity:0;transition:opacity .12s}
+.link-svg.on path,.link-svg.on circle{opacity:1}
+.link-svg.strong path{stroke-width:2}
+
+/* settings sheet */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:48px 16px;z-index:40;overflow:auto}
+.backdrop.open{display:flex}
+.sheet{width:min(520px,100%);background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:16px 18px}
+.sheet header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.sheet h2{margin:0;font-size:16px}
+.setting{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #2a3038}
+.setting:last-of-type{border-bottom:none}
+.setting .lab b{display:block;font-weight:500}.setting .lab span{font-size:12px;color:var(--muted)}
+.switch{position:relative;width:40px;height:22px;border-radius:99px;background:#3a424e;border:none;flex-shrink:0}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#c5cad1;transition:transform 150ms var(--ease-out)}
+.switch{transition:background-color 150ms var(--ease-out),transform 160ms var(--ease-out)}
+.switch.on{background:#2f6a5f}.switch.on::after{transform:translateX(18px);background:var(--signal)}
+.note{margin:8px 0 0;font-size:12px;color:var(--muted)}
+
+/* 桥接失败：窗口居中一键修复（不挤内容、不模态盖映射细节之外的可点区） */
+/* P1: 遮罩减重 — 单按钮异常不需重模糊 */
+.repair-modal{
+  position:absolute;inset:0;z-index:35;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding-top:120px;
+  background:rgba(0,0,0,.35);
+}
+.repair-modal[hidden]{display:none!important}
+.hide{display:none!important}
+.repair-card{
+  width:min(360px,calc(100% - 32px));
+  background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+  padding:16px 18px;
+  box-shadow:0 12px 32px rgba(0,0,0,.4);
+  animation:repair-card-in 200ms var(--ease-out);
+}
+@keyframes repair-card-in{
+  from{opacity:0;transform:translateY(8px) scale(0.98)}
+  to{opacity:1;transform:none}
+}
+.repair-card h3{margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink)}
+.repair-card p{margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.repair-card .btn.attention{width:100%;height:36px;margin-bottom:8px}
+.repair-card .btn.ghost{width:100%;height:32px}
+/* 波形与标题同一行；条只做 transform，不改盒高，卡片高度稳定 */
+.repair-card .boot-row{
+  display:flex;align-items:center;gap:10px;
+  margin:0 0 6px;min-height:22px;
+}
+.repair-card .boot-row h3{margin:0}
+.repair-card .booting-wave{
+  display:inline-flex;align-items:flex-end;justify-content:flex-start;gap:2px;
+  width:22px;height:16px;flex:0 0 auto;margin:0;
+}
+.repair-card .booting-wave i{
+  display:block;width:2px;height:14px;border-radius:1px;background:#7dd3fc;
+  opacity:.75;transform-origin:center bottom;
+  animation:boot-wave 1.05s ease-in-out infinite;
+}
+.repair-card .booting-wave i:nth-child(1){animation-delay:0ms}
+.repair-card .booting-wave i:nth-child(2){animation-delay:90ms}
+.repair-card .booting-wave i:nth-child(3){animation-delay:180ms}
+.repair-card .booting-wave i:nth-child(4){animation-delay:90ms}
+.repair-card .booting-wave i:nth-child(5){animation-delay:0ms}
+.repair-modal.booting .repair-card{border-color:#24384c;background:#141c26}
+.repair-modal.booting .repair-card h3{color:#93c5fd;font-weight:500}
+/* 修复步骤反馈 */
+.repair-steps{margin:0 0 14px;border-top:1px solid var(--edge);padding-top:12px}
+.repair-steps-title{font-size:11.5px;color:var(--muted);margin-bottom:8px;opacity:.7}
+.repair-step{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-size:12.5px}
+.repair-step-icon{flex:0 0 auto;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:1px}
+.repair-step-icon.ok{background:rgba(77,182,164,.15);color:var(--signal)}
+.repair-step-icon.fail{background:rgba(224,107,107,.15);color:var(--fail)}
+.repair-step-icon.pending{background:rgba(139,149,163,.1);color:var(--muted);opacity:.5}
+.repair-step-body{flex:1;min-width:0}
+.repair-step-label{color:var(--ink);font-weight:500}
+.repair-step-msg{color:var(--muted);font-size:12px;margin-top:1px}
+.repair-step-suggest{color:var(--warn);font-size:11.5px;margin-top:3px;line-height:1.4}
+.repair-step.pending .repair-step-label{color:var(--muted);opacity:.6}
+.repair-summary{font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--panel2);border-radius:6px;border:1px solid var(--edge)}
+.repair-summary.ok{border-color:rgba(77,182,164,.3);color:var(--signal)}
+.repair-summary.partial{border-color:rgba(212,168,75,.3);color:var(--warn)}
+.repair-summary.fail{border-color:rgba(224,107,107,.3);color:var(--fail)}
+/* 用 scaleY 而不是改 height，避免父级高度抖动 */
+@keyframes boot-wave{
+  0%,100%{transform:scaleY(0.28);opacity:.4}
+  50%{transform:scaleY(1);opacity:1}
+}
+</style>
+</head>
+<body>
+<!-- 预览控制：机身外，不进入 .app -->
+<div class="demo-bar" role="region" aria-label="预览控制">
+  <span>预览控制 · v5.2：删死条 · 电平降权 · 遮罩减重 · 一键修复不变</span>
+  <button type="button" data-state="booting">启动中</button>
+  <button type="button" data-state="err_bridge">桥接未运行</button>
+  <button type="button" data-state="error">语音异常</button>
+  <button type="button" data-state="ready" class="on">就绪</button>
+  <span style="width:8px"></span>
+  <button type="button" data-state="repairing">修复中</button>
+  <button type="button" data-state="done_ok">全部成功</button>
+  <button type="button" data-state="done_partial">部分失败</button>
+  <button type="button" data-state="done_fail">全部失败</button>
+  <span style="width:8px"></span>
+  <button type="button" id="btnSimPress">模拟实体按键</button>
+  <button type="button" id="btnPressCycle">连按演示</button>
+  <button type="button" id="btnWinActive">窗口失焦</button>
+  <span class="press-hint" id="pressHint" aria-live="polite"></span>
+</div>
+
+<div class="app" id="app" data-state="ready" data-active="true" data-maximized="false">
+
+  <!-- 自绘 resize 手柄 -->
+  <div class="rs rs-n" data-dir="n"></div>
+  <div class="rs rs-s" data-dir="s"></div>
+  <div class="rs rs-e" data-dir="e"></div>
+  <div class="rs rs-w" data-dir="w"></div>
+  <div class="rs rs-ne" data-dir="ne"></div>
+  <div class="rs rs-nw" data-dir="nw"></div>
+  <div class="rs rs-se" data-dir="se"></div>
+  <div class="rs rs-sw" data-dir="sw"></div>
+
+  <!-- 标题栏：窗口身份 + 窗口控制 -->
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand"><b>Voice VibeCoding</b><span>v1.1.1</span></div>
+    <div class="win-controls" role="group" aria-label="窗口控制">
+      <button type="button" class="win-ctl" id="winMin" aria-label="最小化" title="最小化">
+        <svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg>
+      </button>
+      <button type="button" class="win-ctl close" id="winClose" aria-label="关闭" title="关闭">
+        <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 状态栏：应用状态 + 应用操作 -->
+  <div class="statusbar">
+    <div class="nav-status" role="status" aria-live="polite">
+      <span class="led ok" id="led"></span>
+      <strong id="headline">语音可用</strong>
+      <span id="subline" class="sub-muted" hidden></span>
+    </div>
+    <div class="battery-chip" id="batteryChip" title="遥控器电池电量" aria-label="遥控器电池">
+      <svg class="battery-ico" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="7" width="17" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M21 10v4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <rect class="battery-fill" x="4" y="9" width="10" height="6" rx="1" fill="currentColor"/>
+      </svg>
+      <span id="batteryText">83%</span>
+    </div>
+    <div class="nav-actions">
+      <button type="button" class="nav-btn" id="btnSettings">设置</button>
+      <!-- 退出只在托盘菜单：进程级操作不重复暴露在窗口内 -->
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="meters" id="meters" aria-label="电平与增益">
+      <div class="meter ok" id="meterIn">
+        <span class="cap">输入 · 增益前</span>
+        <div class="track"><span class="mark" id="markIn" style="left:42%"></span></div>
+        <span class="hint" id="hintIn">合适</span>
+        <span class="db" id="dbIn">-18</span>
+      </div>
+      <div class="meter ok" id="meterOut">
+        <span class="cap">送声 · 增益后</span>
+        <div class="track"><span class="mark" id="markOut" style="left:58%"></span></div>
+        <span class="hint" id="hintOut">正常</span>
+        <span class="db" id="dbOut">-12</span>
+      </div>
+      <div class="gain-row">
+        <span class="cap">增益</span>
+        <div class="gain-ctl">
+          <button type="button" class="gain-btn" id="gainDown" aria-label="减小增益">−</button>
+          <span class="gain-val" id="qGain">10 dB</span>
+          <button type="button" class="gain-btn" id="gainUp" aria-label="增大增益">＋</button>
+          <span class="gain-auto-label">
+            <button type="button" class="switch" id="gainAuto" aria-pressed="false" aria-label="自动增益"></button>
+            <span>自动</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <!-- 键位映射：全宽 -->
+      <div class="map-work" id="mapWork" aria-label="按键映射">
+        <svg class="link-svg" id="linkSvg" aria-hidden="true">
+          <path id="linkPath" d=""></path>
+          <circle id="dotA" r="3.2" cx="0" cy="0"></circle>
+          <circle id="dotB" r="3.2" cx="0" cy="0"></circle>
+        </svg>
+        <div class="map-cols">
+        <div class="map-col" id="mapLeft" aria-label="按键映射左列"></div>
+        <div class="remote-panel" aria-label="遥控器">
+          <div class="remote-wrap">
+          <div class="remote-schematic" id="remote">
+            <div class="top-row">
+              <div class="well well-sm">
+                <button type="button" class="key-cap key-cap-sm" data-key-id="power" aria-label="电源">
+                  <svg class="key-icon" viewBox="0 0 24 24"><path d="M12 4v7" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/><path d="M7.35 6.8a6.65 6.65 0 1 0 9.3 0" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <div class="well well-sm">
+                <button type="button" class="key-cap key-cap-sm" data-key-id="mic" aria-label="语音">
+                  <svg class="key-icon" viewBox="0 0 24 24"><rect x="9.4" y="4.5" width="5.2" height="8.6" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.4 12.4a4.6 4.6 0 0 0 9.2 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="well well-dpad">
+              <div class="dpad">
+                <button type="button" class="key-ok" data-key-id="ok" aria-label="确定"></button>
+                <button type="button" class="dpad-dir dpad-up" data-key-id="up" aria-label="上"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-left" data-key-id="left" aria-label="左"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-right" data-key-id="right" aria-label="右"><span class="dpad-dot"></span></button>
+                <button type="button" class="dpad-dir dpad-down" data-key-id="down" aria-label="下"><span class="dpad-dot"></span></button>
+              </div>
+            </div>
+            <div class="lower-keys">
+              <div class="lower-left">
+                <div class="well well-md"><button type="button" class="key-cap key-cap-md" data-key-id="back" aria-label="返回">
+                  <svg class="key-icon" viewBox="0 0 24 24"><path d="M14.2 7 9.2 12l5 5" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button></div>
+                <div class="well well-md"><button type="button" class="key-cap key-cap-md" data-key-id="home" aria-label="主页">
+                  <svg class="key-icon" viewBox="0 0 24 24"><path d="M5.2 11.4 12 5.6l6.8 5.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.4 10.5V17.6h9.2V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                </button></div>
+                <div class="well well-md"><button type="button" class="key-cap key-cap-md" data-key-id="menu" aria-label="菜单">
+                  <svg class="key-icon" viewBox="0 0 24 24"><path d="M7 8.2h10M7 12h10M7 15.8h10" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>
+                </button></div>
+              </div>
+              <div class="lower-right">
+                <div class="well well-vol">
+                  <div class="vol-rocker">
+                    <button type="button" class="vol-half" data-key-id="volume_up" aria-label="音量+">
+                      <span class="vol-hit"><svg class="key-icon" viewBox="0 0 24 24"><path d="M12 7.5v9M7.5 12h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                    </button>
+                    <button type="button" class="vol-half" data-key-id="volume_down" aria-label="音量-">
+                      <span class="vol-hit"><svg class="key-icon" viewBox="0 0 24 24"><path d="M7.5 12h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                    </button>
+                  </div>
+                </div>
+                <div class="well well-md"><button type="button" class="key-cap key-cap-md" data-key-id="tv" aria-label="TV">
+                  <svg class="key-icon key-icon-tv" viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11" rx="2.8" fill="none" stroke="currentColor" stroke-width="1.4"/><text x="12" y="14.05" text-anchor="middle" fill="currentColor" font-size="6.4" font-weight="600" font-family="Segoe UI, system-ui, sans-serif">TV</text></svg>
+                </button></div>
+              </div>
+            </div>
+            <div class="remote-footer" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14"><rect x="5.2" y="5.2" width="13.6" height="13.6" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M9.2 15.2V8.8h2.1c1.55 0 2.5.85 2.5 2.15 0 .95-.55 1.65-1.4 1.95L15 15.2h-1.55l-2.05-2.15H10.5V15.2H9.2z" fill="currentColor"/></svg>
+              <span class="bx">xiaomi</span>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div class="map-col" id="mapRight" aria-label="按键映射右列"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 启动 / 异常：统一居中卡；不占文档流 -->
+  <div class="repair-modal" id="repairModal" hidden role="dialog" aria-modal="true" aria-labelledby="repairTitle">
+    <div class="repair-card">
+      <div class="boot-row hide" id="bootRow">
+        <span class="booting-wave hide" id="modalWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <h3 id="repairTitle">正在启动…</h3>
+      </div>
+      <h3 id="repairTitleIdle">桥接未运行</h3>
+      <p id="repairDesc">遥控器尚未接入。点下方按钮自动启动并修复，通常几秒内完成。</p>
+      <div id="repairSummary" class="repair-summary hide"></div>
+      <div id="repairSteps" class="repair-steps hide"></div>
+      <button type="button" class="btn attention" id="btnOneClickRepair">一键修复</button>
+      <button type="button" class="btn ghost" id="btnRepairLater">稍后处理</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="setBd">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <header><h2 id="setTitle">设置</h2><button type="button" class="nav-btn" id="setClose">关闭</button></header>
+    <div class="setting"><div class="lab"><b>开机自启</b><span>登录 Windows 后自动启动</span></div><button type="button" class="switch on" aria-pressed="true"></button></div>
+    <div class="setting"><div class="lab"><b>启动后最小化到托盘</b><span>不显示主窗口，托盘图标就绪</span></div><button type="button" class="switch" aria-pressed="false"></button></div>
+    <div class="setting"><div class="lab"><b>关闭到托盘</b><span>点关闭时进托盘，而不是退出</span></div><button type="button" class="switch on" aria-pressed="true"></button></div>
+    <p class="note">键位、增益在主界面操作，不进本页。此处无右上角关闭叉，仅底部「关闭」。</p>
+  </div>
+</div>
+
+<script>
+const KEYS=[
+  {id:"power",label:"电源",side:"L",bind:"左 Shift + Enter"},
+  {id:"up",label:"上",side:"L",bind:"↑"},
+  {id:"left",label:"左",side:"L",bind:"←"},
+  {id:"ok",label:"确定",side:"L",bind:"Enter"},
+  {id:"back",label:"返回",side:"L",bind:"Esc"},
+  {id:"home",label:"主页",side:"L",bind:"Win + H"},
+  {id:"menu",label:"菜单",side:"L",bind:"未映射"},
+  {id:"mic",label:"语音",side:"R",bind:"Ctrl + Win"},
+  /* 语音与右之间占位：右/下整体下移一格 */
+  {id:"_top-slot",label:"",side:"R",bind:null,ghost:true},
+  {id:"right",label:"右",side:"R",bind:"→"},
+  {id:"down",label:"下",side:"R",bind:"↓"},
+  {id:"volume_up",label:"音量+",side:"R",bind:"Volume Up"},
+  {id:"volume_down",label:"音量-",side:"R",bind:"Volume Down"},
+  {id:"tv",label:"TV",side:"R",bind:"未映射"},
+];
+const MEDIA=[{vk:0xb0,label:"上一曲"},{vk:0xb3,label:"播放/暂停"},{vk:0xb1,label:"下一曲"},{vk:0xad,label:"静音"}];
+
+const STATES={
+  booting:{
+    led:"",headline:"正在启动桥接…",sub:"首次连接可能需要几秒",
+    qH:"正在启动…",qS:"桥接与语音通道初始化中",
+    chips:{ble:["warn","蓝牙连接中"],atvv:["warn","语音通道订阅中"],cable:["warn","虚拟声卡检测中"],hid:["warn","虚拟键盘检测中"]},
+    conn:"取消连接",connCls:"ghost",primary:null,secondary:[],booting:true,
+    inMark:6,outMark:4,hintIn:"…",hintOut:"…",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","启动中","warn"],["蓝牙","连接中","warn"],["语音通道","订阅中","warn"],["虚拟声卡","检测中","warn"],["虚拟键盘","检测中","warn"]],
+    detail:"正在启动桥接与语音通道，无需操作。"
+  },
+  idle:{
+    led:"",headline:"未连接遥控器",sub:"启动会自动连接；也可点「重新连接」",
+    qH:"未连接",qS:"点「重新连接」或等待自动重连",
+    chips:{ble:["idle","蓝牙未连接"],atvv:["idle","语音通道未就绪"],cable:["idle","虚拟声卡待命"],hid:["idle","虚拟键盘待命"]},
+    conn:"重新连接",connCls:"primary",primary:"btnReconnect",secondary:[],
+    inMark:5,outMark:4,hintIn:"待命",hintOut:"待命",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","未运行",""],["蓝牙","未连接",""],["语音通道","未就绪",""],["虚拟声卡","待命",""],["虚拟键盘","待命",""]],
+    detail:"桥接未运行。点「重新连接」或「重启桥接」。"
+  },
+  connecting:{
+    led:"warn",headline:"正在连接遥控器…",sub:"正在建立蓝牙与语音通道",
+    qH:"连接中",qS:"请稍候",
+    chips:{ble:["warn","蓝牙连接中"],atvv:["warn","语音通道订阅中"],cable:["warn","虚拟声卡检测中"],hid:["warn","虚拟键盘检测中"]},
+    conn:"取消连接",connCls:"ghost",primary:null,secondary:[],
+    inMark:8,outMark:5,hintIn:"…",hintOut:"…",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","启动中","warn"],["蓝牙","连接中","warn"],["语音通道","订阅中","warn"],["虚拟声卡","检测中","warn"],["虚拟键盘","检测中","warn"]],
+    detail:"正在连接遥控器。"
+  },
+  ready:{
+    led:"ok",headline:"语音可用",sub:"",
+    qH:"语音可用",qS:"已自动连接",
+    chips:{ble:["","蓝牙已连接"],atvv:["","语音通道正常"],cable:["","虚拟声卡正常"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],
+    inMark:42,outMark:58,hintIn:"合适",hintOut:"正常",dbIn:"-18",dbOut:"-12",inCls:"ok",outCls:"ok",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","已订阅","ok"],["虚拟声卡","就绪","ok"],["虚拟键盘","就绪","ok"]],
+    detail:"运行正常。"
+  },
+  voice:{
+    led:"ok",headline:"采音中",sub:"松开语音键结束",
+    qH:"采音中",qS:"松开语音键结束",
+    chips:{ble:["","蓝牙已连接"],atvv:["","语音通道采音中"],cable:["","虚拟声卡送声中"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],
+    inMark:54,outMark:80,hintIn:"合适",hintOut:"正常",dbIn:"-11",dbOut:"-6",inCls:"ok",outCls:"ok",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","采音中","ok"],["虚拟声卡","送声中","ok"],["虚拟键盘","就绪","ok"]],
+    detail:"正在采音送声。"
+  },
+  error:{
+    led:"warn",headline:"ATVV 未就绪",sub:"点「一键修复」自动处理",
+    qH:"ATVV 未就绪",qS:"点「一键修复」自动处理",
+    chips:{ble:["","蓝牙已连接"],atvv:["fail","语音通道未就绪"],cable:["","虚拟声卡正常"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:"btnRepairAtvv",secondary:[],
+    inMark:34,outMark:10,hintIn:"合适",hintOut:"无送声",dbIn:"-19",dbOut:"—",inCls:"ok",outCls:"",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","未就绪","fail"],["虚拟声卡","就绪","ok"],["虚拟键盘","就绪","ok"]],
+    detail:"ATVV 未就绪。点「一键修复」自动处理。"
+  },
+  err_hid:{
+    led:"warn",headline:"虚拟键盘未就绪",sub:"点「一键修复」自动处理",
+    qH:"虚拟键盘未就绪",qS:"点「一键修复」自动处理",
+    chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["","虚拟声卡正常"],hid:["fail","虚拟键盘未就绪"]},
+    conn:"断开遥控器",connCls:"ghost",primary:"btnRepairHid",secondary:[],
+    inMark:30,outMark:8,hintIn:"合适",hintOut:"无送声",dbIn:"-20",dbOut:"—",inCls:"ok",outCls:"",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","待恢复","warn"],["虚拟声卡","就绪","ok"],["虚拟键盘","未就绪","fail"]],
+    detail:"虚拟键盘未就绪。点「修复虚拟键盘」（可能需管理员确认）。"
+  },
+  err_cable:{
+    led:"warn",headline:"虚拟声卡未就绪",sub:"点「一键修复」自动处理",
+    qH:"虚拟声卡未就绪",qS:"点「一键修复」自动处理",
+    chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["fail","虚拟声卡未就绪"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:"btnRepairCable",secondary:[],
+    inMark:28,outMark:6,hintIn:"合适",hintOut:"无送声",dbIn:"-21",dbOut:"—",inCls:"ok",outCls:"",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","待恢复","warn"],["虚拟声卡","未就绪","fail"],["虚拟键盘","就绪","ok"]],
+    detail:"未检测到虚拟声卡。点「虚拟声卡修复」。"
+  },
+  err_route:{
+    led:"warn",headline:"语音路由未就绪",sub:"点「一键修复」自动处理",
+    qH:"语音路由未就绪",qS:"点「一键修复」自动处理",
+    chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["warn","虚拟声卡检测中"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:"btnRestart",secondary:["btnRepairCable"],
+    inMark:26,outMark:5,hintIn:"合适",hintOut:"无送声",dbIn:"-22",dbOut:"—",inCls:"ok",outCls:"",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","待恢复","warn"],["虚拟声卡","检测中","warn"],["虚拟键盘","就绪","ok"]],
+    detail:"语音路由未就绪。点「重启桥接」，仍异常再点「虚拟声卡修复」。"
+  },
+  err_bridge:{
+    led:"fail",headline:"桥接未运行",sub:"点「一键修复」自动处理",
+    qH:"桥接未运行",qS:"点「一键修复」自动处理",
+    chips:{ble:["fail","蓝牙未连接"],atvv:["idle","语音通道未就绪"],cable:["idle","虚拟声卡待命"],hid:["idle","虚拟键盘待命"]},
+    conn:"重新连接",connCls:"primary",primary:"btnReconnect",secondary:["btnRestart"],
+    inMark:4,outMark:3,hintIn:"待命",hintOut:"待命",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","未运行","fail"],["蓝牙","未连接","fail"],["语音通道","未就绪",""],["虚拟声卡","待命",""],["虚拟键盘","待命",""]],
+    detail:"桥接未运行。点「重新连接」或「重启桥接」。"
+  },
+  repairing:{
+    led:"warn",headline:"正在修复…",sub:"一键修复进行中，无需操作",
+    qH:"正在修复…",qS:"一键修复进行中，无需操作",
+    chips:{ble:["warn","修复中"],atvv:["warn","修复中"],cable:["warn","修复中"],hid:["warn","修复中"]},
+    conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],booting:false,
+    inMark:10,outMark:5,hintIn:"…",hintOut:"…",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","修复中","warn"],["蓝牙","修复中","warn"],["语音通道","修复中","warn"],["虚拟声卡","修复中","warn"],["虚拟键盘","修复中","warn"]],
+    detail:"正在自动修复，请稍候。",
+    repairSteps:[
+      {label:"重启桥接",status:"ok",msg:"已重启"},
+      {label:"虚拟声卡",status:"ok",msg:"已就绪"},
+      {label:"ATVV 连接",status:"ok",msg:"已连接"},
+      {label:"虚拟键盘",status:"ok",msg:"已就绪"},
+    ],
+    showRepairModal:true, repairTitle:"正在修复…", repairDesc:"自动处理全部步骤，无需操作",
+    showRepairButtons:false,
+  },
+  done_ok:{
+    led:"ok",headline:"语音可用",sub:"",
+    qH:"语音可用",qS:"修复完成",
+    chips:{ble:["","蓝牙已连接"],atvv:["","语音通道正常"],cable:["","虚拟声卡正常"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],
+    inMark:42,outMark:58,hintIn:"合适",hintOut:"正常",dbIn:"-18",dbOut:"-12",inCls:"ok",outCls:"ok",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","已订阅","ok"],["虚拟声卡","就绪","ok"],["虚拟键盘","就绪","ok"]],
+    detail:"修复完成，一切正常。",
+  },
+  done_partial:{
+    led:"warn",headline:"修复完成（3/4）",sub:"ATVV 连接失败",
+    qH:"修复完成（3/4 步成功）",qS:"其他项已就绪",
+    chips:{ble:["","蓝牙已连接"],atvv:["fail","ATVV 未就绪"],cable:["","虚拟声卡正常"],hid:["","虚拟键盘正常"]},
+    conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],
+    inMark:34,outMark:10,hintIn:"合适",hintOut:"无送声",dbIn:"-19",dbOut:"—",inCls:"ok",outCls:"",
+    host:[["桥接进程","运行中","ok"],["蓝牙","已连接","ok"],["语音通道","未就绪","fail"],["虚拟声卡","就绪","ok"],["虚拟键盘","就绪","ok"]],
+    detail:"ATVV 连接失败，其他项已就绪。",
+    repairSteps:[
+      {label:"重启桥接",status:"ok",msg:"已重启"},
+      {label:"虚拟声卡",status:"ok",msg:"已就绪"},
+      {label:"ATVV 连接",status:"fail",msg:"端口被占用",suggest:"关闭占用程序后重试，或重启电脑"},
+      {label:"虚拟键盘",status:"ok",msg:"已就绪"},
+    ],
+    repairSummary:{type:"partial",text:"ATVV 连接失败，其他项已就绪"},
+    showRepairModal:true, repairTitle:"修复完成（3/4 步成功）", repairDesc:"",
+    showRepairButtons:true, repairPrimaryLabel:"一键修复", repairCanDismiss:true,
+  },
+  done_fail:{
+    led:"fail",headline:"修复未成功",sub:"多项失败",
+    qH:"修复未成功",qS:"请检查建议",
+    chips:{ble:["fail","蓝牙未连接"],atvv:["fail","ATVV 未就绪"],cable:["fail","虚拟声卡未就绪"],hid:["idle","虚拟键盘待命"]},
+    conn:"重新连接",connCls:"primary",primary:null,secondary:[],
+    inMark:4,outMark:3,hintIn:"待命",hintOut:"待命",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
+    host:[["桥接进程","未运行","fail"],["蓝牙","未连接","fail"],["语音通道","未就绪","fail"],["虚拟声卡","未就绪","fail"],["虚拟键盘","待命",""]],
+    detail:"多项修复失败，请检查以下建议。",
+    repairSteps:[
+      {label:"重启桥接",status:"fail",msg:"启动失败",suggest:"检查蓝牙是否开启，靠近设备后重试"},
+      {label:"虚拟声卡",status:"fail",msg:"驱动未安装",suggest:"关闭正在使用麦克风的应用后重试"},
+      {label:"ATVV 连接",status:"fail",msg:"服务未响应",suggest:"重启电脑后重试"},
+      {label:"虚拟键盘",status:"pending"},
+    ],
+    repairSummary:{type:"fail",text:"多项修复失败，请检查以下建议"},
+    showRepairModal:true, repairTitle:"修复未成功", repairDesc:"",
+    showRepairButtons:true, repairPrimaryLabel:"一键修复", repairCanDismiss:false,
+  },
+};
+
+let gain=10,hoverKey=null,selectedKey=null,capturing=false,current="ready";
+let manualOpenId=null;
+/* VoiceShortcutComposer-compatible modifier/mainKey state */
+let man={ctrl:"none",shift:"none",alt:"none",win:"none",main:null};
+const $=id=>document.getElementById(id);
+
+const MAIN_GROUPS=[
+  {label:"字母", opts:Array.from({length:26},(_,i)=>({v:String.fromCharCode(65+i),l:String.fromCharCode(65+i)}))},
+  {label:"数字", opts:Array.from({length:10},(_,i)=>({v:String(i),l:String(i)}))},
+  {label:"功能键", opts:Array.from({length:12},(_,i)=>({v:"F"+(i+1),l:"F"+(i+1)}))},
+  {label:"编辑与导航", opts:["Esc","Space","Tab","Enter","Backspace","↑","↓","←","→","PageUp","PageDown","Home","End","Insert","Delete"].map(k=>({v:k,l:k}))},
+  {label:"媒体与系统", opts:[{v:"静音",l:"静音"},{v:"音量+",l:"音量+"},{v:"音量-",l:"音量-"},{v:"播放/暂停",l:"播放/暂停"}]},
+];
+
+function ico(id){
+  const s='fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"';
+  const m={
+    power:`<path d="M12 4v7" ${s}/><path d="M7.35 6.8a6.65 6.65 0 1 0 9.3 0" ${s}/>`,
+    mic:`<rect x="9.4" y="4.5" width="5.2" height="8.6" rx="2.6" ${s}/><path d="M7.4 12.4a4.6 4.6 0 0 0 9.2 0" ${s}/>`,
+    back:`<path d="M14.2 7 9.2 12l5 5" ${s}/>`,
+    home:`<path d="M5.2 11.4 12 5.6l6.8 5.8" ${s}/><path d="M7.4 10.5V17.6h9.2V10.5" ${s}/>`,
+    menu:`<path d="M7 8.2h10M7 12h10M7 15.8h10" ${s}/>`,
+    volume_up:`<path d="M12 7.5v9M7.5 12h9" ${s}/>`,
+    volume_down:`<path d="M7.5 12h9" ${s}/>`,
+    tv:`<rect x="4" y="6.5" width="16" height="11" rx="2.8" ${s}/>`,
+    ok:`<circle cx="12" cy="12" r="3" fill="currentColor"/>`,
+    up:`<path d="M12 8v8M8 12h8" ${s}/>`,
+    down:`<path d="M12 8v8M8 12h8" ${s}/>`,
+    left:`<path d="M12 8v8M8 12h8" ${s}/>`,
+    right:`<path d="M12 8v8M8 12h8" ${s}/>`,
+  };
+  return `<svg viewBox="0 0 24 24">${m[id]||m.ok}</svg>`;
+}
+
+function comboLabel(){
+  const parts=[];
+  if(man.ctrl!=="none")parts.push(man.ctrl==="generic"?"Ctrl":man.ctrl==="left"?"左Ctrl":"右Ctrl");
+  if(man.shift!=="none")parts.push(man.shift==="generic"?"Shift":man.shift==="left"?"左Shift":"右Shift");
+  if(man.alt!=="none")parts.push(man.alt==="generic"?"Alt":man.alt==="left"?"左Alt":"右Alt");
+  if(man.win!=="none")parts.push(man.win==="left"?"左Win":"右Win");
+  if(man.main)parts.push(man.main);
+  return parts.join(" + ");
+}
+
+function selOpts(opts, val){
+  return opts.map(o=>`<option value="${o.v}"${o.v===val?" selected":""}>${o.l}</option>`).join("");
+}
+
+function sideOpts(cur){
+  return ["none","generic","left","right"].map(s=>{
+    const labels={none:"不使用",generic:"任意",left:"左",right:"右"};
+    return `<option value="${s}"${s===cur?" selected":""}>${labels[s]}</option>`;
+  }).join("");
+}
+
+function composerHTML(){
+  const label=(KEYS.find(x=>x.id===manualOpenId)||{}).label||"";
+  const preview=comboLabel()||"尚未选择按键";
+  return `
+    <section class="shortcut-composer" aria-label="手动组合快捷键">
+      <div class="shortcut-composer-heading">
+        <div><span>手动组合</span><strong>${label}键 · 快捷键</strong></div>
+        <button type="button" class="shortcut-composer-close" data-manual-cancel aria-label="关闭手动组合">×</button>
+      </div>
+      <p class="shortcut-composer-note">不依赖系统键盘钩子。可只选修饰键，或为修饰键加一个主键。</p>
+      <div class="shortcut-composer-fields">
+        <label><span>Ctrl</span><select data-m="ctrl">
+          <option value="none"${man.ctrl==="none"?" selected":""}>不使用</option>
+          <option value="generic"${man.ctrl==="generic"?" selected":""}>任意 Ctrl</option>
+          <option value="left"${man.ctrl==="left"?" selected":""}>左 Ctrl</option>
+          <option value="right"${man.ctrl==="right"?" selected":""}>右 Ctrl</option>
+        </select></label>
+        <label><span>Shift</span><select data-m="shift">
+          <option value="none"${man.shift==="none"?" selected":""}>不使用</option>
+          <option value="generic"${man.shift==="generic"?" selected":""}>任意 Shift</option>
+          <option value="left"${man.shift==="left"?" selected":""}>左 Shift</option>
+          <option value="right"${man.shift==="right"?" selected":""}>右 Shift</option>
+        </select></label>
+        <label><span>Alt</span><select data-m="alt">
+          <option value="none"${man.alt==="none"?" selected":""}>不使用</option>
+          <option value="generic"${man.alt==="generic"?" selected":""}>任意 Alt</option>
+          <option value="left"${man.alt==="left"?" selected":""}>左 Alt</option>
+          <option value="right"${man.alt==="right"?" selected":""}>右 Alt</option>
+        </select></label>
+        <label><span>Win</span><select data-m="win">
+          <option value="none"${man.win==="none"?" selected":""}>不使用</option>
+          <option value="left"${man.win==="left"?" selected":""}>左 Win</option>
+          <option value="right"${man.win==="right"?" selected":""}>右 Win</option>
+        </select></label>
+        <label class="shortcut-main-key"><span>主键</span><select data-m="main">
+          <option value=""${!man.main?" selected":""}>不使用</option>
+          ${MAIN_GROUPS.map(g=>`<optgroup label="${g.label}">${selOpts(g.opts, man.main)}</optgroup>`).join("")}
+        </select></label>
+      </div>
+      <div class="shortcut-composer-preview">
+        <span>组合预览</span>
+        <strong>${preview}</strong>
+      </div>
+      <div class="shortcut-composer-actions">
+        <button type="button" class="selection-action" data-manual-cancel>取消</button>
+        <button type="button" class="selection-action primary" data-manual-apply${comboLabel()?"":" disabled"}>应用组合</button>
+      </div>
+    </section>`;
+}
+
+function renderMaps(){
+  const L=$("mapLeft"),R=$("mapRight");
+  if(!L||!R)return;
+  const side=(KEYS.find(x=>x.id===manualOpenId)||{}).side
+    || (KEYS.find(x=>x.id===selectedKey)||{}).side;
+  const target=side==="R"?R:L;
+  L.classList.remove("has-composer","composer");
+  R.classList.remove("has-composer","composer");
+  L.innerHTML="";R.innerHTML="";
+  KEYS.forEach(k=>{
+    if(k.ghost){
+      const sp=document.createElement("div");
+      sp.className="map-card-spacer";
+      sp.setAttribute("aria-hidden","true");
+      (k.side==="L"?L:R).appendChild(sp);
+      return;
+    }
+    const el=document.createElement("div");
+    el.className="map-card";
+    el.dataset.keyId=k.id;
+    el.tabIndex=0;
+    el.setAttribute("role","button");
+    el.setAttribute("aria-label",`${k.label} 当前${k.bind}`);
+    if(selectedKey===k.id)el.classList.add("active");
+    /* 与 KeyMappingStage 一致：actions 始终在 DOM，靠 .active CSS 展开 */
+    el.innerHTML=`
+      <div class="map-card-main">
+        <span class="nm">${ico(k.id)}${k.label}</span>
+        <span class="bind${k.bind==="未映射"?" unbound":""}">${k.bind}</span>
+      </div>
+      <div class="map-card-actions">
+        <div>
+          <div class="btns">
+            <button type="button" class="btn primary" data-cap="${k.id}">${capturing&&selectedKey===k.id?"取消录入":"录入"}</button>
+            <button type="button" class="btn" data-manual="${k.id}">手动组合</button>
+            ${k.bind!=="未映射"?`<button type="button" class="btn danger" data-clear="${k.id}">清除</button>`:""}
+          </div>
+          <p class="capture-live${capturing&&selectedKey===k.id?" blink":""}">${capturing&&selectedKey===k.id?"请按目标键或组合键…":"点录入后按目标键或组合键"}</p>
+        </div>
+      </div>`;
+    (k.side==="L"?L:R).appendChild(el);
+  });
+  if(manualOpenId){
+    const host=document.createElement("div");
+    host.className="manual-host";
+    host.id="manualHost";
+    host.innerHTML=composerHTML();
+    target.insertBefore(host, target.firstChild);
+    target.classList.add("has-composer");
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      host.classList.add("is-mounted");
+      /* host 是 firstChild：直接回顶即可，避免 smooth scroll 与 scrollTop=0 互抢 */
+      target.scrollTop=0;
+    }));
+  }
+  syncColCap();
+}
+
+/* 侧列 max-height = 遥控器高度：几何锚定，composer 不泄漏到整行 */
+function syncColCap(){
+  const remote=$("remote");
+  if(!remote)return;
+  const h=remote.offsetHeight;
+  if(h>0)document.documentElement.style.setProperty("--col-max",h+"px");
+}
+
+/** edge midpoints facing each other — no overlay through card body */
+function edgePoint(rect, side){
+  // side: 'right' of A or 'left' of B relative to centers
+  return {x: side==="r"?rect.right:rect.left, y:rect.top+rect.height/2};
+}
+
+function updateLink(){
+  const stage=$("mapWork")||$("stage"),svg=$("linkSvg"),path=$("linkPath");
+  /* composer 打开：一律隐藏连线，避免回流期端点乱蹦（spec: composer-hide-link） */
+  if(manualOpenId){svg.classList.remove("on");return}
+  const id=hoverKey||selectedKey;
+  if(!id){svg.classList.remove("on");return}
+  const a=$("remote").querySelector(`[data-key-id="${id}"]`);
+  const card=stage.querySelector(`.map-card[data-key-id="${id}"]`);
+  if(!a||!card){svg.classList.remove("on");return}
+  const sr=stage.getBoundingClientRect();
+  const ra=a.getBoundingClientRect();
+  const rb=card.getBoundingClientRect();
+  const remoteEl=$("remote").getBoundingClientRect();
+  const cardOnLeft=rb.left+rb.width/2 < remoteEl.left+remoteEl.width/2;
+  // A: edge of key facing the card column
+  const ax=cardOnLeft?ra.left:ra.right;
+  const ay=ra.top+ra.height/2;
+  // B: edge of card facing remote
+  const bx=cardOnLeft?rb.right:rb.left;
+  const by=rb.top+Math.min(rb.height/2, 18);
+  const x0=ax-sr.left,y0=ay-sr.top,x1=bx-sr.left,y1=by-sr.top;
+  // keep control points outside the gap middle so path stays in corridor
+  const gap=Math.max(12,(cardOnLeft?(ax-bx):(bx-ax))*0.35);
+  const c1x=cardOnLeft?x0-gap:x0+gap;
+  const c2x=cardOnLeft?x1-gap:x1+gap;
+  path.setAttribute("d",`M ${x0} ${y0} C ${c1x} ${y0}, ${c2x} ${y1}, ${x1} ${y1}`);
+  $("dotA").setAttribute("cx",x0);$("dotA").setAttribute("cy",y0);
+  $("dotB").setAttribute("cx",x1);$("dotB").setAttribute("cy",y1);
+  svg.setAttribute("viewBox",`0 0 ${sr.width} ${sr.height}`);
+  /* 现网禁止写 width/height（WebView 滚动条抖动）— 仅 viewBox + CSS 铺满 */
+  svg.classList.add("on");
+  svg.classList.toggle("strong",!!selectedKey);
+}
+
+function setHover(id){
+  hoverKey=id;
+  document.querySelectorAll("#remote [data-key-id]").forEach(b=>{
+    b.classList.toggle("hover",b.dataset.keyId===id);
+    b.classList.toggle("active",b.dataset.keyId===selectedKey);
+  });
+  document.querySelectorAll(".map-card").forEach(c=>{
+    c.classList.toggle("hover",c.dataset.keyId===id);
+    c.classList.toggle("active",c.dataset.keyId===selectedKey);
+  });
+  updateLink();
+}
+
+/* 实体键反馈：复用 hover/active 高亮，不另开顶部文案条 */
+let pressClearTimer=null;
+let pressCycleTimer=null;
+let pressIdx=0;
+const PRESS_SEQ=["ok","up","right","down","left","home","back","menu","power","mic","volume_up","volume_down","tv"];
+
+function clearPressedVisual(){
+  document.querySelectorAll(".pressed").forEach(el=>el.classList.remove("pressed"));
+}
+
+function simulatePress(id){
+  if(!id) return;
+  if(pressClearTimer){clearTimeout(pressClearTimer);pressClearTimer=null}
+  clearPressedVisual();
+  setHover(id);
+  document.querySelectorAll(`#remote [data-key-id="${id}"], .map-card[data-key-id="${id}"]`).forEach(el=>{
+    el.classList.add("pressed");
+  });
+  const k=KEYS.find(x=>x.id===id);
+  if($("pressHint")) $("pressHint").textContent=k?`${k.label} → ${k.bind}`:"";
+  log("info",`实体键 ${k?k.label:id}${k?` → ${k.bind}`:""}`);
+  pressClearTimer=setTimeout(()=>{
+    clearPressedVisual();
+    setHover(selectedKey);
+    pressClearTimer=null;
+  },750);
+}
+
+function stopPressCycle(){
+  if(pressCycleTimer){clearInterval(pressCycleTimer);pressCycleTimer=null}
+}
+
+const LOGS=[];
+function ts(){return new Date().toTimeString().slice(0,8)}
+function log(cls,msg){
+  LOGS.unshift(`${ts()} [${cls}] ${msg}`);
+  if(LOGS.length>50)LOGS.pop();
+}
+
+function applyState(name){
+  current=name;const s=STATES[name];
+  $("led").className="led "+(s.led||"");
+  $("headline").textContent=s.headline;
+  const healthy=["ready","voice","done_ok"].includes(name);
+  /* P0: 健康态状态栏不重复 sub；仅异常/启动保留 */
+  const sub=$("subline");
+  if(!healthy && s.sub){sub.hidden=false;sub.textContent=s.sub;}
+  else {sub.hidden=true;sub.textContent="";}
+
+  const forceNoBlock=healthy;
+  const showModal=!forceNoBlock && name!=="repairing";
+
+  const modal=$("repairModal");
+  /* P1: 非说话态电平降权 */
+  const meters=$("meters");
+  if(meters)meters.classList.toggle("is-idle",!(name==="ready"||name==="voice"));
+
+  if(modal){
+    modal.hidden=!showModal;
+    modal.classList.toggle("booting",!!s.booting);
+    const bootRow=$("bootRow"),titleIdle=$("repairTitleIdle"),wave=$("modalWave");
+    const btn=$("btnOneClickRepair"),later=$("btnRepairLater");
+    const t=$("repairTitle"),d=$("repairDesc");
+    const stepsEl=$("repairSteps"),sumEl=$("repairSummary");
+    const hide=el=>el&&el.classList.add("hide");
+    const show=el=>el&&el.classList.remove("hide");
+    if(!showModal){/* modal hidden — 产品一致 */}
+    else if(s.booting||name==="booting"){
+      show(bootRow);show(wave);hide(titleIdle);
+      t.textContent="正在启动…";
+      d.textContent=s.qS||"桥接与语音通道初始化中，请稍候。";show(d);
+      hide(btn);hide(later);hide(stepsEl);stepsEl.innerHTML="";hide(sumEl);
+    }else{
+      hide(bootRow);hide(wave);show(titleIdle);
+      const hasSteps=!!(s.repairSteps&&s.repairSteps.length);
+      titleIdle.textContent=hasSteps?(s.repairTitle||"修复完成"):(s.repairTitle||s.qH||"出现异常");
+      if(hasSteps){
+        d.textContent="";hide(d);
+      }else{
+        d.textContent="点「一键修复」自动处理";show(d);
+      }
+      /* 产品 primaryLabel：恒为「一键修复」（修复中时 modal 已隐藏） */
+      show(btn);
+      btn.textContent="一键修复";
+      btn.disabled=false;
+      /* canDismiss：booting/桥接未活不可稍后；其余可稍后 */
+      const noLater=["booting","err_bridge","idle","connecting"].includes(name);
+      if(noLater)hide(later);else show(later);
+      if(s.repairSteps&&s.repairSteps.length){
+        show(stepsEl);
+        let h='<div class="repair-steps-title">修复步骤</div>';
+        for(const st of s.repairSteps){
+          const icon=st.status==="ok"?"✓":st.status==="fail"?"✗":"·";
+          h+=`<div class="repair-step ${st.status}"><div class="repair-step-icon ${st.status}">${icon}</div><div class="repair-step-body"><div class="repair-step-label">${st.label}</div>`;
+          if(st.msg)h+=`<div class="repair-step-msg">${st.msg}</div>`;
+          if(st.suggest)h+=`<div class="repair-step-suggest">建议：${st.suggest}</div>`;
+          h+=`</div></div>`;
+        }
+        stepsEl.innerHTML=h;
+      }else{hide(stepsEl);stepsEl.innerHTML=""}
+      if(s.repairSummary){show(sumEl);sumEl.className="repair-summary "+s.repairSummary.type;sumEl.textContent=s.repairSummary.text}
+      else{hide(sumEl);sumEl.textContent=""}
+    }
+  }
+  $("markIn").style.left=s.inMark+"%";$("markOut").style.left=s.outMark+"%";
+  $("meterIn").className="meter "+s.inCls;$("meterOut").className="meter "+s.outCls;
+  $("hintIn").textContent=s.hintIn;$("hintOut").textContent=s.hintOut;
+  $("dbIn").textContent=s.dbIn;$("dbOut").textContent=s.dbOut;
+  document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.classList.toggle("on",b.dataset.state===name));
+  const bat=83;
+  const batChip=$("batteryChip"),batText=$("batteryText");
+  batChip.classList.remove("is-low","is-crit","is-unknown");
+  if(bat==null){batChip.classList.add("is-unknown");batText.textContent="—";}
+  else{batText.textContent=bat+"%";if(bat<=15)batChip.classList.add("is-crit");else if(bat<=30)batChip.classList.add("is-low");}
+  log(healthy?"ok":s.booting?"info":"fail", s.qH||s.headline);
+  updateLink();
+}
+
+renderMaps();
+/* 启动动态演示：booting → ~2.8s → ready（可点「启动中」重播） */
+let bootSeqTimer=null;
+function playBootSeq(){
+  if(bootSeqTimer){clearTimeout(bootSeqTimer);bootSeqTimer=null}
+  applyState("booting");
+  bootSeqTimer=setTimeout(()=>{applyState("ready");bootSeqTimer=null},2800);
+}
+playBootSeq();
+
+document.querySelectorAll(".demo-bar [data-state]").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.state==="booting"){playBootSeq();return}
+  if(bootSeqTimer){clearTimeout(bootSeqTimer);bootSeqTimer=null}
+  applyState(b.dataset.state);
+}));
+
+$("btnSimPress").addEventListener("click",()=>{
+  stopPressCycle();
+  $("btnPressCycle").classList.remove("on");
+  simulatePress(PRESS_SEQ[pressIdx++%PRESS_SEQ.length]);
+});
+$("btnPressCycle").addEventListener("click",()=>{
+  if(pressCycleTimer){stopPressCycle();$("btnPressCycle").classList.remove("on");return}
+  $("btnPressCycle").classList.add("on");
+  pressCycleTimer=setInterval(()=>{
+    simulatePress(PRESS_SEQ[pressIdx++%PRESS_SEQ.length]);
+  },850);
+});
+
+$("remote").addEventListener("mouseover",e=>{const t=e.target.closest("[data-key-id]");if(t)setHover(t.dataset.keyId)});
+$("remote").addEventListener("mouseleave",()=>setHover(selectedKey));
+$("remote").addEventListener("click",e=>{
+  const t=e.target.closest("[data-key-id]");if(!t)return;
+  selectedKey=selectedKey===t.dataset.keyId?null:t.dataset.keyId;
+  capturing=false;setHover(selectedKey);
+});
+$("stage").addEventListener("mouseover",e=>{
+  const c=e.target.closest(".map-card");if(c&&!e.target.closest(".map-card-actions"))setHover(c.dataset.keyId);
+});
+$("stage").addEventListener("click",e=>{
+  try{
+    const cap=e.target.closest("[data-cap]");
+    if(cap){const id=cap.dataset.cap;selectedKey=id;capturing=!capturing;manualOpenId=null;setHover(id);renderMaps();setHover(id);return}
+    const manBtn=e.target.closest("[data-manual]");
+    if(manBtn){
+      const id=manBtn.dataset.manual;
+      selectedKey=id;capturing=false;
+      if(manualOpenId===id){manualOpenId=null}
+      else{manualOpenId=id;man={ctrl:"none",shift:"none",alt:"none",win:"none",main:null}}
+      renderMaps();setHover(id);return;
+    }
+    if(e.target.closest("[data-manual-apply]")){
+      const combo=comboLabel();
+      if(combo){
+        const k=KEYS.find(x=>x.id===manualOpenId);
+        if(k)k.bind=combo;
+        log("ok",`手动组合应用: ${combo}`);
+      }
+      manualOpenId=null;man={ctrl:"none",shift:"none",alt:"none",win:"none",main:null};
+      renderMaps();setHover(selectedKey);return;
+    }
+    if(e.target.closest("[data-manual-cancel]")){
+      manualOpenId=null;man={ctrl:"none",shift:"none",alt:"none",win:"none",main:null};
+      renderMaps();setHover(selectedKey);return;
+    }
+    if(e.target.closest("[data-manual-clear]")){
+      const k=KEYS.find(x=>x.id===manualOpenId);
+      if(k)k.bind="未映射";
+      manualOpenId=null;man={ctrl:"none",shift:"none",alt:"none",win:"none",main:null};
+      renderMaps();setHover(selectedKey);return;
+    }
+    const clr=e.target.closest("[data-clear]");
+    if(clr){const k=KEYS.find(x=>x.id===clr.dataset.clear);if(k)k.bind="未映射";capturing=false;manualOpenId=null;renderMaps();setHover(selectedKey);return}
+    const card=e.target.closest(".map-card");
+    if(card){
+      const id=card.dataset.keyId;
+      selectedKey=id;capturing=false;
+      // keep composer if already open on this key; else close
+      if(manualOpenId!==id)manualOpenId=null;
+      renderMaps();setHover(id);
+    }
+  }catch(err){log("fail","点击处理异常: "+err.message)}
+});
+$("stage").addEventListener("change",e=>{
+  const s=e.target.closest("select[data-m]");
+  if(!s||!manualOpenId)return;
+  const field=s.dataset.m;
+  if(field==="main")man.main=s.value||null;
+  else man[field]=s.value;
+  // re-render composer in place without losing selection
+  renderMaps();setHover(selectedKey);
+});
+
+function playOneClickRepair(){
+  log("info","invoke auto repair (demo)");
+  // 逐步显示修复过程，然后跳转结果
+  const steps=[
+    {label:"重启桥接",status:"ok",msg:"已重启"},
+    {label:"虚拟声卡",status:"ok",msg:"已就绪"},
+    {label:"ATVV 连接",status:"ok",msg:"已连接"},
+    {label:"虚拟键盘",status:"ok",msg:"已就绪"},
+  ];
+  const s=STATES.repairing;
+  s.repairSteps=[];
+  applyState("repairing");
+  let i=0;
+  const timer=setInterval(()=>{
+    if(i<steps.length){
+      s.repairSteps.push(steps[i]);
+      applyState("repairing");
+      i++;
+    }else{
+      clearInterval(timer);
+      setTimeout(()=>applyState("done_ok"),400);
+    }
+  },450);
+}
+$("btnOneClickRepair").addEventListener("click",playOneClickRepair);
+$("btnRepairLater").addEventListener("click",()=>{
+  /* 稍后：只收起卡片，不显示顶栏（启动中无「稍后」按钮） */
+  const modal=$("repairModal");
+  if(modal) modal.hidden=true;
+});
+$("gainUp").addEventListener("click",()=>{
+  gain=Math.min(30,gain+1);$("qGain").textContent=gain+" dB";
+  if(current==="ready"||current==="voice"){const out=Math.min(96,40+gain*2);$("markOut").style.left=out+"%";$("dbOut").textContent=String(Math.max(-42,Math.min(0,-24+gain)));$("meterOut").className="meter "+(out>78?"high":"ok");$("hintOut").textContent=out>78?"偏高削波":"正常"}
+});
+$("gainDown").addEventListener("click",()=>{
+  gain=Math.max(-12,gain-1);$("qGain").textContent=gain+" dB";
+  if(current==="ready"||current==="voice"){const out=Math.min(96,40+gain*2);$("markOut").style.left=out+"%";$("dbOut").textContent=String(Math.max(-42,Math.min(0,-24+gain)));$("meterOut").className="meter "+(out>78?"high":"ok");$("hintOut").textContent=out>78?"偏高削波":"正常"}
+});
+/* 自动增益 */
+let gainAutoOn=false,gainAutoTimer=null;
+function applyGainToMeter(){
+  if(current!=="ready"&&current!=="voice")return;
+  const out=Math.min(96,40+gain*2);
+  $("markOut").style.left=out+"%";
+  $("dbOut").textContent=String(Math.max(-42,Math.min(0,-24+gain)));
+  $("meterOut").className="meter "+(out>78?"high":"ok");
+  $("hintOut").textContent=out>78?"偏高削波":"正常";
+}
+function gainAutoTick(){
+  /* 模拟：输入电平随机波动，增益自动追踪目标 -8dBFS */
+  const simInputDb=-30+Math.random()*20; /* -30..-10 dBFS */
+  const targetDb=-8;
+  const err=targetDb-simInputDb;
+  const adjust=Math.round(err*0.25);
+  gain=Math.max(-12,Math.min(30,gain+adjust));
+  $("qGain").textContent=gain+" dB";
+  applyGainToMeter();
+}
+$("gainAuto").addEventListener("click",()=>{
+  gainAutoOn=!gainAutoOn;
+  const btn=$("gainAuto"),ctl=btn.closest(".gain-ctl");
+  btn.classList.toggle("on",gainAutoOn);
+  btn.setAttribute("aria-pressed",gainAutoOn?"true":"false");
+  ctl.classList.toggle("manual-off",gainAutoOn);
+  if(gainAutoOn){
+    gainAutoTimer=setInterval(gainAutoTick,600);
+  }else{
+    clearInterval(gainAutoTimer);gainAutoTimer=null;
+  }
+});
+$("btnSettings").addEventListener("click",()=>$("setBd").classList.add("open"));
+$("setClose").addEventListener("click",()=>$("setBd").classList.remove("open"));
+$("setBd").addEventListener("click",e=>{if(e.target===$("setBd"))$("setBd").classList.remove("open")});
+document.querySelectorAll(".switch:not(#gainAuto)").forEach(sw=>sw.addEventListener("click",()=>{const on=sw.classList.toggle("on");sw.setAttribute("aria-pressed",on?"true":"false")}));
+
+/* ===== v5.0: 窗口控制按钮（demo 模拟）===== */
+$("winMin").addEventListener("click",()=>alert("正式应用：window.minimize()"));
+$("winClose").addEventListener("click",()=>alert("正式应用：window.close()"));
+/* 模拟窗口失焦/激活 */
+document.addEventListener("visibilitychange",()=>{
+  $("app").dataset.active=document.hidden?"false":"true";
+});
+$("btnWinActive").addEventListener("click",function(){
+  const app=$("app");
+  const active=app.dataset.active==="true";
+  app.dataset.active=active?"false":"true";
+  this.textContent=active?"窗口激活":"窗口失焦";
+  this.classList.toggle("on",!active);
+});
+
+window.addEventListener("resize",()=>requestAnimationFrame(updateLink));
+window.addEventListener("scroll",()=>requestAnimationFrame(updateLink),true);
+if(window.ResizeObserver)new ResizeObserver(()=>requestAnimationFrame(updateLink)).observe($("mapWork")||$("stage"));
+</script>
+</body>
+</html>
