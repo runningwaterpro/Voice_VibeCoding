@@ -3,73 +3,73 @@ feature: ui-demo-v5.1
 status: in-progress
 updated: 2026-09-18
 branch: feat/ui-demo-v5.1
-commits: 61d4729..0fd575f
+commits: 61d4729..77796b6
 ---
 
-# UI Demo v5.1（居中卡唯一交互面 · 映射精简 · 成功不挡）
+# UI Demo v5.1（对齐产品基线）
 
 ## Report
 
-**What was built** — 初版误将异常送回顶栏 action-bar（与 `beeca74` 相反）。纠偏后：居中悬浮修复卡为**唯一**交互面；action-bar 永久隐藏；映射卡默认无三键 + `已绑定 n/m`；`done_ok` 不弹卡。
+**What was built** — v5.1 以产品 `XiaomiSettings.vue` + `KeyMappingStage.vue` 为**唯一对照**收成基线：居中卡、固定「一键修复」、无顶栏异常条；映射卡 actions 常驻 DOM + CSS 折叠（与产品一致）。
 
-**Verification** — （纠偏完成后回填）
+**Verification** — （对齐完成后回填）
 
-**Journey log** — 演进：V4 顶栏/左栏异常条 → `beeca74` drop top action bar → 居中浮层；产品 `XiaomiSettings.vue` 与 v5.0 均「一律居中卡」。初版 item1 走反，已按用户确认 A+B+D 回滚。
+**Journey log** — 曾误用 V4 分项 `primaryMap`（修复 ATVV/声卡…）与 `bindCount`，均非产品现状；`beeca74` 起顶栏 action-bar 已弃。产品主钮恒为 `一键修复`/`修复中…`。
 
 ## [S1] Problem
 
-1. 现行合同（`beeca74`、产品 Vue、v5.0）：**启动/异常/修复结果一律居中悬浮卡，不占文档流；顶栏 action-bar 已弃用。**  
-2. v5.1 初版把 `error`/`idle`/`err_*` 送回 action-bar —— 老路，主操作与历史演进冲突。  
-3. 仍保留的真问题：映射卡默认三键过噪、无已绑定计数；`done_ok` 不应弹卡。
+Demo 与程序不一致，不能当基线：
 
-必须纠正 `ui-redesign-demo-v5.1.html`，不得改写 `v5.0`。
+1. 卡内主钮曾映射为分项修复文案；产品只有 **一键修复 / 修复中…**。  
+2. Demo 曾加 `已绑定 n/m`、默认不渲染 map actions；产品 actions **始终在 DOM**，靠 `.active` CSS 展开，**无**绑定计数。  
+3. 异常文案应是 `errorTitle` +「点「一键修复」自动处理」，不是「点修复 ATVV…」。
+
+目标：`ui-redesign-demo-v5.1.html` 与现行程序修复/映射交互**行为一致**，作后续优化前的 baseline。
 
 ## [S2] Design
 
 工作区：`.worktrees/ui-demo-v51` · 分支 `feat/ui-demo-v5.1` · 基线 `61d4729`。
 
-### 1. 居中卡 = 唯一交互面（纠偏 A + 合同 B）
+对照：`src/views/XiaomiSettings.vue`、`src/components/KeyMappingStage.vue`。不改 `src/`、不改 `v5.0`。
 
-| 状态 | `#actionBar` | `#repairModal` | 卡内主操作 |
+### 1. 居中卡 = 唯一交互面（与产品一致）
+
+| 状态 | `#actionBar` | `#repairModal` | 卡内 |
 |---|---|---|---|
-| `ready` / `voice` / `done_ok` | **永久隐藏** | **隐藏** | 无 |
-| `booting` | **永久隐藏** | **显示** booting | **无按钮**（只读步骤文案） |
-| `error` / `err_*` / `idle` / `err_bridge` / `connecting` | **永久隐藏** | **显示** | **一个**主钮（由 `s.primary`/默认一键修复映射文案）+ 条件「稍后」 |
-| `repairing` | **永久隐藏** | **显示** + steps | 无钮或按 `showRepairButtons` |
-| `done_partial` / `done_fail` | **永久隐藏** | **显示** + steps | 唯一重试/一键修复 |
+| `ready` / `voice` / `done_ok` | 永久隐藏 | 隐藏（`allReady`） | — |
+| `booting` | 永久隐藏 | 显示 booting | **无按钮**；文案 = 启动步骤句 |
+| 其它非健康态 | 永久隐藏 | 显示 | 标题=`errorTitle` 或修复结果标题；描述默认 **点「一键修复」自动处理**；主钮 **一键修复** |
+| `repairing` | 永久隐藏 | 显示 + steps | 主钮 **修复中…**（disabled）或按流程隐藏闪烁 |
+| `done_partial` / `done_fail` | 永久隐藏 | 显示 + steps | 主钮仍 **一键修复**（产品无「重试失败项」独立语义则不用） |
 
 合同：
 
-- `#actionBar` **任何状态不显示**（`setActionBarVisible(bar,false)` 或等价）；禁止 `showBar` 分支。  
-- 状态栏只保留 LED + 环境文案，不出现 `.btn.attention`/`.btn.primary`。  
-- 降级态主操作 **有且仅有** 居中卡内一处。  
-- 溯源：`beeca74`、`53f43db`、`XiaomiSettings.vue`「统一居中卡」。
+- **禁止** `primaryMap` / 分项修复主钮文案。  
+- `#actionBar` 永不显示；状态栏无 attention 主钮。  
+- 「稍后处理」：`booting` / `err_bridge` / `idle` 不显示；其余异常可显示（对齐 `canDismiss ≈ bridge_alive && !bootGrace`）。  
+- 修复成功全就绪 → 卡消失（不另做成功大卡）。
 
-### 2. 映射卡默认精简 + 已绑定计数（保留 D）
+### 2. 映射卡（与 KeyMappingStage 一致）
 
-- 未选中卡不渲染 `.map-card-actions`；仅 `isSel` 输出三键与录入提示。  
-- `#bindCount`：`已绑定 {bound}/{total}`；`ghost` 不计 total；`未映射` 不计 bound。  
-- hover 只描边不展开。
+- 每张卡 **始终**输出 `.map-card-actions`（录入/手动组合/清除 + 提示句）。  
+- 仅 `.map-card.active` 时 CSS 展开（`grid-template-rows: 0fr→1fr`，产品同款）。  
+- **移除** `#bindCount` 与 `已绑定 n/m`（产品无此 UI）。  
+- hover 只描边。
 
-### 3. 修复全成功不挡（保留 B）
+### 3. 标识
 
-- `forceNoBlock`：`ready` / `voice` / `done_ok` → 卡与条皆无。  
-- 失败/部分失败仍居中卡 + 步骤 + 唯一主钮。
-
-### 4. 标识
-
-- title / demo-bar 含 `v5.1`；文案不宣称「异常走状态条」。  
-- 不改 `src/` 与 `v5.0`。
+- title / demo-bar：`v5.1` + 注明「对齐产品基线」。  
+- 不改 `src/`、`v5.0`。
 
 ## [S3] Out of Scope
 
-- 半透明遮罩、电平折叠、设置增强、产品 `src/`、改 v5.0。
+- 新 UX（半透明、电平折叠、分项修复钮、bindCount）——基线之后再开 feature。  
+- 产品 Vue 行为修改。
 
 ## Tasks
 
-- [x] T1: 复制并标识 v5.1 — 验收: title/demo-bar v5.1；v5.0 未改 (covers: S2.4)
-- [ ] T2: **纠偏** — action-bar 任意状态不显示；`error`/`idle`/`err_*` 改为居中卡 + 卡内主钮 — 验收: 层逻辑 `modal=true, bar=false` 覆盖全部非健康态；无 showBar (covers: S2.1; depends: T1)
-- [x] T3: 映射精简 + bindCount — 验收: 未选中无 actions；已绑定 n/m (covers: S2.2; depends: T1)
-- [x] T4: done_ok 不弹卡 — 验收: modal hidden (covers: S2.3; depends: T1)
-- [ ] T5: 更新 `verify-ui-demo-v51.mjs` 并 ALL PASS — 验收: error/idle/err_* expect modal=true bar=false；bar 永 false (covers: S2.1; depends: T2)
-- [ ] T6: 提交纠偏 — 验收: 新 commit；Spec 与实现一致 (covers: S2; depends: T2, T5)
+- [x] T1: 文件与 v5.0 隔离 — 验收: v5.1 存在；v5.0 未改 (covers: S2.3)
+- [ ] T2: 修复卡对齐产品 — 验收: 无 `primaryMap`；非 booting 主钮文案为「一键修复」或「修复中…」；action-bar 永 hidden；ready/done_ok 无卡 (covers: S2.1; depends: T1)
+- [ ] T3: 映射卡对齐产品 — 验收: actions 始终在模板中；无 bindCount；active 才视觉展开 (covers: S2.2; depends: T1)
+- [ ] T4: 更新 verify 脚本 — 验收: 断言无 primaryMap/bindCount；bar 永 false；一键修复存在 (covers: S2; depends: T2, T3)
+- [ ] T5: 提交基线 — 验收: commit；脚本 ALL PASS (covers: S2; depends: T4)

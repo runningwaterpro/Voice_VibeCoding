@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Voice VibeCoding · 界面 Demo v5.1（居中卡唯一交互面 · 映射精简 · 成功不挡）</title>
+<title>Voice VibeCoding · 界面 Demo v5.1（对齐产品基线：一键修复 · 居中卡）</title>
 <style>
 :root {
   --chassis:#171a1f; --panel:#1f242b; --panel2:#262c35; --edge:#343b46;
@@ -369,16 +369,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 }
 .manual-host{display:none;margin:0 0 10px}
 .map-work.composer-open .manual-host{display:block}
-/* v5.1: 映射区标题 + 已绑定计数 */
-.map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;min-width:0;position:relative;z-index:2}
-.map-head-title{font-size:12px;color:var(--muted);font-weight:500}
-.bind-count{
-  font-family:var(--mono);font-size:11px;color:var(--dim);
-  border:1px solid var(--edge);background:var(--panel);
-  border-radius:999px;padding:2px 8px;white-space:nowrap;
-}
-.bind-count.has-unbound{color:var(--warn);border-color:rgba(212,168,75,.45)}
-.bind-count.all-bound{color:var(--signal);border-color:rgba(77,182,164,.4)}
 .map-cols{
   flex:0 1 auto;min-height:0;
   display:grid;
@@ -508,7 +498,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .map-card:hover,.map-card.hover{border-color:rgba(59,130,246,.45)}
 .map-card.active{border-color:var(--link);background:#243044;box-shadow:0 0 0 1px rgba(59,130,246,.25)}
 .map-card-main{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;min-height:38px}
-/* v5.1: actions 仅选中卡渲染 */
+/* v5.1: actions 始终在 DOM，仅 .active 展开（对齐 KeyMappingStage） */
 .map-card-actions{
   display:grid;grid-template-rows:0fr;
   transition:grid-template-rows var(--t-ui) var(--ease-out);
@@ -789,7 +779,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 <body>
 <!-- 预览控制：机身外，不进入 .app -->
 <div class="demo-bar" role="region" aria-label="预览控制">
-  <span>预览控制 · v5.1：居中卡唯一交互面 · 映射精简 · 成功不挡</span>
+  <span>预览控制 · v5.1：对齐产品基线（一键修复 · 居中卡）</span>
   <button type="button" data-state="booting">启动中</button>
   <button type="button" data-state="err_bridge">桥接未运行</button>
   <button type="button" data-state="error">语音异常</button>
@@ -910,10 +900,6 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
           <circle id="dotA" r="3.2" cx="0" cy="0"></circle>
           <circle id="dotB" r="3.2" cx="0" cy="0"></circle>
         </svg>
-        <div class="map-head" aria-label="映射进度">
-          <span class="map-head-title">按键映射</span>
-          <span class="bind-count" id="bindCount">已绑定 —</span>
-        </div>
         <div class="map-cols">
         <div class="map-col" id="mapLeft" aria-label="按键映射左列"></div>
         <div class="remote-panel" aria-label="遥控器">
@@ -1075,8 +1061,8 @@ const STATES={
     detail:"正在采音送声。"
   },
   error:{
-    led:"warn",headline:"语音通道未就绪",sub:"点「修复 ATVV 连接」",
-    qH:"语音通道异常",qS:"按键映射仍可用",
+    led:"warn",headline:"ATVV 未就绪",sub:"点「一键修复」自动处理",
+    qH:"ATVV 未就绪",qS:"点「一键修复」自动处理",
     chips:{ble:["","蓝牙已连接"],atvv:["fail","语音通道未就绪"],cable:["","虚拟声卡正常"],hid:["","虚拟键盘正常"]},
     conn:"断开遥控器",connCls:"ghost",primary:"btnRepairAtvv",secondary:[],
     inMark:34,outMark:10,hintIn:"合适",hintOut:"无送声",dbIn:"-19",dbOut:"—",inCls:"ok",outCls:"",
@@ -1084,8 +1070,8 @@ const STATES={
     detail:"语音通道未就绪。点「修复 ATVV 连接」。"
   },
   err_hid:{
-    led:"warn",headline:"虚拟键盘未就绪",sub:"语音唤醒需要虚拟键盘",
-    qH:"虚拟键盘异常",qS:"点「修复虚拟键盘」",
+    led:"warn",headline:"虚拟键盘未就绪",sub:"点「一键修复」自动处理",
+    qH:"虚拟键盘未就绪",qS:"点「一键修复」自动处理",
     chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["","虚拟声卡正常"],hid:["fail","虚拟键盘未就绪"]},
     conn:"断开遥控器",connCls:"ghost",primary:"btnRepairHid",secondary:[],
     inMark:30,outMark:8,hintIn:"合适",hintOut:"无送声",dbIn:"-20",dbOut:"—",inCls:"ok",outCls:"",
@@ -1093,8 +1079,8 @@ const STATES={
     detail:"虚拟键盘未就绪。点「修复虚拟键盘」（可能需管理员确认）。"
   },
   err_cable:{
-    led:"warn",headline:"虚拟声卡未就绪",sub:"点「虚拟声卡修复」",
-    qH:"虚拟声卡异常",qS:"未检测到 VB-CABLE",
+    led:"warn",headline:"虚拟声卡未就绪",sub:"点「一键修复」自动处理",
+    qH:"虚拟声卡未就绪",qS:"点「一键修复」自动处理",
     chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["fail","虚拟声卡未就绪"],hid:["","虚拟键盘正常"]},
     conn:"断开遥控器",connCls:"ghost",primary:"btnRepairCable",secondary:[],
     inMark:28,outMark:6,hintIn:"合适",hintOut:"无送声",dbIn:"-21",dbOut:"—",inCls:"ok",outCls:"",
@@ -1102,8 +1088,8 @@ const STATES={
     detail:"未检测到虚拟声卡。点「虚拟声卡修复」。"
   },
   err_route:{
-    led:"warn",headline:"语音路由未就绪",sub:"点「重启桥接」或「虚拟声卡修复」",
-    qH:"语音路由异常",qS:"音频通路未就绪",
+    led:"warn",headline:"语音路由未就绪",sub:"点「一键修复」自动处理",
+    qH:"语音路由未就绪",qS:"点「一键修复」自动处理",
     chips:{ble:["","蓝牙已连接"],atvv:["warn","语音通道待恢复"],cable:["warn","虚拟声卡检测中"],hid:["","虚拟键盘正常"]},
     conn:"断开遥控器",connCls:"ghost",primary:"btnRestart",secondary:["btnRepairCable"],
     inMark:26,outMark:5,hintIn:"合适",hintOut:"无送声",dbIn:"-22",dbOut:"—",inCls:"ok",outCls:"",
@@ -1111,8 +1097,8 @@ const STATES={
     detail:"语音路由未就绪。点「重启桥接」，仍异常再点「虚拟声卡修复」。"
   },
   err_bridge:{
-    led:"fail",headline:"桥接未运行",sub:"点「重新连接」或「重启桥接」",
-    qH:"桥接未运行",qS:"遥控器未接入",
+    led:"fail",headline:"桥接未运行",sub:"点「一键修复」自动处理",
+    qH:"桥接未运行",qS:"点「一键修复」自动处理",
     chips:{ble:["fail","蓝牙未连接"],atvv:["idle","语音通道未就绪"],cable:["idle","虚拟声卡待命"],hid:["idle","虚拟键盘待命"]},
     conn:"重新连接",connCls:"primary",primary:"btnReconnect",secondary:["btnRestart"],
     inMark:4,outMark:3,hintIn:"待命",hintOut:"待命",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
@@ -1120,8 +1106,8 @@ const STATES={
     detail:"桥接未运行。点「重新连接」或「重启桥接」。"
   },
   repairing:{
-    led:"warn",headline:"正在修复…",sub:"自动处理中",
-    qH:"正在修复…",qS:"一键跑完，无需操作",
+    led:"warn",headline:"正在修复…",sub:"一键修复进行中，无需操作",
+    qH:"正在修复…",qS:"一键修复进行中，无需操作",
     chips:{ble:["warn","修复中"],atvv:["warn","修复中"],cable:["warn","修复中"],hid:["warn","修复中"]},
     conn:"断开遥控器",connCls:"ghost",primary:null,secondary:[],booting:false,
     inMark:10,outMark:5,hintIn:"…",hintOut:"…",dbIn:"—",dbOut:"—",inCls:"",outCls:"",
@@ -1161,7 +1147,7 @@ const STATES={
     ],
     repairSummary:{type:"partial",text:"ATVV 连接失败，其他项已就绪"},
     showRepairModal:true, repairTitle:"修复完成（3/4 步成功）", repairDesc:"",
-    showRepairButtons:true, repairPrimaryLabel:"重试失败项", repairCanDismiss:true,
+    showRepairButtons:true, repairPrimaryLabel:"一键修复", repairCanDismiss:true,
   },
   done_fail:{
     led:"fail",headline:"修复未成功",sub:"多项失败",
@@ -1291,16 +1277,6 @@ function composerHTML(){
 function renderMaps(){
   const L=$("mapLeft"),R=$("mapRight");
   if(!L||!R)return;
-  /* v5.1: 已绑定计数（ghost 不计入 total） */
-  const realKeys=KEYS.filter(k=>!k.ghost);
-  const bound=realKeys.filter(k=>k.bind&&k.bind!=="未映射").length;
-  const total=realKeys.length;
-  const cc=$("bindCount");
-  if(cc){
-    cc.textContent=`已绑定 ${bound}/${total}`;
-    cc.classList.toggle("has-unbound",bound<total);
-    cc.classList.toggle("all-bound",bound===total);
-  }
   const side=(KEYS.find(x=>x.id===manualOpenId)||{}).side
     || (KEYS.find(x=>x.id===selectedKey)||{}).side;
   const target=side==="R"?R:L;
@@ -1321,25 +1297,23 @@ function renderMaps(){
     el.tabIndex=0;
     el.setAttribute("role","button");
     el.setAttribute("aria-label",`${k.label} 当前${k.bind}`);
-    const isSel=selectedKey===k.id;
-    if(isSel)el.classList.add("active");
-    /* v5.1: 默认不渲染三键；仅选中卡输出 actions */
-    const actions=isSel?`
-      <div class="map-card-actions">
-        <div>
-          <div class="btns">
-            <button type="button" class="btn primary" data-cap="${k.id}">${capturing?"取消录入":"录入"}</button>
-            <button type="button" class="btn" data-manual="${k.id}">手动组合</button>
-            ${k.bind!=="未映射"?`<button type="button" class="btn danger" data-clear="${k.id}">清除</button>`:""}
-          </div>
-          <p class="capture-live${capturing?" blink":""}">${capturing?"请按目标键或组合键…":"「录入」按真实键盘；「手动组合」用下拉选键"}</p>
-        </div>
-      </div>`:"";
+    if(selectedKey===k.id)el.classList.add("active");
+    /* 与 KeyMappingStage 一致：actions 始终在 DOM，靠 .active CSS 展开 */
     el.innerHTML=`
       <div class="map-card-main">
         <span class="nm">${ico(k.id)}${k.label}</span>
         <span class="bind${k.bind==="未映射"?" unbound":""}">${k.bind}</span>
-      </div>${actions}`;
+      </div>
+      <div class="map-card-actions">
+        <div>
+          <div class="btns">
+            <button type="button" class="btn primary" data-cap="${k.id}">${capturing&&selectedKey===k.id?"取消录入":"录入"}</button>
+            <button type="button" class="btn" data-manual="${k.id}">手动组合</button>
+            ${k.bind!=="未映射"?`<button type="button" class="btn danger" data-clear="${k.id}">清除</button>`:""}
+          </div>
+          <p class="capture-live${capturing&&selectedKey===k.id?" blink":""}">${capturing&&selectedKey===k.id?"请按目标键或组合键…":"「录入」按真实键盘；「手动组合」用下拉选键"}</p>
+        </div>
+      </div>`;
     (k.side==="L"?L:R).appendChild(el);
   });
   if(manualOpenId){
@@ -1491,10 +1465,12 @@ function applyState(name){
   if(s.sub){sub.hidden=false;sub.textContent=s.sub;} else {sub.hidden=true;sub.textContent="";}
   const healthy=["ready","voice","done_ok"].includes(name);
 
-  /* v5.1 纠偏：居中卡 = 唯一交互面（beeca74 / 产品 Vue / v5.0 合同）
-     action-bar 永久隐藏；禁止 showBar 复活顶栏异常条 */
+  /* 与产品 XiaomiSettings 一致：
+     showActionBar=false；健康/修复中(autoRepairing) 无卡；
+     其余未就绪 → 居中卡；主钮恒为「一键修复」 */
   const forceNoBlock=["ready","voice","done_ok"].includes(name);
-  const showModal=!forceNoBlock; /* 非健康态一律居中卡 */
+  /* repairing：产品 autoRepairing 时 showRepairModal=false（不闪按钮） */
+  const showModal=!forceNoBlock && name!=="repairing";
 
   const bar=$("actionBar");
   const modal=$("repairModal");
@@ -1508,35 +1484,28 @@ function applyState(name){
     const stepsEl=$("repairSteps"),sumEl=$("repairSummary");
     const hide=el=>el&&el.classList.add("hide");
     const show=el=>el&&el.classList.remove("hide");
-    if(!showModal){/* modal hidden */}
+    if(!showModal){/* modal hidden — 产品一致 */}
     else if(s.booting||name==="booting"){
       show(bootRow);show(wave);hide(titleIdle);
       t.textContent="正在启动…";
-      d.textContent="桥接与语音通道初始化中，请稍候。";show(d);
+      d.textContent=s.qS||"桥接与语音通道初始化中，请稍候。";show(d);
       hide(btn);hide(later);hide(stepsEl);stepsEl.innerHTML="";hide(sumEl);
     }else{
       hide(bootRow);hide(wave);show(titleIdle);
-      titleIdle.textContent=s.repairTitle||s.qH||"出现异常";
-      if(s.repairDesc){d.textContent=s.repairDesc;show(d)}
-      else{d.textContent=s.qS||"点下方按钮自动修复。";show(d)}
-      /* 卡内唯一主操作：优先 showRepairButtons 文案，否则按 primary 映射，再否则一键修复 */
-      const primaryMap={
-        btnRepairAtvv:"修复 ATVV 连接",
-        btnRepairHid:"修复虚拟键盘",
-        btnRepairCable:"虚拟声卡修复",
-        btnRestart:"重启桥接",
-        btnReconnect:"重新连接",
-      };
-      if(s.repairSteps){
-        if(s.showRepairButtons){show(btn);btn.textContent=s.repairPrimaryLabel||"一键修复"}else hide(btn);
-        if(s.repairCanDismiss)show(later);else hide(later);
+      const hasSteps=!!(s.repairSteps&&s.repairSteps.length);
+      titleIdle.textContent=hasSteps?(s.repairTitle||"修复完成"):(s.repairTitle||s.qH||"出现异常");
+      if(hasSteps){
+        d.textContent="";hide(d);
       }else{
-        show(btn);
-        btn.textContent=primaryMap[s.primary]||"一键修复";
-        /* 桥接未活等不可「稍后」；其余异常可稍后（对齐 53f43db / 产品） */
-        const noLater=["err_bridge","idle","connecting"].includes(name)||s.primary==="btnReconnect";
-        if(noLater)hide(later);else show(later);
+        d.textContent="点「一键修复」自动处理";show(d);
       }
+      /* 产品 primaryLabel：恒为「一键修复」（修复中时 modal 已隐藏） */
+      show(btn);
+      btn.textContent="一键修复";
+      btn.disabled=false;
+      /* canDismiss：booting/桥接未活不可稍后；其余可稍后 */
+      const noLater=["booting","err_bridge","idle","connecting"].includes(name);
+      if(noLater)hide(later);else show(later);
       if(s.repairSteps&&s.repairSteps.length){
         show(stepsEl);
         let h='<div class="repair-steps-title">修复步骤</div>';
@@ -1698,16 +1667,7 @@ function playOneClickRepair(){
     }
   },450);
 }
-$("btnPrimary").addEventListener("click",()=>{
-  const t=($("btnPrimary").textContent||"");
-  if(t.includes("一键修复")||t.includes("重试")||t.includes("重新连接")||t.includes("重启")){
-    playOneClickRepair();
-    return;
-  }
-  if(t.includes("ATVV")){log("info","invoke repair_xiaomi_atvv");applyState("ready");return}
-  if(t.includes("虚拟键盘")){log("ok","invoke repair_xiaomi_winuhid");applyState("ready");return}
-  if(t.includes("声卡")){log("ok","invoke repair_xiaomi_voice_env");return}
-});
+$("btnPrimary").addEventListener("click",()=>{ playOneClickRepair(); });
 $("btnOneClickRepair").addEventListener("click",playOneClickRepair);
 $("btnRepairLater").addEventListener("click",()=>{
   /* 稍后：只收起卡片，不显示顶栏（启动中无「稍后」按钮） */
