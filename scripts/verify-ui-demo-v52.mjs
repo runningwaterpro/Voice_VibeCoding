@@ -21,30 +21,34 @@ ok("meters idle class", v52.includes(".meters.is-idle"));
 ok("meters id", v52.includes('id="meters"'));
 ok("overlay lighter", v52.includes("rgba(0,0,0,.35)") && !v52.includes("backdrop-filter:blur"));
 ok("one-click", v52.includes("btn.textContent=\"一键修复\""));
+ok("repairing keeps card", !v52.includes('name!=="repairing"') && v52.includes("正在修复…"));
+ok("repairing disabled btn", v52.includes("btn.disabled=true") && v52.includes("修复中…"));
+ok("not-ready lock", v52.includes("is-not-ready") && v52.includes(".app.is-not-ready .work"));
 ok("lean hint", v52.includes("点录入后按目标键或组合键"));
 ok("unbound dashed", v52.includes("border:1px dashed"));
 ok("no bindCount", !v52.includes("bindCount"));
 
 function apply(name) {
   const healthy = ["ready", "voice", "done_ok"].includes(name);
-  const showModal = !healthy && name !== "repairing";
+  const showModal = !healthy;
+  const locked = !healthy;
   const idleMeters = !(name === "ready" || name === "voice");
   const showSub = !healthy;
-  return { showModal, idleMeters, showSub };
+  return { showModal, locked, idleMeters, showSub };
 }
-for (const [n, m, idle, sub] of [
-  ["ready", false, false, false],
-  ["voice", false, false, false],
-  ["done_ok", false, true, false],
-  ["repairing", false, true, true],
-  ["booting", true, true, true],
-  ["error", true, true, true],
-  ["err_bridge", true, true, true],
+for (const [n, m, lock, idle, sub] of [
+  ["ready", false, false, false, false],
+  ["voice", false, false, false, false],
+  ["done_ok", false, false, true, false],
+  ["repairing", true, true, true, true],
+  ["booting", true, true, true, true],
+  ["error", true, true, true, true],
+  ["err_bridge", true, true, true, true],
 ]) {
   const r = apply(n);
   ok(
-    `${n} modal=${r.showModal} idle=${r.idleMeters} sub=${r.showSub}`,
-    r.showModal === m && r.idleMeters === idle && r.showSub === sub,
+    `${n} card=${r.showModal} lock=${r.locked} idle=${r.idleMeters} sub=${r.showSub}`,
+    r.showModal === m && r.locked === lock && r.idleMeters === idle && r.showSub === sub,
   );
 }
 console.log(fail === 0 ? "ALL PASS" : "FAILURES=" + fail);

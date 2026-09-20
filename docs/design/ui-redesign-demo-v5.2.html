@@ -242,6 +242,20 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 /* ===== v5.2: 电平随状态降权（P1） ===== */
 .meters.is-idle{opacity:.35;pointer-events:none}
 .meters.is-idle .hint{color:var(--dim)}
+/* P1b: 未就绪 = 主内容锁死可见（看起来可用 ⇔ 真就绪） */
+.work{
+  transition:opacity 160ms var(--ease-out);
+}
+.app.is-not-ready .work{
+  pointer-events:none;
+  opacity:.72;
+  user-select:none;
+}
+/* 修复中主钮：常驻 DOM、禁用，避免 show/hide 闪 */
+.repair-card .btn.attention:disabled{
+  opacity:.55;cursor:not-allowed;transform:none;
+}
+.repair-card .btn.attention:disabled:active{transform:none}
 /* stage: full-width map */
 .stage{display:flex;flex-direction:column;gap:10px;min-width:0}
 /* v5.2: action-bar 已删除（P0） */
@@ -722,7 +736,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 <body>
 <!-- 预览控制：机身外，不进入 .app -->
 <div class="demo-bar" role="region" aria-label="预览控制">
-  <span>预览控制 · v5.2：删死条 · 电平降权 · 遮罩减重 · 一键修复不变</span>
+  <span>预览控制 · v5.2：未就绪卡常驻锁主界面 · 一键修复 · 电平降权</span>
   <button type="button" data-state="booting">启动中</button>
   <button type="button" data-state="err_bridge">桥接未运行</button>
   <button type="button" data-state="error">语音异常</button>
@@ -1040,8 +1054,8 @@ const STATES={
       {label:"ATVV 连接",status:"ok",msg:"已连接"},
       {label:"虚拟键盘",status:"ok",msg:"已就绪"},
     ],
-    showRepairModal:true, repairTitle:"正在修复…", repairDesc:"自动处理全部步骤，无需操作",
-    showRepairButtons:false,
+    showRepairModal:true, repairTitle:"正在修复…", repairDesc:"一键修复进行中，无需操作",
+    showRepairButtons:true, repairPrimaryLabel:"修复中…", repairCanDismiss:false,
   },
   done_ok:{
     led:"ok",headline:"语音可用",sub:"",
@@ -1363,8 +1377,10 @@ function applyState(name){
   if(!healthy && s.sub){sub.hidden=false;sub.textContent=s.sub;}
   else {sub.hidden=true;sub.textContent="";}
 
-  const forceNoBlock=healthy;
-  const showModal=!forceNoBlock && name!=="repairing";
+  /* P1b: 未就绪一律居中卡（含 repairing）；就绪无卡 */
+  const showModal=!healthy;
+  const app=$("app");
+  if(app)app.classList.toggle("is-not-ready",!healthy);
 
   const modal=$("repairModal");
   /* P1: 非说话态电平降权 */
@@ -1380,12 +1396,36 @@ function applyState(name){
     const stepsEl=$("repairSteps"),sumEl=$("repairSummary");
     const hide=el=>el&&el.classList.add("hide");
     const show=el=>el&&el.classList.remove("hide");
-    if(!showModal){/* modal hidden — 产品一致 */}
+    if(!showModal){/* modal hidden */}
     else if(s.booting||name==="booting"){
       show(bootRow);show(wave);hide(titleIdle);
       t.textContent="正在启动…";
       d.textContent=s.qS||"桥接与语音通道初始化中，请稍候。";show(d);
       hide(btn);hide(later);hide(stepsEl);stepsEl.innerHTML="";hide(sumEl);
+    }else if(name==="repairing"){
+      /* 修复中：卡常驻 + 步骤 + 禁用主钮（不闪、不可再点） */
+      hide(bootRow);hide(wave);show(titleIdle);
+      titleIdle.textContent="正在修复…";
+      d.textContent="一键修复进行中，无需操作。";show(d);
+      show(btn);
+      btn.textContent="修复中…";
+      btn.disabled=true;
+      hide(later);
+      show(stepsEl);
+      let h='<div class="repair-steps-title">修复步骤</div>';
+      const steps=s.repairSteps||[];
+      if(!steps.length){
+        h+='<div class="repair-step pending"><div class="repair-step-icon pending">·</div><div class="repair-step-body"><div class="repair-step-label">处理中…</div></div></div>';
+      }else{
+        for(const st of steps){
+          const icon=st.status==="ok"?"✓":st.status==="fail"?"✗":"·";
+          h+=`<div class="repair-step ${st.status}"><div class="repair-step-icon ${st.status}">${icon}</div><div class="repair-step-body"><div class="repair-step-label">${st.label}</div>`;
+          if(st.msg)h+=`<div class="repair-step-msg">${st.msg}</div>`;
+          h+=`</div></div>`;
+        }
+      }
+      stepsEl.innerHTML=h;
+      hide(sumEl);sumEl.textContent="";
     }else{
       hide(bootRow);hide(wave);show(titleIdle);
       const hasSteps=!!(s.repairSteps&&s.repairSteps.length);
@@ -1395,14 +1435,12 @@ function applyState(name){
       }else{
         d.textContent="点「一键修复」自动处理";show(d);
       }
-      /* 产品 primaryLabel：恒为「一键修复」（修复中时 modal 已隐藏） */
       show(btn);
       btn.textContent="一键修复";
       btn.disabled=false;
-      /* canDismiss：booting/桥接未活不可稍后；其余可稍后 */
-      const noLater=["booting","err_bridge","idle","connecting"].includes(name);
+      const noLater=["err_bridge","idle","connecting"].includes(name);
       if(noLater)hide(later);else show(later);
-      if(s.repairSteps&&s.repairSteps.length){
+      if(hasSteps){
         show(stepsEl);
         let h='<div class="repair-steps-title">修复步骤</div>';
         for(const st of s.repairSteps){
@@ -1527,7 +1565,6 @@ $("stage").addEventListener("change",e=>{
 
 function playOneClickRepair(){
   log("info","invoke auto repair (demo)");
-  // 逐步显示修复过程，然后跳转结果
   const steps=[
     {label:"重启桥接",status:"ok",msg:"已重启"},
     {label:"虚拟声卡",status:"ok",msg:"已就绪"},
@@ -1549,7 +1586,10 @@ function playOneClickRepair(){
     }
   },450);
 }
-$("btnOneClickRepair").addEventListener("click",playOneClickRepair);
+$("btnOneClickRepair").addEventListener("click",()=>{
+  if($("btnOneClickRepair").disabled)return;
+  playOneClickRepair();
+});
 $("btnRepairLater").addEventListener("click",()=>{
   /* 稍后：只收起卡片，不显示顶栏（启动中无「稍后」按钮） */
   const modal=$("repairModal");

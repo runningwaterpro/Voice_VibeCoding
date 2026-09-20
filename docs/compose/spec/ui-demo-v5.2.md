@@ -35,28 +35,41 @@ v5.1 已是对齐产品的基线（居中卡 + 一键修复 + 无顶栏异常条
 ### P1 电平与遮罩
 
 - `ready`/`voice`：电平常显。  
-- 其它态：`.meters` 加 `.is-idle`（`opacity:.35` + 非交互感），文案 hint→「待命」/保持 state 数据但降权。  
-- `.repair-modal` 背景：`rgba(0,0,0,.35)`，`backdrop-filter` 去掉或 `blur(0)`。
+- 其它态：`.meters` 加 `.is-idle`（`opacity:.35` + 非交互感）。  
+- `.repair-modal` 背景：`rgba(0,0,0,.35)`，无 blur。
+
+### P1b 未就绪锁（用户确认的统一原则）
+
+原则：**主界面「看起来可用」⇔ 真正就绪**；未就绪 = 卡在 + 主内容锁死可见。
+
+| 状态 | 卡 | 主内容 `.work` | 主钮 |
+|---|---|---|---|
+| ready / voice / done_ok | 无 | 正常可点 | — |
+| booting | 有 · 无钮 | 锁 | 无 |
+| 异常 | 有 | 锁 | 一键修复 |
+| **repairing** | **有（不消失）** | **锁** | **`修复中…` disabled（DOM 常驻，不闪）** |
+| done_partial / done_fail | 有 · 步骤 | 锁 | 一键修复 |
+
+实现：`showModal = !healthy`（含 repairing）；`.app.is-not-ready .work{pointer-events:none}`；repairing 分支 title/desc/steps + `btn.disabled=true`、文案「修复中…」、隐藏「稍后」。
 
 ### P2 美观
 
-- 机箱/卡圆角统一 **10px**；修复卡 12px 可保留但阴影只留一层。  
-- 映射提示句：`点录入后按目标键或组合键`（单句）。  
-- `.bind.unbound`：虚线边框 pill（弱化但可扫）。  
-- 不改：一键修复文案、居中卡结构、映射 actions 常驻 DOM、无 bindCount。
+- 圆角 10px 单层阴影；映射提示单句；`.bind.unbound` 虚线 pill。  
+- 不改：一键修复文案结构、映射 actions 常驻 DOM、无 bindCount、无分项修复钮。
 
 ### 标识
 
-- title / demo-bar：`v5.2` +「剃刀优化」。
+- title / demo-bar：`v5.2`。
 
 ## [S3] Out of Scope
 
-- 改 v5.0 / v5.1；改产品 `src/`；分项修复钮；bindCount。
+- 改 v5.0 / v5.1；产品 `src/`（可另开）；分项修复钮；bindCount。
 
 ## Tasks
 
-- [ ] T1: 复制为 v5.2 并改标识 — 验收: 新文件存在；v5.1 哈希不变 (covers: S2)
-- [ ] T2: P0 — 验收: 源中无 `id="actionBar"`；ready 无 subline (covers: S2 P0; depends: T1)
-- [ ] T3: P1 — 验收: 非 ready/voice 电平 `.is-idle`；遮罩无重 blur (covers: S2 P1; depends: T1)
-- [ ] T4: P2 + 脚本 — 验收: verify v5.2 ALL PASS；一键修复仍存在 (covers: S2; depends: T2, T3)
-- [ ] T5: 提交 — 验收: commit 含 v5.2 (covers: S2; depends: T4)
+- [x] T1: 复制为 v5.2 并改标识 — 验收: 新文件存在；v5.1 不动 (covers: S2)
+- [x] T2: P0 — 验收: 无 `id="actionBar"`；ready 无 subline (covers: S2 P0; depends: T1)
+- [x] T3: P1 — 验收: 非 ready/voice 电平 `.is-idle`；遮罩无 blur (covers: S2 P1; depends: T1)
+- [x] T4: P2 + 脚本 — 验收: verify ALL PASS (covers: S2 P2; depends: T2, T3)
+- [ ] T5: **P1b** — 验收: repairing 卡可见+主钮 disabled「修复中…」；`.work` 锁；ready 无卡可点映射 (covers: S2 P1b; depends: T4)
+- [ ] T6: 提交 P1b — 验收: commit；verify 更新 ALL PASS (covers: S2; depends: T5)
