@@ -477,6 +477,7 @@ fn reboot_required_message() -> &'static str {
 }
 
 /// 启动时尽力部署 DLL 并尝试打开注入器（不弹 UAC）。
+/// 失败时后台静默重探：覆盖「驱动已装好但应用启动时缓存为 false」以及重启后晚就绪。
 pub fn ensure_runtime_quiet() {
     match deploy_dll_beside_exe() {
         Ok(Some(p)) => {
@@ -490,12 +491,38 @@ pub fn ensure_runtime_quiet() {
     crate::bridges::xiaomi::hid_injector::reset_and_retry();
     if crate::bridges::xiaomi::hid_injector::is_available() {
         log::info!("WinUHid runtime ready");
-    } else {
-        log::warn!(
-            "WinUHid not ready at startup — voice IME wake needs「修复虚拟键盘」: {}",
-            env_status().message
-        );
+        clear_reboot_flag();
+        return;
     }
+
+    // 真·重启过且仍不就绪：降级，禁止再报「必须重启」
+    if should_run_post_reboot_repair(false, reboot_flag_age(), os_uptime()) {
+        log::warn!("WinUHid still down after reboot — clearing reboot flag (will not ask again)");
+        clear_reboot_flag();
+    } else if reboot_flag_age().is_some() {
+        log::info!("WinUHid reboot flag present; will keep probing without UAC");
+    }
+
+    log::warn!(
+        "WinUHid not ready at startup — background re-probe; voice IME wake needs「修复虚拟键盘」 if still down: {}",
+        env_status().message
+    );
+
+    // 后台重探（不弹 UAC）：最多约 90s，每秒一次；成功则刷新缓存
+    let _ = std::thread::Builder::new()
+        .name("winuhid-reprobe".into())
+        .spawn(|| {
+            for i in 1..=90 {
+                std::thread::sleep(Duration::from_secs(1));
+                crate::bridges::xiaomi::hid_injector::reset_and_retry();
+                if crate::bridges::xiaomi::hid_injector::is_available() {
+                    log::info!("WinUHid ready after late re-probe attempt={i}");
+                    clear_reboot_flag();
+                    return;
+                }
+            }
+            log::warn!("WinUHid still not ready after startup re-probe window");
+        });
 }
 
 pub fn repair_embedded(force: bool) -> Result<WinUHidActionResult, String> {
@@ -552,7 +579,7 @@ pub fn repair_embedded(force: bool) -> Result<WinUHidActionResult, String> {
     }
 
     let result_raw = script_result_line(&stdout).unwrap_or("").to_string();
-    let needs_reboot = result_raw.to_ascii_lowercase().contains("restart required")
+    let mut needs_reboot = result_raw.to_ascii_lowercase().contains("restart required")
         || result_raw.contains("需要重启")
         || output.status.code() == Some(3010);
 
@@ -567,15 +594,23 @@ pub fn repair_embedded(force: bool) -> Result<WinUHidActionResult, String> {
     }
     let ready = crate::bridges::xiaomi::hid_injector::is_available();
 
+    // 已重启过仍失败 → 禁止再要求重启
+    if needs_reboot && should_run_post_reboot_repair(ready, reboot_flag_age(), os_uptime()) {
+        log::warn!("WinUHid claims reboot needed but system already rebooted — demoting to failure");
+        needs_reboot = false;
+        clear_reboot_flag();
+    }
+
     let message = if ready {
+        clear_reboot_flag();
         "虚拟键盘已就绪：WinUHid 驱动可用，语音键将按硬件方式注入。".into()
     } else if needs_reboot {
-        "驱动已安装，必须重启 Windows 后虚拟键盘才会生效。重启后再点一次「修复虚拟键盘」。".into()
+        "驱动已安装，必须重启 Windows 后虚拟键盘才会生效。重启后打开应用会自动继续。".into()
     } else if !output.status.success() {
         format_repair_failure(&output, &result_raw)
     } else {
         format!(
-            "脚本已执行，但 WinUHid 仍不可用。{} 可查看日志或重启后再试。",
+            "脚本已执行，但 WinUHid 仍不可用。{} 可导出安装包手动装，或查看日志。",
             if result_raw.is_empty() {
                 String::new()
             } else {

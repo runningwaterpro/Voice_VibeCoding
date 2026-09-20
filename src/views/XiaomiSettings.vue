@@ -293,12 +293,16 @@ const bootStepText = computed(() => {
 });
 const errorTitle = computed(() => {
   const h = host.value;
-  if (!h?.bridge_alive) return "桥接未运行";
-  if (!h?.winuhid_ready) return "虚拟键盘未就绪";
-  if (!h?.cable_ready) return "虚拟声卡未就绪";
-  if (!h?.audio_alive) return "语音路由未就绪";
-  if (!h?.atvv_ok) return "ATVV 未就绪";
-  return "状态异常";
+  if (!h) return "状态异常";
+  const missing: string[] = [];
+  if (!h.bridge_alive) missing.push("桥接");
+  if (!h.winuhid_ready) missing.push("虚拟键盘");
+  if (!h.cable_ready) missing.push("虚拟声卡");
+  if (!h.audio_alive) missing.push("语音路由");
+  if (!h.atvv_ok) missing.push("ATVV");
+  if (missing.length === 0) return "状态异常";
+  if (missing.length === 1) return `${missing[0]}未就绪`;
+  return `未就绪：${missing.join("、")}`;
 });
 const canDismiss = computed(() => {
   const h = host.value;
@@ -346,7 +350,9 @@ watch(
 
 /**
  * 一键修复：按依赖顺序处理实际未就绪项。
- * 桥接未活时用 restart（比单纯 start 更能清残留，对齐用户实测）。
+ * - 桥接优先；虚拟键盘不依赖声卡，先于声卡修
+ * - 声卡「需重启」只记一次，不中断后续独立步骤
+ * - 每步以复测结果为准
  */
 async function autoRepairAll() {
   if (primaryDisabled.value) return;
@@ -355,9 +361,11 @@ async function autoRepairAll() {
   repairDismissed.value = false;
   repairStepLog.value = [];
   repairFinished.value = false;
+  showVoiceReboot.value = false;
   prependLog("一键修复：开始");
   let prevSnapshot = "";
   let stagnantRounds = 0;
+  let cableRebootAsked = false;
   try {
     for (let round = 0; round < 10; round++) {
       await refreshHost();
@@ -379,6 +387,7 @@ async function autoRepairAll() {
         h.winuhid_ready,
         h.atvv_ok,
         h.audio_alive,
+        cableRebootAsked,
       ].join(",");
       if (snapshot === prevSnapshot) {
         stagnantRounds++;
@@ -405,31 +414,7 @@ async function autoRepairAll() {
         continue;
       }
 
-      if (!h.cable_ready) {
-        prependLog("一键修复：虚拟声卡未就绪，自动检测");
-        await runVoiceAutoRepair();
-        await refreshHost();
-        const ok = !!host.value.cable_ready;
-        repairStepLog.value.push({
-          label: "虚拟声卡",
-          ok,
-          msg: ok
-            ? "已就绪"
-            : showVoiceReboot.value
-              ? "需重启后生效"
-              : describeStepError(host.value.detail || "未就绪"),
-          ...(ok
-            ? {}
-            : {
-                suggestion: showVoiceReboot.value
-                  ? "重启电脑后重新打开软件"
-                  : describeStepError(host.value.detail || ""),
-              }),
-        });
-        if (showVoiceReboot.value) break;
-        continue;
-      }
-
+      // 虚拟键盘：不依赖声卡，先修，避免被声卡重启提示挡住
       if (!h.winuhid_ready) {
         prependLog("一键修复：虚拟键盘未就绪，使用内嵌源自动修复");
         await chooseWinuhidSource("embedded");
@@ -441,6 +426,37 @@ async function autoRepairAll() {
           msg: ok ? "已就绪" : describeStepError(host.value.detail || "未就绪"),
           ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
         });
+        continue;
+      }
+
+      if (!h.cable_ready) {
+        if (cableRebootAsked) {
+          prependLog("一键修复：虚拟声卡等待重启，跳过重复安装，继续其它项");
+        } else {
+          prependLog("一键修复：虚拟声卡未就绪，自动检测");
+          await runVoiceAutoRepair();
+          await refreshHost();
+          const ok = !!host.value.cable_ready;
+          const needReboot = showVoiceReboot.value && !ok;
+          if (needReboot) cableRebootAsked = true;
+          repairStepLog.value.push({
+            label: "虚拟声卡",
+            ok,
+            msg: ok
+              ? "已就绪"
+              : needReboot
+                ? "需重启后生效"
+                : describeStepError(host.value.detail || "未就绪"),
+            ...(ok
+              ? {}
+              : {
+                  suggestion: needReboot
+                    ? "重启电脑后重新打开软件，会自动继续"
+                    : describeStepError(host.value.detail || ""),
+                }),
+          });
+        }
+        // 不再 break：继续修键盘已完成后的其它独立项
         continue;
       }
 

@@ -327,6 +327,51 @@ fn app_path_for_script() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn cable_reboot_flag_path() -> PathBuf {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    Path::new(&local)
+        .join("2655AI")
+        .join("BridgeAudio")
+        .join("XiaomiRemoteBridge")
+        .join("reboot-required.flag")
+}
+
+/// flag 写入时间晚于本次开机 → 尚未真正重启；早于开机 → 已重启过
+fn cable_reboot_already_honored() -> bool {
+    let path = cable_reboot_flag_path();
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return false;
+    };
+    let Ok(flag_time) = meta.modified() else {
+        return false;
+    };
+    let Ok(age) = flag_time.elapsed() else {
+        return false;
+    };
+    let Ok(up) = os_uptime() else {
+        return false;
+    };
+    age > up
+}
+
+#[cfg(target_os = "windows")]
+extern "system" {
+    fn GetTickCount64() -> u64;
+}
+
+#[cfg(target_os = "windows")]
+fn os_uptime() -> std::io::Result<Duration> {
+    Ok(Duration::from_millis(unsafe { GetTickCount64() }))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn os_uptime() -> std::io::Result<Duration> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "uptime",
+    ))
+}
+
 fn script_result_line(text: &str) -> Option<&str> {
     text.lines()
         .find_map(|l| l.trim().strip_prefix("Result: ").map(str::trim))
@@ -334,8 +379,11 @@ fn script_result_line(text: &str) -> Option<&str> {
 
 fn humanize_script_result(raw: &str, ready: bool, needs_reboot: bool) -> String {
     let lower = raw.to_ascii_lowercase();
-    if lower.contains("restart required") || raw.contains("需要重启") {
-        return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后再点一次「虚拟声卡修复」。"
+    let script_says_reboot =
+        lower.contains("restart required") || raw.contains("需要重启");
+    // 仅当调用方仍承认 needs_reboot 时才展示重启文案（已重启降级则走失败路径）
+    if needs_reboot && script_says_reboot {
+        return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后打开应用会自动继续。"
             .into();
     }
     if let Some(rest) = raw.strip_prefix("WARNING:") {
@@ -349,25 +397,28 @@ fn humanize_script_result(raw: &str, ready: bool, needs_reboot: bool) -> String 
             "未获得管理员授权（UAC），安装已取消。".into()
         } else if detail.to_ascii_lowercase().contains("hash mismatch") {
             "内嵌驱动包校验失败，请改用官网驱动或重装本软件。".into()
-        } else if detail.to_ascii_lowercase().contains("not available")
-            || detail.to_ascii_lowercase().contains("not ready")
+        } else if detail.to_ascii_lowercase().contains("endpoints not available")
+            || detail.to_ascii_lowercase().contains("not a reboot issue")
+            || detail.to_ascii_lowercase().contains("not available")
         {
-            "仍未检测到 CABLE Output，请重启电脑后再试。".into()
+            "安装后仍检测不到 CABLE 端点（不是重启问题）。请查看应用日志或用官网驱动重装。".into()
         } else {
             detail.to_string()
         };
         return format!("虚拟声卡修复未完成：{detail_cn}");
+    }
+    if script_says_reboot && !ready {
+        return "虚拟声卡安装未生效（已排除简单重启后仍失败的情况）。请查看日志或官网重装驱动。".into();
     }
     if raw.eq_ignore_ascii_case("OK") || raw.is_empty() {
         if ready {
             return "语音环境已就绪：VB-CABLE 可用，默认麦克风已设为 CABLE Output。".into();
         }
         if needs_reboot {
-            return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后再点一次「虚拟声卡修复」。"
+            return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后打开应用会自动继续。"
                 .into();
         }
-        return "脚本已执行，但尚未检测到 CABLE Input/Output。若刚装驱动请重启后再试。"
-            .into();
+        return "脚本已执行，但尚未检测到 CABLE Input/Output。请查看日志，不要反复重启。".into();
     }
     if ready {
         format!("语音环境已就绪（{raw}）。")
@@ -430,10 +481,17 @@ fn run_configure_script_ex(mode: &str, zip: &Path, force: bool) -> Result<VoiceE
     }
 
     let result_raw = script_result_line(&stdout).unwrap_or("").to_string();
-    let needs_reboot = result_raw.to_ascii_lowercase().contains("restart required")
+    let mut needs_reboot = result_raw.to_ascii_lowercase().contains("restart required")
         || result_raw.contains("需要重启")
         || stdout.to_ascii_lowercase().contains("restart required")
         || output.status.code() == Some(3010);
+
+    // 已重启过仍探测不到 → 降级为失败，禁止再弹「必须重启」
+    if needs_reboot && cable_reboot_already_honored() {
+        log::warn!("VB-CABLE claims reboot needed but system already rebooted — demoting to failure");
+        needs_reboot = false;
+        let _ = std::fs::remove_file(cable_reboot_flag_path());
+    }
 
     // 稍等端点出现（强制重探，安装后缓存必须失效）
     invalidate_cable_probe_cache();
