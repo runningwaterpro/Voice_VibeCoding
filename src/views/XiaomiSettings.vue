@@ -2083,10 +2083,7 @@ async function retryLoadConfig() {
       </div>
     </Transition>
 
-    <div
-      class="vol-meters-card vol-meters-full"
-      :class="{ 'is-idle': railState !== 'ready' && railState !== 'voice' }"
-    >
+    <div class="vol-meters-card vol-meters-full">
           <CableVolRuler
             :level="voiceMeter.bleLevel"
             :active="voiceMeter.bleState === 'receiving'"
@@ -3473,11 +3470,6 @@ async function retryLoadConfig() {
   min-width: 120px;
 }
 
-/* v5.2: 非就绪电平降权 */
-.vol-meters-card.is-idle {
-  opacity: 0.35;
-  pointer-events: none;
-}
 .vol-meters-card {
   display: flex;
   flex-direction: column;

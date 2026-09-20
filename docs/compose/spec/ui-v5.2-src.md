@@ -17,6 +17,7 @@ commits: 69bc721..3022939
 **Journey log**
 - v5.1 曾故意对齐程序基线；v5.2 仅 demo，`src/` 相对 `gh/main` 零改动——本次补上。
 - 遮罩 `position:absolute; inset:0` 已拦点击，不重复加锁层（ponytail）。
+- **C5 回退**：电平整卡 `.is-idle` 误伤增益开关（用户装包实测）；已删 idle，电平卡恢复上一版。
 - Pre-existing：`repairFinished`/`repairStepLog` ready 后不清，下次异常可能显示上次成功标题；可另开小任务。
 - 托盘 `tray-auto-repair` 可在 12s boot grace 内触发：卡不丢，标题暂为「正在启动…」。
 
@@ -34,7 +35,7 @@ Demo `ui-redesign-demo-v5.2.html` 已定稿 6 处体验合同；产品 `src/` �
 | C2 | 修复中 **步骤实时**：`repairStepLog` 有项即渲染（不再要求 `repairFinished`） | 修复中卡内步骤逐条出现 |
 | C3 | 修复中 **不给「稍后」**：`canDismiss && !autoRepairing` | 修复中无次钮 |
 | C4 | 遮罩 `rgba(0,0,0,.55)` + `blur(2px)`；卡 `border-radius:10px`、阴影收为 `0 12px 32px rgba(0,0,0,.4)` | 视觉与 demo 一致 |
-| C5 | 非 `ready/voice` 时电平卡 `.is-idle`（`opacity:.35; pointer-events:none`） | 异常/启动电平变淡 |
+| C5 | ~~非 `ready/voice` 时电平卡 `.is-idle`~~ **用户否决（2026-09-20）**：整卡变暗且禁用增益；**回退为始终正常亮度、始终可点** | 电平卡无 `is-idle`；自动增益任意状态可切换 |
 | C6 | `SideNav` 设置钮：齿轮 SVG +「设置」（路径抄 demo） | 状态栏右侧有齿轮 |
 | C7 | `KeyMappingStage` `.map-bind.unbound`：透明底 + `1px dashed #3a424e` pill | 未映射可见虚线框 |
 | C8 | 删 `.more-ops` 死 CSS 及 reduced-motion 引用；删未使用的 `showActionBar` | 源码无 `more-ops` |
@@ -53,6 +54,7 @@ Demo `ui-redesign-demo-v5.2.html` 已定稿 6 处体验合同；产品 `src/` �
 ## Tasks
 
 - [x] T1: spec — 验收: 本文件 status 设计完成 (covers: S2)
-- [x] T2: C1–C5、C8 in `XiaomiSettings.vue` — 验收: 修复中卡在+步骤实时+无稍后；CSS 数值对齐；无 `more-ops` (covers: S2; depends: T1)
+- [x] T2: C1–C4、C8 in `XiaomiSettings.vue` — 验收: 修复中卡在+步骤实时+无稍后；CSS 数值对齐；无 `more-ops` (covers: S2; depends: T1)
+- [x] T5: 回退 C5 电平 idle — 验收: 无 `.vol-meters-card.is-idle`；增益始终可点 (covers: S2 C5; depends: T2)
 - [x] T3: C6 `SideNav.vue` + C7 `KeyMappingStage.vue` — 验收: 齿轮在；未映射虚线 pill (covers: S2; depends: T1)
 - [x] T4: `npm run build` + `npm test` — 验收: 全绿或 PRE-EXISTING 有记录 (covers: S2; depends: T2, T3)
