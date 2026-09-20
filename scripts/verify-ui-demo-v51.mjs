@@ -9,43 +9,46 @@ const ok = (name, cond) => {
 };
 
 ok("title v5.1", html.includes("Demo v5.1"));
-ok("demo-bar v5.1", html.includes("预览控制 · v5.1"));
+ok("demo-bar copy", html.includes("居中卡唯一交互面"));
 ok("bindCount el", html.includes('id="bindCount"'));
 ok("bind CSS", html.includes(".bind-count{"));
 ok("count text", html.includes("已绑定"));
 ok("actions isSel", html.includes("const actions=isSel"));
 ok("forceNoBlock", html.includes("forceNoBlock"));
-ok("showBar primary", html.includes("showBar && s.primary"));
+ok("no showBar revival", !html.includes("showBar && s.primary") && !html.includes("const showBar"));
+ok("action bar always hidden", html.includes('setActionBarVisible(bar,false)'));
+ok("btnPrimary forced hidden", html.includes("btnP.hidden=true"));
 ok("v5.0 still v5.0 title", v50.includes("Demo v5.0"));
 ok("v5.0 not v5.1", !v50.includes("Demo v5.1"));
 
-const healthy = (n) => ["ready", "voice", "done_ok"].includes(n);
-function layer(name, s = {}) {
-  const useModalOnly =
-    ["booting", "repairing", "done_partial", "done_fail"].includes(name) ||
-    (!!s.showRepairModal && !healthy(name) && name !== "done_ok");
-  const useBarOnly = !healthy(name) && !useModalOnly && name !== "done_ok";
-  const forceNoBlock = ["done_ok", "ready", "voice"].includes(name);
-  return { modal: !forceNoBlock && useModalOnly, bar: !forceNoBlock && useBarOnly };
+/* Mirrors applyState contract after correction:
+   ready/voice/done_ok → no modal no bar
+   any other → modal only, bar always false */
+function layer(name) {
+  const forceNoBlock = ["ready", "voice", "done_ok"].includes(name);
+  return { modal: !forceNoBlock, bar: false };
 }
 
 const cases = [
-  ["ready", {}, false, false],
-  ["voice", {}, false, false],
-  ["done_ok", {}, false, false],
-  ["booting", { booting: true }, true, false],
-  ["repairing", { showRepairModal: true }, true, false],
-  ["done_partial", { showRepairModal: true }, true, false],
-  ["done_fail", { showRepairModal: true }, true, false],
-  ["error", {}, false, true],
-  ["err_bridge", {}, false, true],
-  ["err_hid", {}, false, true],
-  ["idle", {}, false, true],
+  ["ready", false],
+  ["voice", false],
+  ["done_ok", false],
+  ["booting", true],
+  ["repairing", true],
+  ["done_partial", true],
+  ["done_fail", true],
+  ["error", true],
+  ["err_bridge", true],
+  ["err_hid", true],
+  ["err_cable", true],
+  ["err_route", true],
+  ["idle", true],
+  ["connecting", true],
 ];
-for (const [n, s, em, eb] of cases) {
-  const r = layer(n, s);
-  ok(`layer ${n} modal=${r.modal} bar=${r.bar}`, r.modal === em && r.bar === eb);
-  if (r.modal && r.bar) ok(`dual exclusive ${n}`, false);
+for (const [n, em] of cases) {
+  const r = layer(n);
+  ok(`layer ${n} modal=${r.modal} bar=${r.bar}`, r.modal === em && r.bar === false);
+  if (r.bar) ok(`bar never ${n}`, false);
 }
 
 const KEYS = [
@@ -57,10 +60,7 @@ const KEYS = [
 const real = KEYS.filter((k) => !k.ghost);
 const bound = real.filter((k) => k.bind && k.bind !== "未映射").length;
 ok(`bindCount ${bound}/${real.length}`, bound === 2 && real.length === 3);
-
-// unselected cards must not contain map-card-actions in static sense:
-// renderMaps only adds actions when isSel — verify source pattern once
-ok("no always-on actions template", !html.includes('el.innerHTML=`\n      <div class="map-card-main">') || html.includes("const actions=isSel"));
+ok("lean cards", html.includes("const actions=isSel"));
 
 console.log(fail === 0 ? "ALL PASS" : "FAILURES=" + fail);
 process.exit(fail ? 1 : 0);

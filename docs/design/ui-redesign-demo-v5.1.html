@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Voice VibeCoding · 界面 Demo v5.1（状态分层 · 映射卡精简 · 修复成功不挡）</title>
+<title>Voice VibeCoding · 界面 Demo v5.1（居中卡唯一交互面 · 映射精简 · 成功不挡）</title>
 <style>
 :root {
   --chassis:#171a1f; --panel:#1f242b; --panel2:#262c35; --edge:#343b46;
@@ -789,7 +789,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 <body>
 <!-- 预览控制：机身外，不进入 .app -->
 <div class="demo-bar" role="region" aria-label="预览控制">
-  <span>预览控制 · v5.1：唯一主操作 · 映射卡精简 · 成功不挡</span>
+  <span>预览控制 · v5.1：居中卡唯一交互面 · 映射精简 · 成功不挡</span>
   <button type="button" data-state="booting">启动中</button>
   <button type="button" data-state="err_bridge">桥接未运行</button>
   <button type="button" data-state="error">语音异常</button>
@@ -1491,22 +1491,14 @@ function applyState(name){
   if(s.sub){sub.hidden=false;sub.textContent=s.sub;} else {sub.hidden=true;sub.textContent="";}
   const healthy=["ready","voice","done_ok"].includes(name);
 
-  /* v5.1 状态分层：主操作唯一
-     ready/voice/done_ok → 无条无卡
-     booting/repairing/done_partial/done_fail → 仅居中卡
-     其余异常/idle/connecting/err_* → 仅异常条（含主按钮） */
-  const useModalOnly=["booting","repairing","done_partial","done_fail"].includes(name)
-    || (!!s.showRepairModal && !healthy && name!=="done_ok");
-  const useBarOnly=!healthy && !useModalOnly && name!=="done_ok";
-  /* done_ok：强制不挡（item 5） */
-  const forceNoBlock=name==="done_ok"||name==="ready"||name==="voice";
+  /* v5.1 纠偏：居中卡 = 唯一交互面（beeca74 / 产品 Vue / v5.0 合同）
+     action-bar 永久隐藏；禁止 showBar 复活顶栏异常条 */
+  const forceNoBlock=["ready","voice","done_ok"].includes(name);
+  const showModal=!forceNoBlock; /* 非健康态一律居中卡 */
 
   const bar=$("actionBar");
   const modal=$("repairModal");
-  const showModal=!forceNoBlock && useModalOnly;
-  const showBar=!forceNoBlock && useBarOnly;
-
-  setActionBarVisible(bar,showBar);
+  setActionBarVisible(bar,false);
   if(modal){
     modal.hidden=!showModal;
     modal.classList.toggle("booting",!!s.booting);
@@ -1517,7 +1509,7 @@ function applyState(name){
     const hide=el=>el&&el.classList.add("hide");
     const show=el=>el&&el.classList.remove("hide");
     if(!showModal){/* modal hidden */}
-    else if(s.booting){
+    else if(s.booting||name==="booting"){
       show(bootRow);show(wave);hide(titleIdle);
       t.textContent="正在启动…";
       d.textContent="桥接与语音通道初始化中，请稍候。";show(d);
@@ -1527,10 +1519,24 @@ function applyState(name){
       titleIdle.textContent=s.repairTitle||s.qH||"出现异常";
       if(s.repairDesc){d.textContent=s.repairDesc;show(d)}
       else{d.textContent=s.qS||"点下方按钮自动修复。";show(d)}
+      /* 卡内唯一主操作：优先 showRepairButtons 文案，否则按 primary 映射，再否则一键修复 */
+      const primaryMap={
+        btnRepairAtvv:"修复 ATVV 连接",
+        btnRepairHid:"修复虚拟键盘",
+        btnRepairCable:"虚拟声卡修复",
+        btnRestart:"重启桥接",
+        btnReconnect:"重新连接",
+      };
       if(s.repairSteps){
         if(s.showRepairButtons){show(btn);btn.textContent=s.repairPrimaryLabel||"一键修复"}else hide(btn);
         if(s.repairCanDismiss)show(later);else hide(later);
-      }else{show(btn);btn.textContent="一键修复";show(later)}
+      }else{
+        show(btn);
+        btn.textContent=primaryMap[s.primary]||"一键修复";
+        /* 桥接未活等不可「稍后」；其余异常可稍后（对齐 53f43db / 产品） */
+        const noLater=["err_bridge","idle","connecting"].includes(name)||s.primary==="btnReconnect";
+        if(noLater)hide(later);else show(later);
+      }
       if(s.repairSteps&&s.repairSteps.length){
         show(stepsEl);
         let h='<div class="repair-steps-title">修复步骤</div>';
@@ -1551,27 +1557,16 @@ function applyState(name){
   if(pulse) pulse.hidden=true;
   $("qHeadline").textContent=s.qH;
   $("qSub").textContent=s.qS;
+  /* action-bar 主钮永不出现 */
   const btnP=$("btnPrimary");
   const grp=$("repairGroup");
-  /* 异常条：唯一主操作层 */
-  if(btnP){
-    if(showBar && s.primary){
-      btnP.hidden=false;
-      const map={btnRepairAtvv:"修复 ATVV 连接",btnRepairHid:"修复虚拟键盘",btnRepairCable:"虚拟声卡修复",btnRestart:"重启桥接",btnReconnect:s.conn||"重新连接"};
-      btnP.textContent=map[s.primary]||s.conn||"一键修复";
-      btnP.className="btn "+(s.connCls==="primary"?"primary":"attention");
-      if(grp)grp.hidden=false;
-      if(bar)bar.classList.remove("no-primary");
-    }else{
-      btnP.hidden=true;btnP.textContent="";
-      if(grp)grp.hidden=true;
-      if(bar)bar.classList.add("no-primary");
-    }
+  if(btnP){btnP.hidden=true;btnP.textContent="";}
+  if(grp) grp.hidden=true;
+  if(bar){
+    bar.classList.add("no-primary");
+    bar.hidden=true;
   }
-  const sec=(s.secondary&&s.secondary[0])||null;
-  /* secondary 并入「更多」已有 force-repair；条上只留一个主钮 */
   if($("moreOps")) $("moreOps").open=false;
-  void sec;
   $("markIn").style.left=s.inMark+"%";$("markOut").style.left=s.outMark+"%";
   $("meterIn").className="meter "+s.inCls;$("meterOut").className="meter "+s.outCls;
   $("hintIn").textContent=s.hintIn;$("hintOut").textContent=s.hintOut;
