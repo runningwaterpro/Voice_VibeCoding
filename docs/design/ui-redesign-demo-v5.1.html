@@ -508,7 +508,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .map-card:hover,.map-card.hover{border-color:rgba(59,130,246,.45)}
 .map-card.active{border-color:var(--link);background:#243044;box-shadow:0 0 0 1px rgba(59,130,246,.25)}
 .map-card-main{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;min-height:38px}
-/* actions always in DOM; only visible when card is active */
+/* v5.1: actions 仅选中卡渲染 */
 .map-card-actions{
   display:grid;grid-template-rows:0fr;
   transition:grid-template-rows var(--t-ui) var(--ease-out);

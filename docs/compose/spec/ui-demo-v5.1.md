@@ -1,14 +1,20 @@
 ---
 feature: ui-demo-v5.1
-status: designed
+status: delivered
 updated: 2026-09-18
 branch: feat/ui-demo-v5.1
-commits: # filled at delivery
+commits: 61d4729..0e9bdea
 ---
 
 # UI Demo v5.1（状态分层 · 映射卡精简 · 修复成功不挡）
 
 ## Report
+
+**What was built** — 新增 `docs/design/ui-redesign-demo-v5.1.html`（不改 v5.0）：状态唯一主操作分层（异常条 ⊕ 居中卡 ⊕ 健康态皆无）、映射卡默认无三键仅选中展开并显示 `已绑定 n/m`、`done_ok` 强制不弹修复模态。附 `scripts/verify-ui-demo-v51.mjs` 静态验收。
+
+**Verification** — `node scripts/verify-ui-demo-v51.mjs` → ALL PASS（23 项）；`git diff 61d4729 -- ui-redesign-demo-v5.0.html` 空；Review：T1–T5 全 Met、无 critical。
+
+**Journey log** — 本地无 `main`，worktree 基线用 `gh/main`；v5.0 在工作区未跟踪副本与 `gh/main` 标题文案可能不一致，以 worktree 内 tracked 文件为准；`data-force-repair` 无 handler 为 v5.0 预存问题，本 feature 不修。
 
 ## [S1] Problem
 
@@ -77,8 +83,8 @@ commits: # filled at delivery
 
 ## Tasks
 
-- [ ] T1: 复制 v5.0 → `ui-redesign-demo-v5.1.html` 并改 title/demo-bar 标识 — 验收: 文件存在；打开标题为 v5.1；`ui-redesign-demo-v5.0.html` git 状态未变 (covers: S2.4)
-- [ ] T2: 实现状态唯一主操作分层 — 验收: 对 `ready`/`error`/`booting`/`repairing`/`done_ok`/`done_partial` 切换后，主操作仅存在于表中规定的一层 (covers: S2.1; depends: T1)
-- [ ] T3: 映射卡默认无三键 + `#bindCount` — 验收: 未选中卡无 `.map-card-actions`；存在 `已绑定 n/m`；选中卡恢复按钮 (covers: S2.2; depends: T1)
-- [ ] T4: `done_ok` 不显示修复模态 — 验收: 点 demo-bar「全部成功」后 `#repairModal` 为 hidden，无异常条 (covers: S2.1, S2.3; depends: T2)
-- [ ] T5: 预览点检 — 验收: demo-bar 至少 booting / 桥接未运行 / 就绪 / 修复中 / 全部成功 五态人工或脚本核对 T2–T4 (covers: S2; depends: T2, T3, T4)
+- [x] T1: 复制 v5.0 → `ui-redesign-demo-v5.1.html` 并改 title/demo-bar 标识 — 验收: 文件存在；打开标题为 v5.1；`ui-redesign-demo-v5.0.html` git 状态未变 (covers: S2.4)
+- [x] T2: 实现状态唯一主操作分层 — 验收: 对 `ready`/`error`/`booting`/`repairing`/`done_ok`/`done_partial` 切换后，主操作仅存在于表中规定的一层 (covers: S2.1; depends: T1)
+- [x] T3: 映射卡默认无三键 + `#bindCount` — 验收: 未选中卡无 `.map-card-actions`；存在 `已绑定 n/m`；选中卡恢复按钮 (covers: S2.2; depends: T1)
+- [x] T4: `done_ok` 不显示修复模态 — 验收: 点 demo-bar「全部成功」后 `#repairModal` 为 hidden，无异常条 (covers: S2.1, S2.3; depends: T2)
+- [x] T5: 预览点检 — 验收: 脚本 `scripts/verify-ui-demo-v51.mjs` ALL PASS；人工打开 HTML 看样式 (covers: S2; depends: T2, T3, T4)
