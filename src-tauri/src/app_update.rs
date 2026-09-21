@@ -9,6 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// 总开关：false = 关闭「检查上游仓库更新」（代码保留）。
+/// 后续若改为查自己的仓库，改回 true 并替换 GITEE_RAW / GITHUB_RAW 即可。
+pub const UPDATE_CHECK_ENABLED: bool = false;
+
 const GITEE_RAW: &str =
     "https://gitee.com/mwlt/remote-voice-vibe-coding/raw/main/update/latest.json";
 const GITHUB_RAW: &str =
@@ -184,8 +188,26 @@ fn build_result(
     }
 }
 
+/// 检测被总开关关闭时的占位结果（不访问网络、不弹窗）
+fn disabled_check_result() -> UpdateCheckResult {
+    let r = UpdateCheckResult {
+        checked: false,
+        current_version: current_version().into(),
+        source: "disabled".into(),
+        error: Some("更新检查已关闭（当前不检查上游仓库）".into()),
+        ..Default::default()
+    };
+    *LAST_RESULT.lock() = Some(r.clone());
+    log::info!("UPDATE check skipped: UPDATE_CHECK_ENABLED=false");
+    r
+}
+
 /// Gitee raw 优先，失败再 GitHub raw
 pub fn check_for_update(config: &ConfigManager) -> UpdateCheckResult {
+    if !UPDATE_CHECK_ENABLED {
+        return disabled_check_result();
+    }
+
     let ignored = config
         .get_global_settings()
         .ok()
@@ -263,6 +285,10 @@ pub fn emit_if_available(app: &AppHandle, result: &UpdateCheckResult) {
 }
 
 pub fn spawn_startup_check(app: AppHandle) {
+    if !UPDATE_CHECK_ENABLED {
+        log::info!("UPDATE startup check skipped: UPDATE_CHECK_ENABLED=false");
+        return;
+    }
     std::thread::Builder::new()
         .name("app-update-check".into())
         .spawn(move || {

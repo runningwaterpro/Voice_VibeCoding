@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_UPDATE_AUTO_OPEN_DELAY_MS,
+  isUpdateCheckDisabled,
   shouldAutoOpenForSession,
   shouldAutoOpenModal,
   shouldOpenModalFromManualCheck,
@@ -56,6 +57,25 @@ describe("shouldOpenModalFromManualCheck", () => {
 
   it("does not open when no update", () => {
     expect(shouldOpenModalFromManualCheck(info({ updateAvailable: false }))).toBe(false);
+  });
+});
+
+describe("isUpdateCheckDisabled / disabled result", () => {
+  it("detects source=disabled", () => {
+    expect(isUpdateCheckDisabled(info({ source: "disabled" }))).toBe(true);
+    expect(isUpdateCheckDisabled(info({ source: "gitee" }))).toBe(false);
+    expect(isUpdateCheckDisabled(null)).toBe(false);
+  });
+
+  it("never shows passive or manual prompt when disabled", () => {
+    const off = info({
+      source: "disabled",
+      updateAvailable: true,
+      promptSuppressed: false,
+    });
+    expect(shouldShowPassivePrompt(off)).toBe(false);
+    expect(shouldOpenModalFromManualCheck(off)).toBe(false);
+    expect(shouldAutoOpenModal(off)).toBe(false);
   });
 });
 
