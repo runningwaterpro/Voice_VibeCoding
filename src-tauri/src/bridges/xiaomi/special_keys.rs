@@ -160,10 +160,33 @@ pub fn is_hook_armed() -> bool {
 }
 
 /// 录入开始：只保证钩子线程在跑。
-/// **禁止**这里无条件 bump——探针失败时由 capture `start` 走 `bump_and_settle`。
+/// **禁止**这里无条件 bump——探针失败时由 capture 走 restart/bump 恢复。
 pub fn ensure_hook_for_capture() {
     HOOK_ENABLED.store(true, Ordering::Release);
     start_special_key_hook();
+}
+
+/// 整线程重启：停钩子线程再起新的 SetWindowsHookEx。
+/// 比 bump 更狠：用于「句柄在但收不到键」的假就绪。
+pub fn restart_special_key_hook() {
+    log::info!("[DEBUG-cap] hook thread restart begin");
+    stop_special_key_hook();
+    // 等线程退出
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while is_hook_running() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    HOOK_ENABLED.store(true, Ordering::Release);
+    start_special_key_hook();
+    let deadline = Instant::now() + Duration::from_millis(800);
+    while !is_hook_armed() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    log::info!(
+        "[DEBUG-cap] hook thread restart done running={} armed={}",
+        is_hook_running(),
+        is_hook_armed()
+    );
 }
 
 pub fn start_special_key_hook() {

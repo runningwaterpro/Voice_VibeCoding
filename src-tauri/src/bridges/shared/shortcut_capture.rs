@@ -359,6 +359,9 @@ static HOOK_PROC_SEEN: AtomicBool = AtomicBool::new(false);
 static LAST_HOOK_PROC_VK: AtomicU32 = AtomicU32::new(0);
 static WEB_LEAKS: AtomicU32 = AtomicU32::new(0);
 static HEALTH_FAILED: AtomicBool = AtomicBool::new(false);
+static LEAK_RESTARTS: AtomicU32 = AtomicU32::new(0);
+static LEAK_RESTART_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static LAST_LEAK_RESTART: Mutex<Option<Instant>> = Mutex::new(None);
 static BLOCKED_VKS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -375,28 +378,49 @@ pub fn note_hook_proc_hit(vk: u32) {
 }
 
 /// 前端在 capturing 期间收到 keydown = LL 钩子未吞住 → 记一次漏键。
-/// 第 1 次尝试 recovery bump；≥2 次标 health_failed（禁止假装可录）。
+/// 组合键（如 Shift+F10）会连发多个 keydown：先整线程重启并吸收同波，
+/// 重启完成后再漏才 health_failed。
 pub fn note_web_leak(vk: u32) {
     if !SWALLOW_ACTIVE.load(Ordering::SeqCst) {
         return;
     }
+    // 重启进行中：吸收同一和弦的后续键，避免 2 次 keydown 直接判死
+    if LEAK_RESTART_IN_FLIGHT.load(Ordering::SeqCst) {
+        log::info!("[DEBUG-cap] web leak absorbed (restart in flight) vk=0x{vk:02X}");
+        return;
+    }
     let n = WEB_LEAKS.fetch_add(1, Ordering::SeqCst) + 1;
     log::info!("[DEBUG-cap] web leak#{n} vk=0x{vk:02X} (hook did not swallow)");
-    if n == 1 {
-        #[cfg(target_os = "windows")]
-        {
-            // 不 join：避免阻塞 IPC/异步线程
-            std::thread::spawn(|| {
-                let out =
-                    crate::bridges::xiaomi::special_keys::bump_hook_to_front_and_settle(200);
-                log::info!("[DEBUG-cap] leak recovery bump out={out:?}");
-            });
+
+    // 已经重启过、且距上次重启超过 400ms 仍漏 → 真失败
+    let restarts = LEAK_RESTARTS.load(Ordering::SeqCst);
+    if restarts >= 1 {
+        let last = LAST_LEAK_RESTART.lock().unwrap().clone();
+        if let Some(t) = last {
+            if t.elapsed() >= Duration::from_millis(400) {
+                HEALTH_FAILED.store(true, Ordering::SeqCst);
+                log::error!("[DEBUG-cap] capture health FAILED after restart still leaking");
+                return;
+            }
         }
     }
-    if n >= 2 {
-        HEALTH_FAILED.store(true, Ordering::SeqCst);
-        log::error!("[DEBUG-cap] capture health FAILED after {n} leaks");
-    }
+
+    // 第一波：整线程重启（比 bump 更能清假就绪）
+    LEAK_RESTART_IN_FLIGHT.store(true, Ordering::SeqCst);
+    std::thread::spawn(|| {
+        #[cfg(target_os = "windows")]
+        {
+            crate::bridges::xiaomi::special_keys::restart_special_key_hook();
+            // 重启后清计数，给用户一次干净的重试波
+            WEB_LEAKS.store(0, Ordering::SeqCst);
+            LEAK_RESTARTS.fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
+                *t = Some(Instant::now());
+            }
+            log::info!("[DEBUG-cap] leak full hook restart done");
+        }
+        LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
 }
 
 fn reset_hook_session() {
@@ -405,6 +429,11 @@ fn reset_hook_session() {
     LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
     WEB_LEAKS.store(0, Ordering::SeqCst);
     HEALTH_FAILED.store(false, Ordering::SeqCst);
+    LEAK_RESTARTS.store(0, Ordering::SeqCst);
+    LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
+    if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
+        *t = None;
+    }
     if let Ok(mut blocked) = BLOCKED_VKS.lock() {
         blocked.clear();
     }
@@ -1092,22 +1121,28 @@ impl ShortcutCaptureSession {
         set_swallow_active(true);
         consumer_listen::start();
 
-        // 就绪优先看「钩子 armed」；探针作恢复触发，**不单独否决**——
-        // 实测 SendInput F24 在物理键可录时仍可能 seen=false（探针假阴性）。
+        // 探针作恢复触发，不单独否决 start（SendInput 可能假阴性）。
+        // 失败时整线程重启，比 bump 更能处理「句柄在但收不到键」。
         #[cfg(target_os = "windows")]
         {
             probe_hook_alive();
             if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                log::info!("[DEBUG-cap] probe fail → bump_and_settle (soft, still start)");
+                log::info!("[DEBUG-cap] probe fail → restart hook thread (soft)");
+                crate::bridges::xiaomi::special_keys::restart_special_key_hook();
+                // 重启会拆钩子，需重开 swallow 与引擎旁路状态
+                // （engine/runtime 已在上面设置；swallow 已 true）
+                probe_hook_alive();
+            }
+            if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
+                log::info!("[DEBUG-cap] probe still fail → bump_and_settle");
                 let out =
                     crate::bridges::xiaomi::special_keys::bump_hook_to_front_and_settle(250);
                 log::info!("[DEBUG-cap] recovery out={out:?}");
                 probe_hook_alive();
             }
-            // 探针仍 false：不 Err——物理键路径可能仍可用（有 web leak 做运行时兜底）
             if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
                 log::warn!(
-                    "[DEBUG-cap] probe_seen=false after recovery; starting capture anyway (leak health armed)"
+                    "[DEBUG-cap] probe_seen=false after restart+bump; starting capture (leak health armed)"
                 );
             }
         }

@@ -18,16 +18,14 @@ fn probe_vk_never_feeds_engine() {
 
 #[test]
 fn probe_failure_must_not_hard_block_capture() {
-    // 探针 SendInput 可能假阴性；硬 Err 会让用户完全无法录入。
-    // 允许 recovery 后仍 start Ok；运行时靠 web leak health。
     let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
     assert!(
-        src.contains("starting capture anyway") || src.contains("soft, still start"),
-        "probe fail must not return Err that blocks UI capture"
+        src.contains("starting capture") || src.contains("leak health armed"),
+        "probe fail must continue into capture, not hard Err"
     );
     assert!(
-        !src.contains("无法捕获键盘：钩子未收到按键"),
-        "removed hard-fail message that blocked all capture attempts"
+        !src.contains("return Err(\n                    \"keyboard") && !src.contains("无法捕获键盘"),
+        "must not hard-fail start solely on probe"
     );
 }
 
@@ -68,11 +66,24 @@ fn ensure_hook_must_not_force_bump_every_capture() {
     let ensure = src
         .split("pub fn ensure_hook_for_capture")
         .nth(1)
-        .and_then(|s| s.split("pub fn start_special_key_hook").next())
+        .and_then(|s| s.split("pub fn restart_special_key_hook").next())
         .expect("ensure body");
     assert!(
         !ensure.contains("bump_hook_to_front"),
-        "ensure must not blind-bump every capture; recovery is probe-driven"
+        "ensure must not blind-bump every capture"
+    );
+}
+
+#[test]
+fn leak_chord_must_not_fail_before_restart() {
+    let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
+    assert!(
+        src.contains("LEAK_RESTART_IN_FLIGHT") || src.contains("restart in flight"),
+        "must absorb chord keys while hook restart in flight"
+    );
+    assert!(
+        src.contains("restart_special_key_hook"),
+        "leak recovery must full-restart hook thread"
     );
 }
 
@@ -82,17 +93,12 @@ fn frontend_must_not_set_capturing_before_start_returns() {
         "src/components/KeyMappingStage.vue",
         "src/components/KeyBindingEditor.vue",
     ] {
-        let path = format!("../{rel}");
-        let src = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-            // test cwd is src-tauri
-            std::fs::read_to_string(format!("../{rel}")).expect(rel)
-        });
-        // Find start function and ensure capturing=true comes after capture_shortcut_start await
+        let src = std::fs::read_to_string(format!("../{rel}")).expect(rel);
         let start_idx = src
             .find("async function startCapture")
             .or_else(|| src.find("async function startEdit"))
             .expect("start fn");
-        let chunk = &src[start_idx..src.len().min(start_idx + 800)];
+        let chunk = &src[start_idx..src.len().min(start_idx + 900)];
         let capturing_set = chunk.find("capturing.value = true").expect("set capturing");
         let invoke_pos = chunk
             .find("capture_shortcut_start")
