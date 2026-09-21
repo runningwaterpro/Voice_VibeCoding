@@ -65,14 +65,45 @@ watch(
   }
 );
 
-/** 录入期间：键到达 WebView = 钩子未吞住 */
+/** 录入期间：优先 WebView keydown 直接录入（不依赖 LL 钩子） */
+function vkFromEvent(e: KeyboardEvent): number {
+  return e.keyCode || e.which || 0;
+}
+function isModVk(vk: number): boolean {
+  return (
+    vk === 0x10 ||
+    vk === 0x11 ||
+    vk === 0x12 ||
+    vk === 0x5b ||
+    vk === 0x5c ||
+    vk === 0xa0 ||
+    vk === 0xa1 ||
+    vk === 0xa2 ||
+    vk === 0xa3 ||
+    vk === 0xa4 ||
+    vk === 0xa5
+  );
+}
+function chordFromEvent(e: KeyboardEvent): number[] {
+  const main = vkFromEvent(e);
+  if (!main || isModVk(main)) return [];
+  const mods: number[] = [];
+  if (e.ctrlKey) mods.push(e.location === 2 ? 0xa3 : 0xa2);
+  if (e.shiftKey) mods.push(0xa0);
+  if (e.altKey) mods.push(e.location === 2 ? 0xa5 : 0xa4);
+  if (e.metaKey) mods.push(0x5b);
+  return [...mods, main];
+}
+
 function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
-  const vk = e.keyCode || e.which || 0;
-  if (vk) {
-    void invoke("capture_shortcut_note_leak", { vk }).catch(() => {});
+  if (applied) return;
+  const chord = chordFromEvent(e);
+  if (chord.length > 0) {
+    const labels = chord.map((vk) => vkDisplayName(vk));
+    void onCaptured(chord, labels);
   }
 }
 

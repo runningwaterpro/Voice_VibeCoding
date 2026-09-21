@@ -150,24 +150,30 @@ fn leak_chord_must_not_fail_before_restart() {
 }
 
 #[test]
-fn frontend_must_not_set_capturing_before_start_returns() {
+fn frontend_records_chord_from_webview_keydown() {
+    // 第一性：钩子可能收不到键，但 WebView 能收到 keydown —— 必须能从前端录。
     for rel in [
         "src/components/KeyMappingStage.vue",
         "src/components/KeyBindingEditor.vue",
     ] {
         let src = std::fs::read_to_string(format!("../{rel}")).expect(rel);
-        let start_idx = src
-            .find("async function startCapture")
-            .or_else(|| src.find("async function startEdit"))
-            .expect("start fn");
-        let chunk = &src[start_idx..src.len().min(start_idx + 900)];
-        let capturing_set = chunk.find("capturing.value = true").expect("set capturing");
-        let invoke_pos = chunk
-            .find("capture_shortcut_start")
-            .expect("invoke start");
         assert!(
-            invoke_pos < capturing_set,
-            "{rel}: capturing must be set AFTER successful capture_shortcut_start"
+            src.contains("chordFromEvent"),
+            "{rel}: must build chord from KeyboardEvent"
+        );
+        let block = src
+            .split("function blockBrowserKeysDuringCapture")
+            .nth(1)
+            .and_then(|s| s.split("\nfunction ").next())
+            .or_else(|| {
+                src.split("function blockBrowserKeysDuringCapture")
+                    .nth(1)
+                    .and_then(|s| s.split("\nasync function ").next())
+            })
+            .expect("block fn");
+        assert!(
+            block.contains("onCaptured"),
+            "{rel}: keydown path must call onCaptured"
         );
     }
 }
