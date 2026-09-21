@@ -7,6 +7,7 @@ use crate::bridges::xiaomi::key_mapping::{
 };
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// 统一抑制窗口：LL hook 收到候选原生 VK 后，等待 pre_arm mark 的最长时间。
@@ -21,6 +22,8 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static HID_TAP_READY: AtomicBool = AtomicBool::new(false);
 static HOOK_ENABLED: AtomicBool = AtomicBool::new(true);
+/// 仅由当前拥有线程持有的 JoinHandle；stop 必须 join 后才能再 start。
+static HOOK_JOIN: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
 /// 遥控器正在注入 Alt 开头的组合键（如 Alt+Space, Alt+S），
 /// 由 key_mapping 在 key_chord 注入前设置、注入后清除。
@@ -160,22 +163,15 @@ pub fn is_hook_armed() -> bool {
 }
 
 /// 录入开始：只保证钩子线程在跑。
-/// **禁止**这里无条件 bump——探针失败时由 capture 走 restart/bump 恢复。
 pub fn ensure_hook_for_capture() {
     HOOK_ENABLED.store(true, Ordering::Release);
     start_special_key_hook();
 }
 
-/// 整线程重启：停钩子线程再起新的 SetWindowsHookEx。
-/// 比 bump 更狠：用于「句柄在但收不到键」的假就绪。
+/// 整线程重启：**必须先 join 旧线程**，禁止双线程抢 HOOK_PTR。
 pub fn restart_special_key_hook() {
     log::info!("[DEBUG-cap] hook thread restart begin");
-    stop_special_key_hook();
-    // 等线程退出
-    let deadline = Instant::now() + Duration::from_millis(500);
-    while is_hook_running() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    stop_special_key_hook(); // 内部 join
     HOOK_ENABLED.store(true, Ordering::Release);
     start_special_key_hook();
     let deadline = Instant::now() + Duration::from_millis(800);
@@ -199,9 +195,21 @@ pub fn start_special_key_hook() {
         log::info!("XIAOMI SPECIAL KEY hook disabled by config");
         return;
     }
-    if RUNNING.swap(true, Ordering::AcqRel) {
+    // 已在跑：什么都不做（禁止为了“确保”而拆掉活钩子）
+    if RUNNING.load(Ordering::Acquire) {
         return;
     }
+    // 可能残留未 join 的句柄（线程已退出但 handle 未 take）— 先收尸再起
+    {
+        let stale = HOOK_JOIN.lock().unwrap().is_some();
+        if stale {
+            stop_and_join_hook_thread();
+        }
+    }
+    if RUNNING.load(Ordering::Acquire) {
+        return;
+    }
+    RUNNING.store(true, Ordering::Release);
     let spawned = std::thread::Builder::new()
         .name("xiaomi-special-keys".into())
         .spawn(|| {
@@ -210,25 +218,40 @@ pub fn start_special_key_hook() {
             RUNNING.store(false, Ordering::Release);
             HOOK_THREAD_ID.store(0, Ordering::Release);
         });
-    // 线程启动失败要复位 RUNNING，否则钩子永久卡死且静默不重试
-    if spawned.is_err() {
-        RUNNING.store(false, Ordering::Release);
-        log::error!("XIAOMI SPECIAL KEY hook thread spawn failed");
-        return;
+    match spawned {
+        Ok(handle) => {
+            *HOOK_JOIN.lock().unwrap() = Some(handle);
+            log::info!("XIAOMI SPECIAL KEY hook starting");
+        }
+        Err(_) => {
+            RUNNING.store(false, Ordering::Release);
+            log::error!("XIAOMI SPECIAL KEY hook thread spawn failed");
+        }
     }
-    log::info!("XIAOMI SPECIAL KEY hook starting");
 }
 
-pub fn stop_special_key_hook() {
-    log::info!(
-        "[DEBUG-cap] hook stop req running={} tid={}",
-        RUNNING.load(Ordering::Acquire),
-        HOOK_THREAD_ID.load(Ordering::Acquire)
-    );
-    HID_TAP_READY.store(false, Ordering::Release);
-    if !RUNNING.swap(false, Ordering::AcqRel) {
-        return;
+fn stop_and_join_hook_thread() {
+    let handle = {
+        let mut g = HOOK_JOIN.lock().unwrap();
+        g.take()
+    };
+    if let Some(h) = handle {
+        // 先请求退出再 join
+        request_hook_thread_quit();
+        let _ = h.join();
+        RUNNING.store(false, Ordering::Release);
+        HOOK_THREAD_ID.store(0, Ordering::Release);
+        log::info!("[DEBUG-cap] hook thread joined");
+    } else if RUNNING.load(Ordering::Acquire) {
+        request_hook_thread_quit();
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while RUNNING.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
+}
+
+fn request_hook_thread_quit() {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
@@ -239,6 +262,16 @@ pub fn stop_special_key_hook() {
             }
         }
     }
+}
+
+pub fn stop_special_key_hook() {
+    log::info!(
+        "[DEBUG-cap] hook stop req running={} tid={}",
+        RUNNING.load(Ordering::Acquire),
+        HOOK_THREAD_ID.load(Ordering::Acquire)
+    );
+    HID_TAP_READY.store(false, Ordering::Release);
+    stop_and_join_hook_thread();
     log::info!("XIAOMI SPECIAL KEY hook stop requested");
 }
 
@@ -287,17 +320,12 @@ fn hook_loop() {
             let msg = wparam.0 as u32;
             let injected = info.dwExtraInfo == EXTRA_INFO || (flags & 0x10) != 0;
 
-            // 录入态：钩子入口全量打点，区分「没进门 / 当成注入放行 / 进了但没吞」
+            // 录入态：只记命中（原子），禁止在 LL 回调里做文件日志（会超时被 Windows 卸钩）
             if crate::bridges::shared::shortcut_capture::is_swallow_active() {
-                log::info!(
-                    "[DEBUG-cap] hook_proc vk=0x{vk:02X} wp=0x{msg:X} flags=0x{flags:X} extra=0x{:X} injected={injected}",
-                    info.dwExtraInfo
-                );
                 crate::bridges::shared::shortcut_capture::note_hook_proc_hit(vk);
             }
 
-            // 快捷键录入：最优先吞掉全部物理键（含 WM_SYSKEY* / Alt+Space / Win 热键）
-            // 必须在 CallNextHookEx 之前；第二套短生命周期钩子不可靠（易被超时静默卸掉）
+            // 快捷键录入：最优先吞掉全部物理键
             if crate::bridges::shared::shortcut_capture::try_swallow_capture_key(vk, msg, injected)
             {
                 return LRESULT(1);
@@ -373,7 +401,7 @@ fn hook_loop() {
                 break;
             }
             if msg.message == WM_BUMP_HOOK_FRONT {
-                // 先挂新钩再卸旧钩：消除 Unhook→Set 空窗
+                // 先挂新钩再卸旧钩；退出路径只卸「本 loop 自己创建」的句柄
                 let old = load_hook();
                 match SetWindowsHookExW(WH_KEYBOARD_LL, Some(proc), None, 0) {
                     Ok(h) => {
@@ -381,7 +409,7 @@ fn hook_loop() {
                         if !old.is_invalid() && old.0 != h.0 {
                             let _ = UnhookWindowsHookEx(old);
                         }
-                        log::debug!("[DEBUG-cap] bump overlap ok");
+                        log::info!("[DEBUG-cap] bump overlap ok");
                     }
                     Err(e) => {
                         log::error!(
@@ -398,11 +426,23 @@ fn hook_loop() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        // 先清空再 Unhook，避免卸载窗口期回调读到悬空句柄语义
-        let hook = load_hook();
-        store_hook(HHOOK(std::ptr::null_mut()));
-        if !hook.is_invalid() {
-            let _ = UnhookWindowsHookEx(hook);
+        // 退出：只卸本线程当前仍拥有的句柄；若 HOOK_PTR 已被新线程接管则不碰
+        let mine = load_hook();
+        let null = HHOOK(std::ptr::null_mut());
+        // CAS：仅当仍是自己的句柄时清空
+        #[cfg(target_os = "windows")]
+        {
+            use std::sync::atomic::AtomicPtr;
+            let _ = HOOK_PTR.compare_exchange(
+                mine.0,
+                std::ptr::null_mut(),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
+        let _ = null;
+        if !mine.is_invalid() {
+            let _ = UnhookWindowsHookEx(mine);
         }
         log::info!("[DEBUG-cap] hook loop exit");
     }

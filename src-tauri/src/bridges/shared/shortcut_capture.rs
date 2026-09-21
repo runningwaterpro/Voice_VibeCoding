@@ -1121,28 +1121,15 @@ impl ShortcutCaptureSession {
         set_swallow_active(true);
         consumer_listen::start();
 
-        // 探针作恢复触发，不单独否决 start（SendInput 可能假阴性）。
-        // 失败时整线程重启，比 bump 更能处理「句柄在但收不到键」。
+        // 探针只作诊断：F24 SendInput 在物理键可录时也常 seen=false（假阴性）。
+        // **禁止**因探针失败自动 restart/bump——那会反复触发线程竞态拆钩。
+        // 真故障由 web leak（键到达 WebView）触发一次带 join 的 restart。
         #[cfg(target_os = "windows")]
         {
             probe_hook_alive();
             if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                log::info!("[DEBUG-cap] probe fail → restart hook thread (soft)");
-                crate::bridges::xiaomi::special_keys::restart_special_key_hook();
-                // 重启会拆钩子，需重开 swallow 与引擎旁路状态
-                // （engine/runtime 已在上面设置；swallow 已 true）
-                probe_hook_alive();
-            }
-            if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                log::info!("[DEBUG-cap] probe still fail → bump_and_settle");
-                let out =
-                    crate::bridges::xiaomi::special_keys::bump_hook_to_front_and_settle(250);
-                log::info!("[DEBUG-cap] recovery out={out:?}");
-                probe_hook_alive();
-            }
-            if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                log::warn!(
-                    "[DEBUG-cap] probe_seen=false after restart+bump; starting capture (leak health armed)"
+                log::info!(
+                    "[DEBUG-cap] probe_seen=false (known SendInput false-negative); not restarting"
                 );
             }
         }

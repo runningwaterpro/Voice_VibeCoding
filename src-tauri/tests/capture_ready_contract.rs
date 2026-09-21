@@ -17,15 +17,77 @@ fn probe_vk_never_feeds_engine() {
 }
 
 #[test]
-fn probe_failure_must_not_hard_block_capture() {
+fn probe_failure_may_log_but_not_restart_or_hard_fail() {
+    // 第一性：SendInput F24 探针恒假阴；禁止用它驱动 restart（会触发线程竞态）。
     let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
+    let start = src
+        .split("pub fn start(&self, app: AppHandle)")
+        .nth(1)
+        .and_then(|s| s.split("\n    fn fail_start").next())
+        .expect("start body");
     assert!(
-        src.contains("starting capture") || src.contains("leak health armed"),
-        "probe fail must continue into capture, not hard Err"
+        !start.contains("restart_special_key_hook"),
+        "start must not auto-restart hook on probe false-negative"
+    );
+    // 允许仅在 armed 失败时 Err
+    assert!(
+        !start.contains("return Err") || start.contains("if !armed"),
+        "only hard-fail when hook not armed"
+    );
+}
+
+#[test]
+fn hook_loop_exit_must_not_steal_new_thread_handle() {
+    // 根因：旧线程退出时 store_hook(null)+Unhook(load_hook()) 会卸掉新线程的钩子。
+    let src = include_str!("../src/bridges/xiaomi/special_keys.rs");
+    let exit = src
+        .split("hook loop exit")
+        .nth(0)
+        .and_then(|s| s.rsplit("while RUNNING").next())
+        .or_else(|| {
+            src.rfind("let mine = load_hook()")
+                .map(|i| &src[i..])
+        })
+        .expect("exit path");
+    assert!(
+        exit.contains("compare_exchange") || exit.contains("mine"),
+        "exit must only unhook its own handle, not blindly store_hook(null)+Unhook(load_hook)"
     );
     assert!(
-        !src.contains("return Err(\n                    \"keyboard") && !src.contains("无法捕获键盘"),
-        "must not hard-fail start solely on probe"
+        !exit.contains("store_hook(HHOOK(std::ptr::null_mut()));\n        if !hook.is_invalid()"),
+        "old exit pattern that nulls global then unhooks load_hook() is forbidden"
+    );
+}
+
+#[test]
+fn hook_loop_exit_uses_mine_handle() {
+    let src = include_str!("../src/bridges/xiaomi/special_keys.rs");
+    assert!(
+        src.contains("let mine = load_hook()"),
+        "exit must capture its own hook handle"
+    );
+    assert!(
+        src.contains("compare_exchange"),
+        "exit must CAS-clear HOOK_PTR only if still owner"
+    );
+}
+
+#[test]
+fn start_must_not_teardown_running_hook() {
+    let src = include_str!("../src/bridges/xiaomi/special_keys.rs");
+    let start = src
+        .split("pub fn start_special_key_hook()")
+        .nth(1)
+        .and_then(|s| s.split("pub fn stop_special_key_hook").next())
+        .or_else(|| {
+            src.split("pub fn start_special_key_hook()")
+                .nth(1)
+                .and_then(|s| s.split("fn stop_and_join").next())
+        })
+        .expect("start body");
+    assert!(
+        start.contains("if RUNNING.load") && start.contains("return"),
+        "start must return early when hook thread already running"
     );
 }
 
