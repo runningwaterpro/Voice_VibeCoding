@@ -6,59 +6,41 @@ branch: debug/capture-root-cause
 commits:
 ---
 
-# Capture Root Cause Diagnostics
+# Capture Root Cause → Ready Gate
 
 ## Report
 
 ## [S1] Problem
 
-用户映射热键自动录入时按键通常录不上。第一轮插桩证明：start 仅 11ms（排除短竞态），物理键在 swallow/engine 就绪期间 **零 swallow、零 publish**。第二轮证明：**零 hook_proc**——物理键从未进入 LL 钩子回调。
-
-剩余分叉：
-
-1. **假就绪**：Windows 静默卸钩，`is_hook_armed` 仍看 HOOK_PTR≠空。
-2. **外钩抢占**：更早安装的 LL 钩子吞键且不 CallNext。
+映射热键「通常录不上」。实测：物理键不进 LL 回调；`is_hook_armed` 句柄非空会假就绪；曾用盲 bump + 探针但 F24 可能进引擎、UI 可先亮。
 
 ## [S2] Design
 
-诊断插桩 + 单次可判读的强制实验（同一安装包一次验完）。
+**就绪 = 探针收到键**，不是 `HOOK_PTR`。
 
-### 已有观测（第一轮）
+1. **F24 探针旁路**：`feed_capture_key` 对 `PROBE_VK` 直接 return，禁止 publish。
+2. **门闩**：start 内 probe → 失败则 `bump_and_settle`（overlap+generation）→ 再 probe → 仍失败 `Err`，UI 不进 capturing。
+3. **漏键交叉确认**：capturing 期间 WebView 收到 keydown → `note_web_leak` → 第 1 次 recovery bump，≥2 次 `health_failed` → poll 让 UI 红字退出。
+4. **钩子基建（借上游）**：`hook_bump` generation；WM_BUMP **先 Set 后 Unhook**；`ensure` **不再**每次强制 bump。
+5. **Blocked 集合**：spin `try_lock`，失败再短 `lock`；KeyUp 禁止因失败丢弃。
+6. **源码契约测试** `tests/capture_ready_contract.rs`。
 
-start 耗时、cancel 三态、swallow/engine/capturing、publish、drain、hook start/armed/exit。
+### 判读
 
-### 第二轮已证实
-
-录入窗口内 **0 条 hook_proc** → 键没进回调，不是引擎/前端问题。
-
-### 第三轮（本包）一揽子验证
-
-| 改动 | 判读 |
+| 现象 | 含义 |
 |------|------|
-| `ensure_hook_for_capture` 每次录入 `bump_hook_to_front` 强制重装 | 重装后 probe/物理键恢复 → **假就绪** |
-| `hook_proc` 入口打点 + `note_hook_proc_hit` | 有 hook_proc 但 injected → 放行问题 |
-| 启动后注入 **F24 探针**，120ms 内看钩子是否收到 | `probe_seen=false` 且重装后仍无 → **外钩吃键/钩子仍死**；`probe_seen=true` → 钩子活着，再看用户物理键 hook_proc | 
-
-日志前缀均为 `[DEBUG-cap]`。
-
-### 判读决策树（安装后只测一轮）
-
-1. `probe seen=true` + 用户键有 `hook_proc` + 有 `publish` → **已修复（假就绪，强制重装有效）**
-2. `probe seen=true` + 用户键有 `hook_proc` 但 injected 或无 publish → 看 injected/引擎
-3. `probe seen=false` → 重装后仍收不到 → **外钩或 SetWindowsHookEx 实际失败**
-4. `probe seen=true` + 用户键仍无 `hook_proc` → 物理键被更前置钩子吃掉（与 F1 冲突软件一致）
-
-### CI
-
-`build.yml`：`debug/*` 触发 build-nsis。
+| start Err + probe false | 钩子收不到键 |
+| 能录 + 无 leak | 正常 |
+| leak≥2 + health_failed | 启动后钩子被外钩抢/死 |
 
 ## [S3] Out of Scope
 
-- 不改前端 Vue、不发 Release、不动 main。
-- 不在本机编 Rust（用户禁令）；一律 CI。
+- 不整仓搬上游 F5/voice_dispatch
+- 不发 Release / 不动 main
+- 本机不装 Rust（CI）
 
 ## Tasks
 
-- [x] T1: `[DEBUG-cap]` 插桩 — 第一/二轮已出包并取证 (covers: S2)
-- [x] T2: `build.yml` debug/* — 已生效 (covers: S2)
-- [x] T3: 第三轮：强制 bump + F24 探针 + hook_proc 命中 — 一次 push CI (covers: S2)
+- [x] T1: 插桩与取证（已完成多轮）
+- [x] T2: debug/* CI
+- [x] T3: 门闩+旁路+overlap+leak+契约测试（本包）

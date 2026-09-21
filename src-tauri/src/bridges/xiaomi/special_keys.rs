@@ -95,24 +95,51 @@ pub fn set_hook_enabled(enabled: bool) {
     HOOK_ENABLED.store(enabled, Ordering::Release);
 }
 
-/// 语音注入前调用：把本进程 LL 钩子顶到链头，便于清 INJECTED 后输入法仍能看到事件。
-pub fn bump_hook_to_front() {
+/// 语音/录入恢复：把本进程 LL 钩子顶到链头。
+/// **先挂新钩再卸旧钩**（overlap）。返回 generation，供 settle 等待。
+pub fn bump_hook_to_front() -> u64 {
+    let gen = crate::bridges::xiaomi::hook_bump::next_generation();
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
-        // 语音唤起依赖钩子清 INJECTED；即使配置关掉抑制钩子也临时拉起
         HOOK_ENABLED.store(true, Ordering::Release);
         let tid = HOOK_THREAD_ID.load(Ordering::Acquire);
-        log::info!("[DEBUG-cap] bump_hook_to_front tid={tid} armed={}", is_hook_armed());
+        log::info!("[DEBUG-cap] bump_hook_to_front tid={tid} armed={} gen={gen}", is_hook_armed());
         if tid == 0 {
             start_special_key_hook();
-            return;
+            return gen;
         }
         unsafe {
             let _ = PostThreadMessageW(tid, WM_BUMP_HOOK_FRONT, WPARAM(0), LPARAM(0));
         }
     }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = gen;
+    }
+    gen
+}
+
+/// 请求置顶并等待真正落地。禁止在 LL 回调线程调用。
+pub fn bump_hook_to_front_and_settle(settle_ms: u64) -> crate::bridges::xiaomi::hook_bump::BumpOutcome {
+    let gen = bump_hook_to_front();
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+        let current_tid = unsafe { GetCurrentThreadId() };
+        let hook_tid = HOOK_THREAD_ID.load(Ordering::Acquire);
+        let out = crate::bridges::xiaomi::hook_bump::wait_for(gen, current_tid, hook_tid, settle_ms);
+        log::info!("[DEBUG-cap] bump settle gen={gen} out={out:?}");
+        return out;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = settle_ms;
+        return crate::bridges::xiaomi::hook_bump::BumpOutcome::NoHookThread;
+    }
+    #[allow(unreachable_code)]
+    crate::bridges::xiaomi::hook_bump::BumpOutcome::NoHookThread
 }
 
 /// 诊断/录入：钩子线程是否在跑
@@ -132,12 +159,11 @@ pub fn is_hook_armed() -> bool {
     }
 }
 
-/// 录入开始时确保常驻 LL 钩子在跑（即使配置曾关掉抑制钩子）。
-/// 每次录入强制 bump 重装：`is_hook_armed` 只看 HOOK_PTR≠空，Windows 静默卸钩后会假就绪。
+/// 录入开始：只保证钩子线程在跑。
+/// **禁止**这里无条件 bump——探针失败时由 capture `start` 走 `bump_and_settle`。
 pub fn ensure_hook_for_capture() {
     HOOK_ENABLED.store(true, Ordering::Release);
     start_special_key_hook();
-    bump_hook_to_front();
 }
 
 pub fn start_special_key_hook() {
@@ -324,20 +350,26 @@ fn hook_loop() {
                 break;
             }
             if msg.message == WM_BUMP_HOOK_FRONT {
+                // 先挂新钩再卸旧钩：消除 Unhook→Set 空窗
                 let old = load_hook();
-                if !old.is_invalid() {
-                    let _ = UnhookWindowsHookEx(old);
-                }
                 match SetWindowsHookExW(WH_KEYBOARD_LL, Some(proc), None, 0) {
                     Ok(h) => {
                         store_hook(h);
-                        log::debug!("XIAOMI SPECIAL KEY hook bumped to chain head");
+                        if !old.is_invalid() && old.0 != h.0 {
+                            let _ = UnhookWindowsHookEx(old);
+                        }
+                        log::debug!("[DEBUG-cap] bump overlap ok");
                     }
                     Err(e) => {
-                        store_hook(HHOOK(std::ptr::null_mut()));
-                        log::error!("XIAOMI SPECIAL KEY bump SetWindowsHookExW failed: {e}");
+                        log::error!(
+                            "[DEBUG-cap] bump SetWindowsHookEx failed: {e}; keep old hook"
+                        );
+                        if old.is_invalid() {
+                            store_hook(HHOOK(std::ptr::null_mut()));
+                        }
                     }
                 }
+                crate::bridges::xiaomi::hook_bump::mark_handled();
                 continue;
             }
             let _ = TranslateMessage(&msg);

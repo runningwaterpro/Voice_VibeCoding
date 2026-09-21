@@ -418,11 +418,15 @@ function stopPolling() {
   }
 }
 
-/** 录入期间拦截 WebView 加速键（Ctrl+A / Alt 菜单等）；OS 层吞键由 LL 钩子负责 */
+/** 录入期间：键若到达 WebView，说明 LL 钩子没吞住 → 上报漏键 */
 function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
+  const vk = e.keyCode || e.which || 0;
+  if (vk) {
+    void invoke("capture_shortcut_note_leak", { vk }).catch(() => {});
+  }
 }
 
 function startPolling() {
@@ -436,7 +440,16 @@ function startPolling() {
       const snap = await invoke<{
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
+        leaks?: number;
+        healthFailed?: boolean;
       }>("capture_shortcut_poll");
+      if (snap?.healthFailed) {
+        capturing.value = false;
+        stopPolling();
+        captureError.value = "键盘捕获失效：按键未被钩子拦截，请重试或重启应用。";
+        void invoke("capture_shortcut_stop").catch(() => {});
+        return;
+      }
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
       }
@@ -477,11 +490,12 @@ async function startCapture() {
     return;
   }
   captureError.value = null;
-  capturing.value = true;
   liveLabels.value = [];
   applied = false;
+  // 后端探针通过后才进入 capturing（禁止先亮 UI）
   try {
     await invoke("capture_shortcut_start");
+    capturing.value = true;
     startPolling();
   } catch (e) {
     capturing.value = false;

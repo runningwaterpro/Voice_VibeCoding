@@ -416,7 +416,7 @@ fn handle_voice(app: &AppHandle, pressed: bool) {
     if pressed {
         // 语音唤起前把本进程 LL 钩子顶到链头（装到微信钩子之前），
         // 才能替微信吞掉遥控器原生 F5，避免 Ctrl+Win+F5 使微信「按住说话」不识别
-        crate::bridges::xiaomi::special_keys::bump_hook_to_front();
+        let _ = crate::bridges::xiaomi::special_keys::bump_hook_to_front();
         // 注入语音和弦期间吞掉遥控器原生 F5
         arm_voice_native_suppress();
         let pressed_ok = {

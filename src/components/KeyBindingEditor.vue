@@ -65,11 +65,15 @@ watch(
   }
 );
 
-/** 录入期间拦截 WebView 加速键；OS 层吞键由 LL 钩子负责 */
+/** 录入期间：键到达 WebView = 钩子未吞住 */
 function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
+  const vk = e.keyCode || e.which || 0;
+  if (vk) {
+    void invoke("capture_shortcut_note_leak", { vk }).catch(() => {});
+  }
 }
 
 onMounted(async () => {
@@ -125,7 +129,18 @@ function startPolling() {
       const snap = await invoke<{
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
+        leaks?: number;
+        healthFailed?: boolean;
       }>("capture_shortcut_poll");
+      if (snap?.healthFailed) {
+        capturing.value = false;
+        editingKey.value = null;
+        stopPolling();
+        captureError.value = "键盘捕获失效：按键未被钩子拦截，请重试或重启应用。";
+        captureStatus.value = "录入失败，可以重试";
+        void invoke("capture_shortcut_stop").catch(() => {});
+        return;
+      }
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
       }
@@ -169,12 +184,13 @@ async function startEdit(buttonId: string) {
 
   captureError.value = null;
   editingKey.value = buttonId;
-  capturing.value = true;
   liveLabels.value = [];
   applied = false;
-  captureStatus.value = "正在录入：请按目标键或组合键……";
+  captureStatus.value = "正在准备录入…";
   try {
     await invoke("capture_shortcut_start");
+    capturing.value = true;
+    captureStatus.value = "正在录入：请按目标键或组合键……";
     startPolling();
   } catch (e) {
     capturing.value = false;

@@ -233,6 +233,7 @@ pub fn run() {
             ipc::commands::capture_shortcut_start,
             ipc::commands::capture_shortcut_stop,
             ipc::commands::capture_shortcut_poll,
+            ipc::commands::capture_shortcut_note_leak,
             ipc::commands::get_audio_devices,
             ipc::commands::get_bridge_logs,
             ipc::commands::set_autostart,
