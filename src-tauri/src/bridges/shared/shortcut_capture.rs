@@ -457,7 +457,7 @@ fn probe_hook_alive() {
     };
     HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
     LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
-    let scan = unsafe { MapVirtualKeyW(PROBE_VK as u32, MAPVK_VK_TO_VSC.0) };
+    let scan = unsafe { MapVirtualKeyW(PROBE_VK as u32, MAPVK_VK_TO_VSC) };
     let mk = |up: bool| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
