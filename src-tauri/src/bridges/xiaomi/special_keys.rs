@@ -132,10 +132,12 @@ pub fn is_hook_armed() -> bool {
     }
 }
 
-/// 录入开始时确保常驻 LL 钩子在跑（即使配置曾关掉抑制钩子）
+/// 录入开始时确保常驻 LL 钩子在跑（即使配置曾关掉抑制钩子）。
+/// 每次录入强制 bump 重装：`is_hook_armed` 只看 HOOK_PTR≠空，Windows 静默卸钩后会假就绪。
 pub fn ensure_hook_for_capture() {
     HOOK_ENABLED.store(true, Ordering::Release);
     start_special_key_hook();
+    bump_hook_to_front();
 }
 
 pub fn start_special_key_hook() {
@@ -242,6 +244,7 @@ fn hook_loop() {
                     "[DEBUG-cap] hook_proc vk=0x{vk:02X} wp=0x{msg:X} flags=0x{flags:X} extra=0x{:X} injected={injected}",
                     info.dwExtraInfo
                 );
+                crate::bridges::shared::shortcut_capture::note_hook_proc_hit(vk);
             }
 
             // 快捷键录入：最优先吞掉全部物理键（含 WM_SYSKEY* / Alt+Space / Win 热键）

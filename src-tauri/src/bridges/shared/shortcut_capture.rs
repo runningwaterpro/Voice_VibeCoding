@@ -10,7 +10,7 @@
 
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -353,14 +353,27 @@ pub struct ShortcutPollSnapshot {
 static SWALLOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static CAPTURE_SUBMITTED: AtomicBool = AtomicBool::new(false);
 static SWALLOW_HIT_LOGGED: AtomicBool = AtomicBool::new(false);
+static HOOK_PROC_SEEN: AtomicBool = AtomicBool::new(false);
+static LAST_HOOK_PROC_VK: AtomicU32 = AtomicU32::new(0);
 static BLOCKED_VKS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> =
     LazyLock::new(|| Mutex::new(None));
 static HOOK_RUNTIME: LazyLock<Mutex<Option<Arc<CaptureRuntime>>>> =
     LazyLock::new(|| Mutex::new(None));
 
+/// 探针键：录入自检用，选冷门 VK，避免与用户按键冲突。
+const PROBE_VK: u32 = 0x87; // VK_F24
+
+/// special_keys 钩子入口在 swallow 激活时调用。
+pub fn note_hook_proc_hit(vk: u32) {
+    LAST_HOOK_PROC_VK.store(vk, Ordering::SeqCst);
+    HOOK_PROC_SEEN.store(true, Ordering::SeqCst);
+}
+
 fn reset_hook_session() {
     CAPTURE_SUBMITTED.store(false, Ordering::SeqCst);
+    HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
+    LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
     if let Ok(mut blocked) = BLOCKED_VKS.lock() {
         blocked.clear();
     }
@@ -401,6 +414,47 @@ fn set_swallow_active(active: bool) {
 
 pub fn is_swallow_active() -> bool {
     SWALLOW_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// 录入启动后注入 F24 探针；LL 钩子收到则 note_hook_proc_hit。
+#[cfg(target_os = "windows")]
+fn probe_hook_alive() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    };
+    HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
+    LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
+    let mk = |up: bool| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(PROBE_VK as u16),
+                wScan: 0,
+                dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let inputs = [mk(false), mk(true)];
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    let deadline = Instant::now() + Duration::from_millis(150);
+    loop {
+        let last = LAST_HOOK_PROC_VK.load(Ordering::SeqCst);
+        if last == PROBE_VK {
+            break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let last = LAST_HOOK_PROC_VK.load(Ordering::SeqCst);
+    let seen = last == PROBE_VK;
+    HOOK_PROC_SEEN.store(seen, Ordering::SeqCst);
+    log::info!(
+        "[DEBUG-cap] probe sent={sent} seen={seen} last_vk=0x{last:02X} expect_vk=0x{PROBE_VK:02X}"
+    );
 }
 
 /// 喂给录入引擎（仅 LL 钩子线程调用）。
@@ -959,6 +1013,8 @@ impl ShortcutCaptureSession {
         #[cfg(target_os = "windows")]
         {
             crate::bridges::xiaomi::special_keys::ensure_hook_for_capture();
+            // bump 是 PostThreadMessage 异步重装，留时间让 WM_BUMP 跑完
+            thread::sleep(Duration::from_millis(80));
             let deadline = Instant::now() + Duration::from_millis(800);
             while !crate::bridges::xiaomi::special_keys::is_hook_armed()
                 && Instant::now() < deadline
@@ -986,10 +1042,19 @@ impl ShortcutCaptureSession {
         SWALLOW_HIT_LOGGED.store(false, Ordering::SeqCst);
         set_swallow_active(true);
         consumer_listen::start();
+
+        // 自检探针：注入 F24，看钩子入口是否收到。区分「假就绪」vs「被外钩吃掉」。
+        HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
+        LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
+        #[cfg(target_os = "windows")]
+        probe_hook_alive();
+
         log::info!("Shortcut capture started (special_keys + consumer HID)");
         log::info!(
-            "[DEBUG-cap] start OK swallow=1 elapsed_ms={}",
-            t0.elapsed().as_millis()
+            "[DEBUG-cap] start OK swallow=1 elapsed_ms={} probe_seen={} last_vk=0x{:02X}",
+            t0.elapsed().as_millis(),
+            HOOK_PROC_SEEN.load(Ordering::SeqCst),
+            LAST_HOOK_PROC_VK.load(Ordering::SeqCst)
         );
         Ok(())
     }
