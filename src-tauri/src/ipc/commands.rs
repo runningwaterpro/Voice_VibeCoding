@@ -516,7 +516,7 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
     } else if bridge_alive && !atvv_ok {
         (
             "ATVV 未连接".into(),
-            "语音专用通道未就绪。按住语音键时「音频信号」可能无绿色波动，并可能触发系统 F5。可点「修复 ATVV 连接」。".into(),
+            "语音专用通道未就绪。请确认 Windows 已配对「MI RC」且遥控器开机；配对后点「修复 ATVV 连接」。".into(),
             "warn".into(),
         )
     } else if !cable_ready {
@@ -991,7 +991,7 @@ pub(crate) fn run_atvv_repair_pipeline(
     } else if !conflicts.is_empty() {
         "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复 ATVV 连接」。".to_string()
     } else {
-        "已重连但仍未订阅 ATVV（未见端口占用）。可再试一次，或检查蓝牙配对后重试。".to_string()
+        "已重连但仍未订阅 ATVV。若 Windows 蓝牙未配对「MI RC」，请先在「设置 → 蓝牙和其他设备」完成配对再重试；已配对则靠近遥控器后再点一次。".to_string()
     };
     log::info!("XIAOMI ATVV repair pipeline done atvv_ok={ok}");
     Ok((ok, msg))

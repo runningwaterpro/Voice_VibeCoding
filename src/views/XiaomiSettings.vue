@@ -262,8 +262,16 @@ function describeStepError(raw: string): string {
   const s = raw.toLowerCase();
   if (s.includes("port") || s.includes("占用") || s.includes("bind") || s.includes("in use"))
     return "关闭占用程序后重试，或重启电脑";
-  if (s.includes("bluetooth") || s.includes("蓝牙") || s.includes("ble"))
-    return "检查蓝牙开关，靠近设备后重试";
+  if (
+    s.includes("配对") ||
+    s.includes("mi rc") ||
+    s.includes("未找到已配对") ||
+    s.includes("未找到") ||
+    s.includes("bluetooth") ||
+    s.includes("蓝牙") ||
+    s.includes("ble")
+  )
+    return "打开 Windows 蓝牙设置，配对「MI RC」后重试";
   if (s.includes("cable") || s.includes("声卡") || s.includes("vb-cable") || s.includes("独占"))
     return "关闭正在使用麦克风的应用后重试";
   if (s.includes("timeout") || s.includes("超时"))
@@ -366,6 +374,7 @@ async function autoRepairAll() {
   let prevSnapshot = "";
   let stagnantRounds = 0;
   let cableRebootAsked = false;
+  let atvvAttempts = 0;
   try {
     for (let round = 0; round < 10; round++) {
       await refreshHost();
@@ -381,6 +390,7 @@ async function autoRepairAll() {
         break;
       }
 
+      // ATVV 失败且非占用时通常要用户配对遥控器，不靠 snapshot 死循环
       const snapshot = [
         h.bridge_alive,
         h.cable_ready,
@@ -388,6 +398,7 @@ async function autoRepairAll() {
         h.atvv_ok,
         h.audio_alive,
         cableRebootAsked,
+        atvvAttempts,
       ].join(",");
       if (snapshot === prevSnapshot) {
         stagnantRounds++;
@@ -461,11 +472,22 @@ async function autoRepairAll() {
       }
 
       if (!h.atvv_ok) {
+        // 最多试 1 次：失败多为未配对遥控器，再循环只会卡在「修复中」
+        if (atvvAttempts >= 1) {
+          prependLog("一键修复：ATVV 已尝试仍失败，停止重试（请先配对遥控器）");
+          break;
+        }
+        atvvAttempts++;
         prependLog("一键修复：修复 ATVV 连接");
         await repairAtvv();
+        // refreshHost 会覆盖 detail，先留住修复结果文案
+        const failDetail = host.value.detail || "";
         await refreshHost();
         const ok = !!host.value.atvv_ok;
-        const conflict = !ok && host.value.detail?.includes("占用");
+        const conflict = !ok && failDetail.includes("占用");
+        const pairing =
+          !ok &&
+          /配对|MI RC|未找到已配对|未找到|蓝牙|bluetooth/i.test(failDetail);
         repairStepLog.value.push({
           label: "ATVV 连接",
           ok,
@@ -473,15 +495,24 @@ async function autoRepairAll() {
             ? "已连接"
             : conflict
               ? "端口被占用"
-              : describeStepError(host.value.detail || "未就绪"),
+              : pairing
+                ? "遥控器未配对"
+                : describeStepError(failDetail || host.value.detail || "未就绪"),
           ...(ok
             ? {}
             : {
                 suggestion: conflict
                   ? "关闭占用程序后重试，或重启电脑"
-                  : describeStepError(host.value.detail || ""),
+                  : pairing
+                    ? "打开 Windows 蓝牙设置，配对「MI RC」后重试"
+                    : describeStepError(failDetail || host.value.detail || ""),
               }),
         });
+        if (!ok) {
+          // 无论配对还是其它失败，一键修复都收尾，避免反复 12s 空转
+          prependLog("一键修复：ATVV 未恢复，结束（需人工处理后可再点一次）");
+          break;
+        }
         continue;
       }
 
@@ -496,6 +527,8 @@ async function autoRepairAll() {
           msg: ok ? "已恢复" : describeStepError(host.value.detail || "未就绪"),
           ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
         });
+        // 路由失败也只试一轮，避免和 ATVV 交替空转
+        break;
       }
     }
     prependLog("一键修复：结束");
