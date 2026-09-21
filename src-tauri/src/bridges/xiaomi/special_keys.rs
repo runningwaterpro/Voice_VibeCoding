@@ -104,6 +104,7 @@ pub fn bump_hook_to_front() {
         // 语音唤起依赖钩子清 INJECTED；即使配置关掉抑制钩子也临时拉起
         HOOK_ENABLED.store(true, Ordering::Release);
         let tid = HOOK_THREAD_ID.load(Ordering::Acquire);
+        log::info!("[DEBUG-cap] bump_hook_to_front tid={tid} armed={}", is_hook_armed());
         if tid == 0 {
             start_special_key_hook();
             return;
@@ -234,6 +235,14 @@ fn hook_loop() {
             let vk = info.vkCode;
             let msg = wparam.0 as u32;
             let injected = info.dwExtraInfo == EXTRA_INFO || (flags & 0x10) != 0;
+
+            // 录入态：钩子入口全量打点，区分「没进门 / 当成注入放行 / 进了但没吞」
+            if crate::bridges::shared::shortcut_capture::is_swallow_active() {
+                log::info!(
+                    "[DEBUG-cap] hook_proc vk=0x{vk:02X} wp=0x{msg:X} flags=0x{flags:X} extra=0x{:X} injected={injected}",
+                    info.dwExtraInfo
+                );
+            }
 
             // 快捷键录入：最优先吞掉全部物理键（含 WM_SYSKEY* / Alt+Space / Win 热键）
             // 必须在 CallNextHookEx 之前；第二套短生命周期钩子不可靠（易被超时静默卸掉）
