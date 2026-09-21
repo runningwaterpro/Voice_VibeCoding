@@ -312,6 +312,7 @@ impl CaptureRuntime {
         }
         let labels: Vec<String> = keys.iter().copied().map(vk_to_label).collect();
         log::info!("Shortcut captured: {}", labels.join("+"));
+        log::info!("[DEBUG-cap] publish keys={keys:?} labels={}", labels.join("+"));
         let payload = ShortcutCapturedPayload {
             keys,
             labels: labels.clone(),
@@ -377,16 +378,20 @@ fn mark_capture_submitted() {
 }
 
 fn maybe_finish_hook_after_drain() {
-    if !CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
+    let submitted = CAPTURE_SUBMITTED.load(Ordering::SeqCst);
+    if !submitted {
+        log::info!("[DEBUG-cap] drain skip: not submitted (swallow stays on)");
         return;
     }
     let empty = BLOCKED_VKS
         .lock()
         .map(|g| g.is_empty())
         .unwrap_or(false);
+    log::info!("[DEBUG-cap] drain check submitted={submitted} blocked_empty={empty}");
     if empty {
         set_swallow_active(false);
         log::info!("Shortcut capture swallow drain complete");
+        log::info!("[DEBUG-cap] swallow OFF (drain complete)");
     }
 }
 
@@ -472,6 +477,22 @@ pub fn try_swallow_capture_key(vk: u32, wparam: u32, is_injected: bool) -> bool 
     if !is_down && !is_up {
         return true;
     }
+
+    // 诊断插桩：LL 回调内只做 try_lock + 一次格式化，绝不阻塞等待
+    let dbg_engine = HOOK_ENGINE.try_lock().map(|g| g.is_some()).unwrap_or(false);
+    let dbg_capturing = match HOOK_RUNTIME.try_lock() {
+        Ok(g) => g
+            .as_ref()
+            .map(|r| r.capturing.load(Ordering::SeqCst))
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    log::info!(
+        "[DEBUG-cap] swallow vk=0x{vk:02X} wp=0x{wparam:X} submitted={} engine={} capturing={}",
+        CAPTURE_SUBMITTED.load(Ordering::SeqCst),
+        dbg_engine,
+        dbg_capturing
+    );
 
     // 必须记录每个物理键：丢事件会丢 Win → 只录到 Ctrl，并提前关吞键漏出 Win/语音
     track_blocked_vk(vk, is_down);
@@ -899,6 +920,12 @@ impl ShortcutCaptureSession {
     }
 
     pub fn cancel(&self) -> Result<(), String> {
+        log::info!(
+            "[DEBUG-cap] cancel enter swallow={} submitted={} capturing={}",
+            SWALLOW_ACTIVE.load(Ordering::SeqCst),
+            CAPTURE_SUBMITTED.load(Ordering::SeqCst),
+            self.runtime.capturing.load(Ordering::SeqCst)
+        );
         self.runtime.stop.store(true, Ordering::SeqCst);
         self.runtime.capturing.store(false, Ordering::SeqCst);
         consumer_listen::stop();
@@ -918,6 +945,8 @@ impl ShortcutCaptureSession {
     }
 
     pub fn start(&self, app: AppHandle) -> Result<(), String> {
+        let t0 = Instant::now();
+        log::info!("[DEBUG-cap] start enter");
         self.cancel()?;
 
         *self.runtime.app.lock().unwrap() = Some(app);
@@ -936,7 +965,14 @@ impl ShortcutCaptureSession {
             {
                 thread::sleep(Duration::from_millis(10));
             }
-            if !crate::bridges::xiaomi::special_keys::is_hook_armed() {
+            let armed = crate::bridges::xiaomi::special_keys::is_hook_armed();
+            let running = crate::bridges::xiaomi::special_keys::is_hook_running();
+            log::info!("[DEBUG-cap] start hook armed={armed} running={running}");
+            if !armed {
+                log::info!(
+                    "[DEBUG-cap] start FAIL not armed after {}ms",
+                    t0.elapsed().as_millis()
+                );
                 return Err(
                     "键盘吞键钩子未启动：无法安全录入（系统热键会穿透）。请检查 special_keys。"
                         .into(),
@@ -951,6 +987,10 @@ impl ShortcutCaptureSession {
         set_swallow_active(true);
         consumer_listen::start();
         log::info!("Shortcut capture started (special_keys + consumer HID)");
+        log::info!(
+            "[DEBUG-cap] start OK swallow=1 elapsed_ms={}",
+            t0.elapsed().as_millis()
+        );
         Ok(())
     }
 

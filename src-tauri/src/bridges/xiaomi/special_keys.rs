@@ -138,6 +138,11 @@ pub fn ensure_hook_for_capture() {
 }
 
 pub fn start_special_key_hook() {
+    log::info!(
+        "[DEBUG-cap] hook start req enabled={} running={}",
+        HOOK_ENABLED.load(Ordering::Acquire),
+        RUNNING.load(Ordering::Acquire)
+    );
     if !HOOK_ENABLED.load(Ordering::Acquire) {
         log::info!("XIAOMI SPECIAL KEY hook disabled by config");
         return;
@@ -163,6 +168,11 @@ pub fn start_special_key_hook() {
 }
 
 pub fn stop_special_key_hook() {
+    log::info!(
+        "[DEBUG-cap] hook stop req running={} tid={}",
+        RUNNING.load(Ordering::Acquire),
+        HOOK_THREAD_ID.load(Ordering::Acquire)
+    );
     HID_TAP_READY.store(false, Ordering::Release);
     if !RUNNING.swap(false, Ordering::AcqRel) {
         return;
@@ -290,6 +300,7 @@ fn hook_loop() {
             }
         };
         store_hook(hook);
+        log::info!("[DEBUG-cap] hook armed tid={}", GetCurrentThreadId());
         log::info!(
             "XIAOMI SPECIAL KEYS READY mapping=configurable \
              repeat=back,volume,direction suppress_original=device-correlated"
@@ -326,6 +337,7 @@ fn hook_loop() {
         if !hook.is_invalid() {
             let _ = UnhookWindowsHookEx(hook);
         }
+        log::info!("[DEBUG-cap] hook loop exit");
     }
 }
 
