@@ -1017,8 +1017,9 @@ onUnmounted(() => {
 .map-bind.unbound {
   background: transparent;
   color: #94a3b8;
-  padding-left: 0;
-  padding-right: 0;
+  border: 1px dashed #3a424e;
+  padding: 1px 7px;
+  border-radius: 4px;
 }
 
 @keyframes mic-bind-flash {

@@ -91,6 +91,13 @@ export const useAppUpdateStore = defineStore("appUpdate", () => {
   function applyUpdateInfo(info: AppUpdateInfo | null) {
     if (!info) return;
     const normalized = normalizeUpdateInfo(info);
+    // 总开关关闭：清空角标/弹窗，不保留旧的「有新版本」状态
+    if (normalized.source === "disabled") {
+      updateInfo.value = null;
+      showModal.value = false;
+      resetDownloadState();
+      return;
+    }
     if (normalized.updateAvailable) {
       const prev = updateInfo.value;
       // 启动检测晚到的旧 payload 可能仍带 promptSuppressed=false；

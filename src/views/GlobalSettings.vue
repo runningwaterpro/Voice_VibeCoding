@@ -63,7 +63,10 @@ async function checkUpdate() {
   try {
     const result = await appUpdate.checkForUpdate(true);
     appUpdate.applyUpdateInfo(result);
-    if (result.error) {
+    if (result.source === "disabled") {
+      updateHint.value = "更新检查已关闭（当前不检查上游仓库）。";
+      appUpdate.closeModal();
+    } else if (result.error) {
       updateHint.value = `检查失败：${result.error}`;
     } else if (result.updateAvailable) {
       if (result.promptSuppressed ?? result.ignored) {

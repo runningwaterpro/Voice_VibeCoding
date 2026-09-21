@@ -262,8 +262,16 @@ function describeStepError(raw: string): string {
   const s = raw.toLowerCase();
   if (s.includes("port") || s.includes("占用") || s.includes("bind") || s.includes("in use"))
     return "关闭占用程序后重试，或重启电脑";
-  if (s.includes("bluetooth") || s.includes("蓝牙") || s.includes("ble"))
-    return "检查蓝牙开关，靠近设备后重试";
+  if (
+    s.includes("配对") ||
+    s.includes("mi rc") ||
+    s.includes("未找到已配对") ||
+    s.includes("未找到") ||
+    s.includes("bluetooth") ||
+    s.includes("蓝牙") ||
+    s.includes("ble")
+  )
+    return "打开 Windows 蓝牙设置，配对「MI RC」后重试";
   if (s.includes("cable") || s.includes("声卡") || s.includes("vb-cable") || s.includes("独占"))
     return "关闭正在使用麦克风的应用后重试";
   if (s.includes("timeout") || s.includes("超时"))
@@ -272,12 +280,13 @@ function describeStepError(raw: string): string {
 }
 
 const showRepairModal = computed(() => {
-  if (repairDismissed.value) return false;
-  if (autoRepairing.value) return false;
   const h = host.value;
-  const connecting = connBusy.value || restarting.value;
   const allReady =
     h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
+  // v5.2: 修复中卡常驻；仅全就绪收卡（不被 restarting/dismiss 藏）
+  if (autoRepairing.value) return !allReady;
+  if (repairDismissed.value) return false;
+  const connecting = connBusy.value || restarting.value;
   return !allReady && !connecting;
 });
 const bootingPhase = computed(() => inBootGrace.value);
@@ -292,12 +301,16 @@ const bootStepText = computed(() => {
 });
 const errorTitle = computed(() => {
   const h = host.value;
-  if (!h?.bridge_alive) return "桥接未运行";
-  if (!h?.winuhid_ready) return "虚拟键盘未就绪";
-  if (!h?.cable_ready) return "虚拟声卡未就绪";
-  if (!h?.audio_alive) return "语音路由未就绪";
-  if (!h?.atvv_ok) return "ATVV 未就绪";
-  return "状态异常";
+  if (!h) return "状态异常";
+  const missing: string[] = [];
+  if (!h.bridge_alive) missing.push("桥接");
+  if (!h.winuhid_ready) missing.push("虚拟键盘");
+  if (!h.cable_ready) missing.push("虚拟声卡");
+  if (!h.audio_alive) missing.push("语音路由");
+  if (!h.atvv_ok) missing.push("ATVV");
+  if (missing.length === 0) return "状态异常";
+  if (missing.length === 1) return `${missing[0]}未就绪`;
+  return `未就绪：${missing.join("、")}`;
 });
 const canDismiss = computed(() => {
   const h = host.value;
@@ -311,8 +324,6 @@ const repairResultTitle = computed(() => {
   if (okCount === log.length) return "修复完成";
   return `修复完成（${okCount}/${log.length} 步成功）`;
 });
-
-const showActionBar = computed(() => false);
 
 const autoRepairing = ref(false);
 const inAutoRepair = ref(false);
@@ -347,7 +358,9 @@ watch(
 
 /**
  * 一键修复：按依赖顺序处理实际未就绪项。
- * 桥接未活时用 restart（比单纯 start 更能清残留，对齐用户实测）。
+ * - 桥接优先；虚拟键盘不依赖声卡，先于声卡修
+ * - 声卡「需重启」只记一次，不中断后续独立步骤
+ * - 每步以复测结果为准
  */
 async function autoRepairAll() {
   if (primaryDisabled.value) return;
@@ -356,9 +369,12 @@ async function autoRepairAll() {
   repairDismissed.value = false;
   repairStepLog.value = [];
   repairFinished.value = false;
+  showVoiceReboot.value = false;
   prependLog("一键修复：开始");
   let prevSnapshot = "";
   let stagnantRounds = 0;
+  let cableRebootAsked = false;
+  let atvvAttempts = 0;
   try {
     for (let round = 0; round < 10; round++) {
       await refreshHost();
@@ -374,12 +390,15 @@ async function autoRepairAll() {
         break;
       }
 
+      // ATVV 失败且非占用时通常要用户配对遥控器，不靠 snapshot 死循环
       const snapshot = [
         h.bridge_alive,
         h.cable_ready,
         h.winuhid_ready,
         h.atvv_ok,
         h.audio_alive,
+        cableRebootAsked,
+        atvvAttempts,
       ].join(",");
       if (snapshot === prevSnapshot) {
         stagnantRounds++;
@@ -406,31 +425,7 @@ async function autoRepairAll() {
         continue;
       }
 
-      if (!h.cable_ready) {
-        prependLog("一键修复：虚拟声卡未就绪，自动检测");
-        await runVoiceAutoRepair();
-        await refreshHost();
-        const ok = !!host.value.cable_ready;
-        repairStepLog.value.push({
-          label: "虚拟声卡",
-          ok,
-          msg: ok
-            ? "已就绪"
-            : showVoiceReboot.value
-              ? "需重启后生效"
-              : describeStepError(host.value.detail || "未就绪"),
-          ...(ok
-            ? {}
-            : {
-                suggestion: showVoiceReboot.value
-                  ? "重启电脑后重新打开软件"
-                  : describeStepError(host.value.detail || ""),
-              }),
-        });
-        if (showVoiceReboot.value) break;
-        continue;
-      }
-
+      // 虚拟键盘：不依赖声卡，先修，避免被声卡重启提示挡住
       if (!h.winuhid_ready) {
         prependLog("一键修复：虚拟键盘未就绪，使用内嵌源自动修复");
         await chooseWinuhidSource("embedded");
@@ -445,12 +440,54 @@ async function autoRepairAll() {
         continue;
       }
 
+      if (!h.cable_ready) {
+        if (cableRebootAsked) {
+          prependLog("一键修复：虚拟声卡等待重启，跳过重复安装，继续其它项");
+        } else {
+          prependLog("一键修复：虚拟声卡未就绪，自动检测");
+          await runVoiceAutoRepair();
+          await refreshHost();
+          const ok = !!host.value.cable_ready;
+          const needReboot = showVoiceReboot.value && !ok;
+          if (needReboot) cableRebootAsked = true;
+          repairStepLog.value.push({
+            label: "虚拟声卡",
+            ok,
+            msg: ok
+              ? "已就绪"
+              : needReboot
+                ? "需重启后生效"
+                : describeStepError(host.value.detail || "未就绪"),
+            ...(ok
+              ? {}
+              : {
+                  suggestion: needReboot
+                    ? "重启电脑后重新打开软件，会自动继续"
+                    : describeStepError(host.value.detail || ""),
+                }),
+          });
+        }
+        // 不再 break：继续修键盘已完成后的其它独立项
+        continue;
+      }
+
       if (!h.atvv_ok) {
+        // 最多试 1 次：失败多为未配对遥控器，再循环只会卡在「修复中」
+        if (atvvAttempts >= 1) {
+          prependLog("一键修复：ATVV 已尝试仍失败，停止重试（请先配对遥控器）");
+          break;
+        }
+        atvvAttempts++;
         prependLog("一键修复：修复 ATVV 连接");
         await repairAtvv();
+        // refreshHost 会覆盖 detail，先留住修复结果文案
+        const failDetail = host.value.detail || "";
         await refreshHost();
         const ok = !!host.value.atvv_ok;
-        const conflict = !ok && host.value.detail?.includes("占用");
+        const conflict = !ok && failDetail.includes("占用");
+        const pairing =
+          !ok &&
+          /配对|MI RC|未找到已配对|未找到|蓝牙|bluetooth/i.test(failDetail);
         repairStepLog.value.push({
           label: "ATVV 连接",
           ok,
@@ -458,15 +495,24 @@ async function autoRepairAll() {
             ? "已连接"
             : conflict
               ? "端口被占用"
-              : describeStepError(host.value.detail || "未就绪"),
+              : pairing
+                ? "遥控器未配对"
+                : describeStepError(failDetail || host.value.detail || "未就绪"),
           ...(ok
             ? {}
             : {
                 suggestion: conflict
                   ? "关闭占用程序后重试，或重启电脑"
-                  : describeStepError(host.value.detail || ""),
+                  : pairing
+                    ? "打开 Windows 蓝牙设置，配对「MI RC」后重试"
+                    : describeStepError(failDetail || host.value.detail || ""),
               }),
         });
+        if (!ok) {
+          // 无论配对还是其它失败，一键修复都收尾，避免反复 12s 空转
+          prependLog("一键修复：ATVV 未恢复，结束（需人工处理后可再点一次）");
+          break;
+        }
         continue;
       }
 
@@ -481,6 +527,8 @@ async function autoRepairAll() {
           msg: ok ? "已恢复" : describeStepError(host.value.detail || "未就绪"),
           ...(ok ? {} : { suggestion: describeStepError(host.value.detail || "") }),
         });
+        // 路由失败也只试一轮，避免和 ATVV 交替空转
+        break;
       }
     }
     prependLog("一键修复：结束");
@@ -2035,12 +2083,24 @@ async function retryLoadConfig() {
             <h3 id="repair-title">正在启动…</h3>
           </div>
           <h3 v-else id="repair-title">
-            {{ repairFinished && repairStepLog.length ? repairResultTitle : errorTitle }}
+            {{
+              autoRepairing
+                ? "正在修复…"
+                : repairFinished && repairStepLog.length
+                  ? repairResultTitle
+                  : errorTitle
+            }}
           </h3>
-          <p v-if="!repairFinished || !repairStepLog.length" class="repair-desc">
-            {{ bootingPhase ? bootStepText : '点「一键修复」自动处理' }}
+          <p v-if="!repairFinished || !repairStepLog.length || autoRepairing" class="repair-desc">
+            {{
+              bootingPhase
+                ? bootStepText
+                : autoRepairing
+                  ? "一键修复进行中，无需操作"
+                  : "点「一键修复」自动处理"
+            }}
           </p>
-          <div v-if="repairFinished && repairStepLog.length" class="repair-steps">
+          <div v-if="repairStepLog.length" class="repair-steps">
             <div class="repair-steps-title">修复步骤</div>
             <div v-for="(st, i) in repairStepLog" :key="i" class="repair-step" :class="st.ok ? 'ok' : 'fail'">
               <span class="repair-step-icon" :class="st.ok ? 'ok' : 'fail'">{{ st.ok ? '✓' : '✗' }}</span>
@@ -2061,7 +2121,7 @@ async function retryLoadConfig() {
             {{ primaryLabel || '一键修复' }}
           </button>
           <button
-            v-if="canDismiss"
+            v-if="canDismiss && !autoRepairing"
             type="button"
             class="btn btn-secondary repair-later"
             @click="dismissRepairCard"
@@ -3048,7 +3108,6 @@ async function retryLoadConfig() {
   .setup-tips-modal,
   .btn,
   .stepper-btn,
-  .more-ops > summary,
   .ruler-marker {
     animation: none !important;
     transition: none !important;
@@ -3568,16 +3627,16 @@ async function retryLoadConfig() {
   align-items: flex-start;
   justify-content: center;
   padding-top: 120px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(1px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
 }
 .repair-card {
   width: min(360px, calc(100% - 32px));
   background: var(--card-bg, #1f242b);
   border: 1px solid var(--border, #343b46);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 16px 18px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 .repair-modal-enter-active,
 .repair-modal-leave-active {
@@ -3760,77 +3819,6 @@ async function retryLoadConfig() {
   background: #3d3220 !important;
   font-weight: 600;
 }
-.more-ops {
-  position: relative;
-  margin: 0;
-  border: none;
-  padding: 0;
-  justify-self: end;
-}
-.more-ops > summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  list-style: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--edge);
-  border-radius: 8px;
-  background: var(--panel-2);
-  white-space: nowrap;
-  transition: color 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.more-ops > summary:hover {
-  color: var(--text);
-}
-.more-ops > summary:active {
-  transform: scale(0.97);
-}
-.more-ops > summary::-webkit-details-marker {
-  display: none;
-}
-.more-ops > summary::before {
-  content: "▸ ";
-  color: var(--dim, #5c6673);
-}
-.more-ops[open] > summary::before {
-  content: "▾ ";
-}
-.more-ops .ops-body {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 160px;
-  padding: 8px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  margin-top: 0;
-}
-.more-ops .ops-body .btn {
-  width: 100%;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  font-size: 12.5px;
-  padding: 7px 10px;
-}
-.more-ops .ops-body .btn:hover:not(:disabled) {
-  border-color: var(--text-secondary);
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .vol-meter-block {
   display: flex;
   flex-direction: column;

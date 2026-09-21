@@ -1,11 +1,11 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
-  [ValidateSet("Install", "InstallElevated", "Finish", "Repair", "Restore", "Audit")]
+  [ValidateSet("Install", "InstallElevated", "Finish", "Repair", "Restore", "Audit", "EnsureMic")]
   [string] $Mode = "Install",
-  [Parameter(Mandatory = $true)]
-  [string] $AppPath,
-  [Parameter(Mandatory = $true)]
-  [string] $DriverZipPath
+  [Parameter(Mandatory = $false)]
+  [string] $AppPath = "",
+  [Parameter(Mandatory = $false)]
+  [string] $DriverZipPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -160,6 +160,7 @@ function Invoke-ElevatedInstall {
   $process = Start-Process -FilePath "powershell.exe" -ArgumentList $args -Verb RunAs -WindowStyle Hidden -PassThru -Wait
   if ($null -eq $process) { throw "UAC cancelled or elevated install did not start" }
   if ($process.ExitCode -notin @(0, 3010)) { throw "Automatic VB-CABLE install failed with code $($process.ExitCode)" }
+  return [int]$process.ExitCode
 }
 
 function Wait-VBCable([int] $Seconds) {
@@ -171,30 +172,52 @@ function Wait-VBCable([int] $Seconds) {
   return $false
 }
 
+# Wait 超时后：仅当提权安装明确返回 3010/已写 reboot flag 才算「需重启」；
+# 否则视为安装失败，禁止误报「Windows restart required」。
+function Resolve-PostInstallResult([int] $ElevatedExitCode) {
+  if (Test-VBCableReady) { return "OK" }
+  $flagExists = Test-Path -LiteralPath $RebootFlag
+  if ($ElevatedExitCode -eq 3010 -or $flagExists) {
+    if (-not $flagExists) {
+      Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII
+    }
+    Set-FinishRunOnce
+    return "Driver installed; Windows restart required"
+  }
+  return "WARNING: VB-CABLE endpoints not available after install (not a reboot issue)"
+}
+
 $result = "OK"
 try {
   $null = New-Item -ItemType Directory -Force -Path $StateRoot
   switch ($Mode) {
     "InstallElevated" {
-      if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Administrator rights are required" }
-      $inf = Prepare-DriverFiles
-      Initialize-RootDeviceInstaller
-      $reboot = [RootDeviceInstaller]::Install($inf, "VBAudioVACWDM", "VB-Audio Virtual Cable")
-      if ($reboot) { Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII; exit 3010 }
-      exit 0
+      # 已弃用：应用改为启动官方 VBCABLE_Setup_x64.exe 有界面安装。
+      throw "Deprecated: use official VBCABLE_Setup from the app (embedded zip). Silent SetupAPI install is disabled."
     }
     "Install" {
-      if (-not (Test-VBCableReady)) { Invoke-ElevatedInstall }
-      if (Wait-VBCable 45) { Set-DefaultCableMicrophone; Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue }
-      else { Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII; Set-FinishRunOnce; $result = "Driver installed; Windows restart required" }
+      throw "Deprecated: use official VBCABLE_Setup from the app (embedded zip). Silent SetupAPI install is disabled."
     }
     "Finish" {
       if (Wait-VBCable 60) { Set-DefaultCableMicrophone; Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $RunOnceKey -Name $RunOnceName -Force -ErrorAction SilentlyContinue }
-      else { throw "VB-CABLE endpoints are still unavailable after restart" }
+      else {
+        Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $RunOnceKey -Name $RunOnceName -Force -ErrorAction SilentlyContinue
+        throw "VB-CABLE endpoints are still unavailable after restart"
+      }
     }
     "Repair" {
-      if (-not (Test-VBCableReady)) { Invoke-ElevatedInstall }
-      if (Wait-VBCable 45) { Set-DefaultCableMicrophone } else { Set-FinishRunOnce; $result = "Driver installed; Windows restart required" }
+      # 静默安装已弃用；仅在已就绪时校正默认麦（兼容旧调用）
+      if (-not (Test-VBCableReady)) {
+        throw "Deprecated silent install: use official VBCABLE_Setup from the app."
+      }
+      Set-DefaultCableMicrophone
+      $result = "OK"
+    }
+    "EnsureMic" {
+      if (-not (Test-VBCableReady)) { throw "VB-CABLE is not ready" }
+      Set-DefaultCableMicrophone
+      $result = "OK"
     }
     "Restore" {
       if (Test-Path -LiteralPath $PreviousMicFile) { Initialize-AudioEndpointApi; $id=(Get-Content -LiteralPath $PreviousMicFile -Raw -Encoding UTF8).Trim(); if($id){[XiaomiAudioEndpoint]::SetDefaultCapture($id)}; Remove-Item -LiteralPath $PreviousMicFile -Force }
@@ -215,7 +238,7 @@ try {
   "Result: $result",
   "VB-CABLE render: $([bool](Get-VBCableRender))",
   "VB-CABLE capture: $([bool](Get-VBCableCapture))",
-  "Driver install: automatic signed root-device installation",
+  "Driver install: official VBCABLE_Setup_x64.exe (silent SetupAPI disabled)",
   "Input method or speech recognition: not included"
 ) | ForEach-Object { Write-Output $_ }
 
