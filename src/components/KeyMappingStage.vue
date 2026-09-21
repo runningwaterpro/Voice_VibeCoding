@@ -418,11 +418,47 @@ function stopPolling() {
   }
 }
 
-/** 录入期间拦截 WebView 加速键（Ctrl+A / Alt 菜单等）；OS 层吞键由 LL 钩子负责 */
+/** 录入期间：优先用 WebView keydown 直接录入（不依赖 LL 钩子收到键） */
+function vkFromEvent(e: KeyboardEvent): number {
+  return e.keyCode || e.which || 0;
+}
+function isModVk(vk: number): boolean {
+  return (
+    vk === 0x10 ||
+    vk === 0x11 ||
+    vk === 0x12 ||
+    vk === 0x5b ||
+    vk === 0x5c ||
+    vk === 0xa0 ||
+    vk === 0xa1 ||
+    vk === 0xa2 ||
+    vk === 0xa3 ||
+    vk === 0xa4 ||
+    vk === 0xa5
+  );
+}
+function chordFromEvent(e: KeyboardEvent): number[] {
+  const main = vkFromEvent(e);
+  if (!main || isModVk(main)) return [];
+  const mods: number[] = [];
+  if (e.ctrlKey) mods.push(e.location === 2 ? 0xa3 : 0xa2);
+  if (e.shiftKey) mods.push(0xa0);
+  if (e.altKey) mods.push(e.location === 2 ? 0xa5 : 0xa4);
+  if (e.metaKey) mods.push(0x5b);
+  return [...mods, main];
+}
+
 function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
+  if (applied) return;
+  const chord = chordFromEvent(e);
+  if (chord.length > 0) {
+    // 键已到 WebView = 至少能从前端录；不依赖钩子是否吞住
+    const labels = chord.map((vk) => vkDisplayName(vk));
+    void onCaptured(chord, labels);
+  }
 }
 
 function startPolling() {
@@ -436,7 +472,16 @@ function startPolling() {
       const snap = await invoke<{
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
+        leaks?: number;
+        healthFailed?: boolean;
       }>("capture_shortcut_poll");
+      if (snap?.healthFailed) {
+        capturing.value = false;
+        stopPolling();
+        captureError.value = "键盘捕获失效：按键未被钩子拦截，请重试或重启应用。";
+        void invoke("capture_shortcut_stop").catch(() => {});
+        return;
+      }
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
       }
@@ -477,11 +522,12 @@ async function startCapture() {
     return;
   }
   captureError.value = null;
-  capturing.value = true;
   liveLabels.value = [];
   applied = false;
+  // 后端探针通过后才进入 capturing（禁止先亮 UI）
   try {
     await invoke("capture_shortcut_start");
+    capturing.value = true;
     startPolling();
   } catch (e) {
     capturing.value = false;

@@ -10,7 +10,7 @@
 
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -312,6 +312,7 @@ impl CaptureRuntime {
         }
         let labels: Vec<String> = keys.iter().copied().map(vk_to_label).collect();
         log::info!("Shortcut captured: {}", labels.join("+"));
+        log::info!("[DEBUG-cap] publish keys={keys:?} labels={}", labels.join("+"));
         let payload = ShortcutCapturedPayload {
             keys,
             labels: labels.clone(),
@@ -337,12 +338,14 @@ impl CaptureRuntime {
     }
 }
 
-/// 轮询快照：最终结果 + 当前进度标签（进度不依赖 Tauri emit）
+/// 轮询快照：最终结果 + 进度 + 网页漏键计数（钩子没吞住时 JS 仍能收到 keydown）
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShortcutPollSnapshot {
     pub pending: Option<ShortcutCapturedPayload>,
     pub progress: Vec<String>,
+    pub leaks: u32,
+    pub health_failed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -352,14 +355,85 @@ pub struct ShortcutPollSnapshot {
 static SWALLOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static CAPTURE_SUBMITTED: AtomicBool = AtomicBool::new(false);
 static SWALLOW_HIT_LOGGED: AtomicBool = AtomicBool::new(false);
+static HOOK_PROC_SEEN: AtomicBool = AtomicBool::new(false);
+static LAST_HOOK_PROC_VK: AtomicU32 = AtomicU32::new(0);
+static WEB_LEAKS: AtomicU32 = AtomicU32::new(0);
+static HEALTH_FAILED: AtomicBool = AtomicBool::new(false);
+static LEAK_RESTARTS: AtomicU32 = AtomicU32::new(0);
+static LEAK_RESTART_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static LAST_LEAK_RESTART: Mutex<Option<Instant>> = Mutex::new(None);
 static BLOCKED_VKS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> =
     LazyLock::new(|| Mutex::new(None));
 static HOOK_RUNTIME: LazyLock<Mutex<Option<Arc<CaptureRuntime>>>> =
     LazyLock::new(|| Mutex::new(None));
 
+/// 探针键：录入自检用，选冷门 VK，避免与用户按键冲突。
+const PROBE_VK: u32 = 0x87; // VK_F24
+
+/// special_keys 钩子入口在 swallow 激活时调用。
+pub fn note_hook_proc_hit(vk: u32) {
+    LAST_HOOK_PROC_VK.store(vk, Ordering::SeqCst);
+    HOOK_PROC_SEEN.store(true, Ordering::SeqCst);
+}
+
+/// 前端在 capturing 期间收到 keydown = LL 钩子未吞住 → 记一次漏键。
+/// 组合键（如 Shift+F10）会连发多个 keydown：先整线程重启并吸收同波，
+/// 重启完成后再漏才 health_failed。
+pub fn note_web_leak(vk: u32) {
+    if !SWALLOW_ACTIVE.load(Ordering::SeqCst) {
+        return;
+    }
+    // 重启进行中：吸收同一和弦的后续键，避免 2 次 keydown 直接判死
+    if LEAK_RESTART_IN_FLIGHT.load(Ordering::SeqCst) {
+        log::info!("[DEBUG-cap] web leak absorbed (restart in flight) vk=0x{vk:02X}");
+        return;
+    }
+    let n = WEB_LEAKS.fetch_add(1, Ordering::SeqCst) + 1;
+    log::info!("[DEBUG-cap] web leak#{n} vk=0x{vk:02X} (hook did not swallow)");
+
+    // 已经重启过、且距上次重启超过 400ms 仍漏 → 真失败
+    let restarts = LEAK_RESTARTS.load(Ordering::SeqCst);
+    if restarts >= 1 {
+        let last = LAST_LEAK_RESTART.lock().unwrap().clone();
+        if let Some(t) = last {
+            if t.elapsed() >= Duration::from_millis(400) {
+                HEALTH_FAILED.store(true, Ordering::SeqCst);
+                log::error!("[DEBUG-cap] capture health FAILED after restart still leaking");
+                return;
+            }
+        }
+    }
+
+    // 第一波：整线程重启（比 bump 更能清假就绪）
+    LEAK_RESTART_IN_FLIGHT.store(true, Ordering::SeqCst);
+    std::thread::spawn(|| {
+        #[cfg(target_os = "windows")]
+        {
+            crate::bridges::xiaomi::special_keys::restart_special_key_hook();
+            // 重启后清计数，给用户一次干净的重试波
+            WEB_LEAKS.store(0, Ordering::SeqCst);
+            LEAK_RESTARTS.fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
+                *t = Some(Instant::now());
+            }
+            log::info!("[DEBUG-cap] leak full hook restart done");
+        }
+        LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
+}
+
 fn reset_hook_session() {
     CAPTURE_SUBMITTED.store(false, Ordering::SeqCst);
+    HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
+    LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
+    WEB_LEAKS.store(0, Ordering::SeqCst);
+    HEALTH_FAILED.store(false, Ordering::SeqCst);
+    LEAK_RESTARTS.store(0, Ordering::SeqCst);
+    LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
+    if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
+        *t = None;
+    }
     if let Ok(mut blocked) = BLOCKED_VKS.lock() {
         blocked.clear();
     }
@@ -377,16 +451,20 @@ fn mark_capture_submitted() {
 }
 
 fn maybe_finish_hook_after_drain() {
-    if !CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
+    let submitted = CAPTURE_SUBMITTED.load(Ordering::SeqCst);
+    if !submitted {
+        log::info!("[DEBUG-cap] drain skip: not submitted (swallow stays on)");
         return;
     }
     let empty = BLOCKED_VKS
         .lock()
         .map(|g| g.is_empty())
         .unwrap_or(false);
+    log::info!("[DEBUG-cap] drain check submitted={submitted} blocked_empty={empty}");
     if empty {
         set_swallow_active(false);
         log::info!("Shortcut capture swallow drain complete");
+        log::info!("[DEBUG-cap] swallow OFF (drain complete)");
     }
 }
 
@@ -398,10 +476,59 @@ pub fn is_swallow_active() -> bool {
     SWALLOW_ACTIVE.load(Ordering::SeqCst)
 }
 
+/// 录入启动后注入 F24 探针；LL 钩子收到则 note_hook_proc_hit。
+/// 带 MapVirtualKey 扫描码，避免无 scancode 时部分环境不投 LL。
+#[cfg(target_os = "windows")]
+fn probe_hook_alive() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+        MAPVK_VK_TO_VSC, VIRTUAL_KEY,
+    };
+    HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
+    LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
+    let scan = unsafe { MapVirtualKeyW(PROBE_VK as u32, MAPVK_VK_TO_VSC) };
+    let mk = |up: bool| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(PROBE_VK as u16),
+                wScan: scan as u16,
+                dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                time: 0,
+                // 与业务注入区分：不用 EXTRA_INFO
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let inputs = [mk(false), mk(true)];
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    let deadline = Instant::now() + Duration::from_millis(150);
+    loop {
+        let last = LAST_HOOK_PROC_VK.load(Ordering::SeqCst);
+        if last == PROBE_VK {
+            break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let last = LAST_HOOK_PROC_VK.load(Ordering::SeqCst);
+    let seen = last == PROBE_VK;
+    HOOK_PROC_SEEN.store(seen, Ordering::SeqCst);
+    log::info!(
+        "[DEBUG-cap] probe sent={sent} scan=0x{scan:X} seen={seen} last_vk=0x{last:02X} expect_vk=0x{PROBE_VK:02X}"
+    );
+}
+
 /// 喂给录入引擎（仅 LL 钩子线程调用）。
 /// 禁止在 Consumer Raw Input 线程调用：与钩子争用 Mutex 会拖慢 LL 回调，
 /// Windows 会静默卸掉 WH_KEYBOARD_LL → 普通键既不吞也不录，只剩媒体键能录。
 pub fn feed_capture_key(vk: u32, is_down: bool) {
+    // 探针键绝不进引擎（否则会 publish 成用户绑定）
+    if vk == PROBE_VK {
+        return;
+    }
     if CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
         return;
     }
@@ -473,6 +600,27 @@ pub fn try_swallow_capture_key(vk: u32, wparam: u32, is_injected: bool) -> bool 
         return true;
     }
 
+    // 诊断插桩：LL 回调内只做 try_lock + 一次格式化，绝不阻塞等待
+    let dbg_engine = HOOK_ENGINE.try_lock().map(|g| g.is_some()).unwrap_or(false);
+    let dbg_capturing = match HOOK_RUNTIME.try_lock() {
+        Ok(g) => g
+            .as_ref()
+            .map(|r| r.capturing.load(Ordering::SeqCst))
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    log::info!(
+        "[DEBUG-cap] swallow vk=0x{vk:02X} wp=0x{wparam:X} submitted={} engine={} capturing={}",
+        CAPTURE_SUBMITTED.load(Ordering::SeqCst),
+        dbg_engine,
+        dbg_capturing
+    );
+
+    // 探针：只证明钩子活着，不进 blocked、不进引擎
+    if vk == PROBE_VK {
+        return true;
+    }
+
     // 必须记录每个物理键：丢事件会丢 Win → 只录到 Ctrl，并提前关吞键漏出 Win/语音
     track_blocked_vk(vk, is_down);
     if is_up {
@@ -491,6 +639,19 @@ pub fn try_swallow_capture_key(vk: u32, wparam: u32, is_injected: bool) -> bool 
 }
 
 fn track_blocked_vk(vk: u32, down: bool) {
+    // 临界区极短。KeyUp 绝不能因 try_lock 失败而丢（否则 drain 永不结束）。
+    // 先自旋 try_lock；仍失败再短阻塞 lock（clear/insert 都是微秒级）。
+    for _ in 0..64 {
+        if let Ok(mut g) = BLOCKED_VKS.try_lock() {
+            if down {
+                g.insert(vk);
+            } else {
+                g.remove(&vk);
+            }
+            return;
+        }
+        std::hint::spin_loop();
+    }
     if let Ok(mut g) = BLOCKED_VKS.lock() {
         if down {
             g.insert(vk);
@@ -899,6 +1060,12 @@ impl ShortcutCaptureSession {
     }
 
     pub fn cancel(&self) -> Result<(), String> {
+        log::info!(
+            "[DEBUG-cap] cancel enter swallow={} submitted={} capturing={}",
+            SWALLOW_ACTIVE.load(Ordering::SeqCst),
+            CAPTURE_SUBMITTED.load(Ordering::SeqCst),
+            self.runtime.capturing.load(Ordering::SeqCst)
+        );
         self.runtime.stop.store(true, Ordering::SeqCst);
         self.runtime.capturing.store(false, Ordering::SeqCst);
         consumer_listen::stop();
@@ -918,6 +1085,8 @@ impl ShortcutCaptureSession {
     }
 
     pub fn start(&self, app: AppHandle) -> Result<(), String> {
+        let t0 = Instant::now();
+        log::info!("[DEBUG-cap] start enter");
         self.cancel()?;
 
         *self.runtime.app.lock().unwrap() = Some(app);
@@ -930,17 +1099,18 @@ impl ShortcutCaptureSession {
         #[cfg(target_os = "windows")]
         {
             crate::bridges::xiaomi::special_keys::ensure_hook_for_capture();
-            let deadline = Instant::now() + Duration::from_millis(800);
+            let deadline = Instant::now() + Duration::from_millis(400);
             while !crate::bridges::xiaomi::special_keys::is_hook_armed()
                 && Instant::now() < deadline
             {
                 thread::sleep(Duration::from_millis(10));
             }
-            if !crate::bridges::xiaomi::special_keys::is_hook_armed() {
-                return Err(
-                    "键盘吞键钩子未启动：无法安全录入（系统热键会穿透）。请检查 special_keys。"
-                        .into(),
-                );
+            let armed = crate::bridges::xiaomi::special_keys::is_hook_armed();
+            let running = crate::bridges::xiaomi::special_keys::is_hook_running();
+            log::info!("[DEBUG-cap] start hook armed={armed} running={running}");
+            if !armed {
+                self.fail_start(t0.elapsed().as_millis());
+                return Err("键盘吞键钩子未启动：无法安全录入。".into());
             }
         }
 
@@ -950,8 +1120,36 @@ impl ShortcutCaptureSession {
         SWALLOW_HIT_LOGGED.store(false, Ordering::SeqCst);
         set_swallow_active(true);
         consumer_listen::start();
+
+        // 探针只作诊断：F24 SendInput 在物理键可录时也常 seen=false（假阴性）。
+        // **禁止**因探针失败自动 restart/bump——那会反复触发线程竞态拆钩。
+        // 真故障由 web leak（键到达 WebView）触发一次带 join 的 restart。
+        #[cfg(target_os = "windows")]
+        {
+            probe_hook_alive();
+            if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
+                log::info!(
+                    "[DEBUG-cap] probe_seen=false (known SendInput false-negative); not restarting"
+                );
+            }
+        }
+
         log::info!("Shortcut capture started (special_keys + consumer HID)");
+        log::info!(
+            "[DEBUG-cap] start OK swallow=1 elapsed_ms={} probe_seen={} leaks={}",
+            t0.elapsed().as_millis(),
+            HOOK_PROC_SEEN.load(Ordering::SeqCst),
+            WEB_LEAKS.load(Ordering::SeqCst)
+        );
         Ok(())
+    }
+
+    fn fail_start(&self, elapsed_ms: u128) {
+        self.runtime.capturing.store(false, Ordering::SeqCst);
+        set_swallow_active(false);
+        reset_hook_session();
+        consumer_listen::stop();
+        log::info!("[DEBUG-cap] start FAIL after {elapsed_ms}ms");
     }
 
     pub fn take_result(&self) -> Option<ShortcutCapturedPayload> {
@@ -963,7 +1161,13 @@ impl ShortcutCaptureSession {
         ShortcutPollSnapshot {
             pending: self.runtime.take_pending(),
             progress: self.runtime.peek_progress(),
+            leaks: WEB_LEAKS.load(Ordering::SeqCst),
+            health_failed: HEALTH_FAILED.load(Ordering::SeqCst),
         }
+    }
+
+    pub fn note_web_leak(&self, vk: u32) {
+        note_web_leak(vk);
     }
 
     pub fn is_active(&self) -> bool {

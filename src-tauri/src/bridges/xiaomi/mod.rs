@@ -9,6 +9,7 @@ pub mod hid_tap_runtime;
 pub mod hid_tap_injector;
 pub mod hid_report_tap;
 pub mod key_mapping;
+pub mod hook_bump;
 pub mod special_keys;
 pub mod tv_gate;
 pub mod voice_pcm;
