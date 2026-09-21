@@ -1,7 +1,7 @@
 {
   "name": "xiaomi-remote-2-pro",
-  "version": "1.1.1",
-  "description": "Voice VibeCoding �?璇煶姘涘洿缂栫�?/ 灏忕背路T1路V60 閬ユ帶鍣ㄦˉ鎺?(Rust + Tauri 2 + Vue 3)",
+  "version": "1.1.2",
+  "description": "Voice VibeCoding �?璇煶姘涘洿缂栫�?/ 灏忕背路T1路V60 閬ユ帶鍣ㄦˉ鎺?(Rust + Tauri 2 + Vue 3)",
   "type": "module",
   "scripts": {
     "dev": "vite",
