@@ -448,21 +448,25 @@ pub fn is_swallow_active() -> bool {
 }
 
 /// 录入启动后注入 F24 探针；LL 钩子收到则 note_hook_proc_hit。
+/// 带 MapVirtualKey 扫描码，避免无 scancode 时部分环境不投 LL。
 #[cfg(target_os = "windows")]
 fn probe_hook_alive() {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+        MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+        MAPVK_VK_TO_VSC, VIRTUAL_KEY,
     };
     HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
     LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
+    let scan = unsafe { MapVirtualKeyW(PROBE_VK as u32, MAPVK_VK_TO_VSC.0) };
     let mk = |up: bool| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: VIRTUAL_KEY(PROBE_VK as u16),
-                wScan: 0,
+                wScan: scan as u16,
                 dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
                 time: 0,
+                // 与业务注入区分：不用 EXTRA_INFO
                 dwExtraInfo: 0,
             },
         },
@@ -484,7 +488,7 @@ fn probe_hook_alive() {
     let seen = last == PROBE_VK;
     HOOK_PROC_SEEN.store(seen, Ordering::SeqCst);
     log::info!(
-        "[DEBUG-cap] probe sent={sent} seen={seen} last_vk=0x{last:02X} expect_vk=0x{PROBE_VK:02X}"
+        "[DEBUG-cap] probe sent={sent} scan=0x{scan:X} seen={seen} last_vk=0x{last:02X} expect_vk=0x{PROBE_VK:02X}"
     );
 }
 
@@ -1088,22 +1092,22 @@ impl ShortcutCaptureSession {
         set_swallow_active(true);
         consumer_listen::start();
 
-        // 就绪 = 探针收到键，不是 HOOK_PTR 非空
+        // 就绪优先看「钩子 armed」；探针作恢复触发，**不单独否决**——
+        // 实测 SendInput F24 在物理键可录时仍可能 seen=false（探针假阴性）。
         #[cfg(target_os = "windows")]
         {
             probe_hook_alive();
             if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                log::info!("[DEBUG-cap] probe fail → bump_and_settle recovery");
+                log::info!("[DEBUG-cap] probe fail → bump_and_settle (soft, still start)");
                 let out =
                     crate::bridges::xiaomi::special_keys::bump_hook_to_front_and_settle(250);
                 log::info!("[DEBUG-cap] recovery out={out:?}");
                 probe_hook_alive();
             }
+            // 探针仍 false：不 Err——物理键路径可能仍可用（有 web leak 做运行时兜底）
             if !HOOK_PROC_SEEN.load(Ordering::SeqCst) {
-                self.fail_start(t0.elapsed().as_millis());
-                return Err(
-                    "无法捕获键盘：钩子未收到按键（可能被其它软件占用或驱动异常）。请重试或重启应用。"
-                        .into(),
+                log::warn!(
+                    "[DEBUG-cap] probe_seen=false after recovery; starting capture anyway (leak health armed)"
                 );
             }
         }

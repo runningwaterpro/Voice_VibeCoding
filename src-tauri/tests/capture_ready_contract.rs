@@ -17,15 +17,17 @@ fn probe_vk_never_feeds_engine() {
 }
 
 #[test]
-fn probe_fail_returns_err_not_silent_ok() {
+fn probe_failure_must_not_hard_block_capture() {
+    // 探针 SendInput 可能假阴性；硬 Err 会让用户完全无法录入。
+    // 允许 recovery 后仍 start Ok；运行时靠 web leak health。
     let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
     assert!(
-        src.contains("probe fail → bump_and_settle"),
-        "probe failure must attempt recovery"
+        src.contains("starting capture anyway") || src.contains("soft, still start"),
+        "probe fail must not return Err that blocks UI capture"
     );
     assert!(
-        src.contains("无法捕测键盘") || src.contains("无法捕获键盘"),
-        "double probe failure must return Err to UI"
+        !src.contains("无法捕获键盘：钩子未收到按键"),
+        "removed hard-fail message that blocked all capture attempts"
     );
 }
 
