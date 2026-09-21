@@ -1,11 +1,11 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("Install", "InstallElevated", "Finish", "Repair", "Restore", "Audit")]
+  [ValidateSet("Install", "InstallElevated", "Finish", "Repair", "Restore", "Audit", "EnsureMic")]
   [string] $Mode = "Install",
-  [Parameter(Mandatory = $true)]
-  [string] $AppPath,
-  [Parameter(Mandatory = $true)]
-  [string] $DriverZipPath
+  [Parameter(Mandatory = $false)]
+  [string] $AppPath = "",
+  [Parameter(Mandatory = $false)]
+  [string] $DriverZipPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -192,43 +192,32 @@ try {
   $null = New-Item -ItemType Directory -Force -Path $StateRoot
   switch ($Mode) {
     "InstallElevated" {
-      if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Administrator rights are required" }
-      $inf = Prepare-DriverFiles
-      Initialize-RootDeviceInstaller
-      $reboot = [RootDeviceInstaller]::Install($inf, "VBAudioVACWDM", "VB-Audio Virtual Cable")
-      if ($reboot) { Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII; exit 3010 }
-      exit 0
+      # 已弃用：应用改为启动官方 VBCABLE_Setup_x64.exe 有界面安装。
+      throw "Deprecated: use official VBCABLE_Setup from the app (embedded zip). Silent SetupAPI install is disabled."
     }
     "Install" {
-      $elevCode = 0
-      if (-not (Test-VBCableReady)) { $elevCode = Invoke-ElevatedInstall }
-      if (Wait-VBCable 45) {
-        Set-DefaultCableMicrophone
-        Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
-        $result = "OK"
-      } else {
-        $result = Resolve-PostInstallResult $elevCode
-      }
+      throw "Deprecated: use official VBCABLE_Setup from the app (embedded zip). Silent SetupAPI install is disabled."
     }
     "Finish" {
       if (Wait-VBCable 60) { Set-DefaultCableMicrophone; Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $RunOnceKey -Name $RunOnceName -Force -ErrorAction SilentlyContinue }
       else {
-        # 已重启仍无端点 → 失败，不再要求二次重启
         Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
         Remove-ItemProperty -Path $RunOnceKey -Name $RunOnceName -Force -ErrorAction SilentlyContinue
         throw "VB-CABLE endpoints are still unavailable after restart"
       }
     }
     "Repair" {
-      $elevCode = 0
-      if (-not (Test-VBCableReady)) { $elevCode = Invoke-ElevatedInstall }
-      if (Wait-VBCable 45) {
-        Set-DefaultCableMicrophone
-        Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
-        $result = "OK"
-      } else {
-        $result = Resolve-PostInstallResult $elevCode
+      # 静默安装已弃用；仅在已就绪时校正默认麦（兼容旧调用）
+      if (-not (Test-VBCableReady)) {
+        throw "Deprecated silent install: use official VBCABLE_Setup from the app."
       }
+      Set-DefaultCableMicrophone
+      $result = "OK"
+    }
+    "EnsureMic" {
+      if (-not (Test-VBCableReady)) { throw "VB-CABLE is not ready" }
+      Set-DefaultCableMicrophone
+      $result = "OK"
     }
     "Restore" {
       if (Test-Path -LiteralPath $PreviousMicFile) { Initialize-AudioEndpointApi; $id=(Get-Content -LiteralPath $PreviousMicFile -Raw -Encoding UTF8).Trim(); if($id){[XiaomiAudioEndpoint]::SetDefaultCapture($id)}; Remove-Item -LiteralPath $PreviousMicFile -Force }
@@ -249,7 +238,7 @@ try {
   "Result: $result",
   "VB-CABLE render: $([bool](Get-VBCableRender))",
   "VB-CABLE capture: $([bool](Get-VBCableCapture))",
-  "Driver install: automatic signed root-device installation",
+  "Driver install: official VBCABLE_Setup_x64.exe (silent SetupAPI disabled)",
   "Input method or speech recognition: not included"
 ) | ForEach-Object { Write-Output $_ }
 
