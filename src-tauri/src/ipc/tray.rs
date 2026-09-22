@@ -132,7 +132,8 @@ pub fn sync_runtime_icons_ready(app: &AppHandle, voice_ready: bool) {
 }
 
 fn quit_app(app: &AppHandle) {
-    // 先停桥接 / HID Tap / 钩子 / 音频子进程，避免托盘退出后 remote-bridge-hub.exe 残留
+    // 先停桥接 / HID Tap / 钩子 / 音频子进程，避免托盘退出后 remote-bridge-hub.exe 残留。
+    // 钩子 stop 单一入口之一（另两处：进程退出 cleanup、托盘重启）。
     if let Some(runtime) =
         app.try_state::<std::sync::Arc<crate::bridges::xiaomi::connect::XiaomiRuntime>>()
     {

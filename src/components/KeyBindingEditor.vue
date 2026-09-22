@@ -163,15 +163,7 @@ function startPolling() {
         leaks?: number;
         healthFailed?: boolean;
       }>("capture_shortcut_poll");
-      if (snap?.healthFailed) {
-        capturing.value = false;
-        editingKey.value = null;
-        stopPolling();
-        captureError.value = "键盘捕获失效：按键未被钩子拦截，请重试或重启应用。";
-        captureStatus.value = "录入失败，可以重试";
-        void invoke("capture_shortcut_stop").catch(() => {});
-        return;
-      }
+      // healthFailed 只表示钩子没吞住原生键；WebView 仍可录入，不中止。
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
       }

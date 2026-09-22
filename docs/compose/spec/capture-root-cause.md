@@ -36,9 +36,10 @@ commits: 4f11191..bc00403
 
 | 现象 | 含义 |
 |------|------|
-| 能录入 | 主路径生效 |
+| 能录入 | 主路径生效（WebView keydown） |
 | probe_seen=false 仍能录 | 探针假阴性（已知） |
-| start Err | 钩子线程未 armed |
+| 日志 armed=false 仍能录 | 钩子非 gating（WebView 主路径） |
+| 断线重连不停钩 | stop 仅退出/托盘/重启 |
 
 ## [S3] Out of Scope
 

@@ -1,6 +1,12 @@
 //! 对齐 Python `XiaomiSpecialKeyHook`：抑制遥控器原生气
 //!
 //! 仅在「刚收到同键 HID direct / ATVV 信号」时吞掉 Windows 翻译的原 VK。
+//!
+//! # 生命周期单一所有权
+//! - **start**：仅本模块 `start_special_key_hook` / `ensure_hook_for_capture` / `bump_hook_to_front`。
+//! - **stop**：仅进程退出（`lib::cleanup_on_exit`）、托盘退出（`tray::quit_app`）、
+//!   应用重启（`webview_recovery::restart_application`）。断线重连**不得** stop。
+//! - 录入主路径在 WebView keydown；钩子只 best-effort 吞键，armed 不 gating。
 
 use crate::bridges::xiaomi::key_mapping::{
     direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5, EXTRA_INFO,

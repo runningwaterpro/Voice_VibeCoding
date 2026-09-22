@@ -171,7 +171,8 @@ pub fn manual_refresh_ui(app: &AppHandle) {
     }
 }
 
-/// 托盘「重启软件」：清理桥接/HID/音频后 relaunch
+/// 托盘「重启软件」：清理桥接/HID/音频后 relaunch。
+/// 钩子 stop 单一入口之一（另两处：进程退出 cleanup、托盘退出 quit_app）。
 pub fn restart_application(app: &AppHandle) {
     log::info!("TRAY: restarting application");
     if let Some(runtime) =

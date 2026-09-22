@@ -10,7 +10,8 @@ pub mod file_download;
 
 use tauri::{Manager, RunEvent};
 
-/// 退出前统一清理：停桥接 + HID Tap + 卸键盘钩子，避免进程残留
+/// 退出前统一清理：停桥接 + HID Tap + 卸键盘钩子，避免进程残留。
+/// 钩子 stop 单一入口之一（另两处：托盘退出、托盘重启）。
 fn cleanup_on_exit(app: &tauri::AppHandle) {
     if let Some(runtime) =
         app.try_state::<std::sync::Arc<bridges::xiaomi::connect::XiaomiRuntime>>()

@@ -177,7 +177,8 @@ fn xiaomi_reconnect_loop(
 
         let result =
             connect::monitor_connection(&connection, Arc::clone(&runtime), Some(app.clone()));
-        crate::bridges::xiaomi::special_keys::stop_special_key_hook();
+        // 钩子启停单一所有权：断线重连不停钩（避免与新连接 start 竞态拆钩）。
+        // 只有进程退出 / 托盘退出 / 应用重启才 stop（见 lib/tray/webview_recovery）。
         crate::bridges::xiaomi::voice_pcm::stop();
 
         if runtime.should_stop() {

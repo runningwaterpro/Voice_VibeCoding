@@ -19,20 +19,20 @@ fn probe_vk_never_feeds_engine() {
 #[test]
 fn probe_failure_may_log_but_not_restart_or_hard_fail() {
     // 第一性：SendInput F24 探针恒假阴；禁止用它驱动 restart（会触发线程竞态）。
+    // 录入主路径 = WebView：start 不得因 armed/探针失败 return Err。
     let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
     let start = src
         .split("pub fn start(&self, app: AppHandle)")
         .nth(1)
-        .and_then(|s| s.split("\n    fn fail_start").next())
+        .and_then(|s| s.split("\n    pub fn take_result").next())
         .expect("start body");
     assert!(
         !start.contains("restart_special_key_hook"),
         "start must not auto-restart hook on probe false-negative"
     );
-    // 允许仅在 armed 失败时 Err
     assert!(
-        !start.contains("return Err") || start.contains("if !armed"),
-        "only hard-fail when hook not armed"
+        !start.contains("return Err"),
+        "start must not hard-fail capture when hook not armed (WebView is primary)"
     );
 }
 
@@ -146,6 +146,22 @@ fn leak_chord_must_not_fail_before_restart() {
     assert!(
         src.contains("restart_special_key_hook"),
         "leak recovery must full-restart hook thread"
+    );
+}
+
+#[test]
+fn stop_only_at_app_lifecycle_not_reconnect() {
+    // 钩子 stop 单一所有权：断线重连循环不得 stop（会与新连接 start 竞态）。
+    let src = include_str!("../src/ipc/commands.rs");
+    let start = src
+        .split("fn xiaomi_reconnect_loop")
+        .nth(1)
+        .or_else(|| src.split("monitor_connection").nth(1))
+        .expect("reconnect region");
+    let region = start.split("fn wait_interruptible").next().unwrap_or(start);
+    assert!(
+        !region.contains("stop_special_key_hook"),
+        "reconnect loop must not stop hook; only exit/tray/restart may"
     );
 }
 

@@ -1096,22 +1096,14 @@ impl ShortcutCaptureSession {
         self.runtime.capturing.store(true, Ordering::SeqCst);
         reset_hook_session();
 
+        // 录入主路径 = WebView keydown（前端 chordFromEvent），不依赖 LL 是否 armed。
+        // 钩子只做 best-effort 吞原生键：能起就起，起不来也不否决录入。
         #[cfg(target_os = "windows")]
         {
             crate::bridges::xiaomi::special_keys::ensure_hook_for_capture();
-            let deadline = Instant::now() + Duration::from_millis(400);
-            while !crate::bridges::xiaomi::special_keys::is_hook_armed()
-                && Instant::now() < deadline
-            {
-                thread::sleep(Duration::from_millis(10));
-            }
             let armed = crate::bridges::xiaomi::special_keys::is_hook_armed();
             let running = crate::bridges::xiaomi::special_keys::is_hook_running();
-            log::info!("[DEBUG-cap] start hook armed={armed} running={running}");
-            if !armed {
-                self.fail_start(t0.elapsed().as_millis());
-                return Err("键盘吞键钩子未启动：无法安全录入。".into());
-            }
+            log::info!("[DEBUG-cap] start hook armed={armed} running={running} (non-gating)");
         }
 
         *HOOK_ENGINE.lock().unwrap() = Some(CaptureEngine::new(HashMap::new()));
@@ -1134,7 +1126,7 @@ impl ShortcutCaptureSession {
             }
         }
 
-        log::info!("Shortcut capture started (special_keys + consumer HID)");
+        log::info!("Shortcut capture started (WebView primary + special_keys swallow)");
         log::info!(
             "[DEBUG-cap] start OK swallow=1 elapsed_ms={} probe_seen={} leaks={}",
             t0.elapsed().as_millis(),
@@ -1142,14 +1134,6 @@ impl ShortcutCaptureSession {
             WEB_LEAKS.load(Ordering::SeqCst)
         );
         Ok(())
-    }
-
-    fn fail_start(&self, elapsed_ms: u128) {
-        self.runtime.capturing.store(false, Ordering::SeqCst);
-        set_swallow_active(false);
-        reset_hook_session();
-        consumer_listen::stop();
-        log::info!("[DEBUG-cap] start FAIL after {elapsed_ms}ms");
     }
 
     pub fn take_result(&self) -> Option<ShortcutCapturedPayload> {
