@@ -439,7 +439,8 @@ function isModVk(vk: number): boolean {
 }
 function chordFromEvent(e: KeyboardEvent): number[] {
   const main = vkFromEvent(e);
-  if (!main || isModVk(main)) return [];
+  // F24 (0x87) = 后端探针 SendInput，钩子失效时会漏到 WebView，禁止录成绑定
+  if (!main || main === 0x87 || isModVk(main)) return [];
   const mods: number[] = [];
   if (e.ctrlKey) mods.push(e.location === 2 ? 0xa3 : 0xa2);
   if (e.shiftKey) mods.push(0xa0);
@@ -472,10 +473,7 @@ function startPolling() {
       const snap = await invoke<{
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
-        leaks?: number;
-        healthFailed?: boolean;
       }>("capture_shortcut_poll");
-      // healthFailed 只表示钩子没吞住原生键；WebView 仍可录入，不中止。
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
       }

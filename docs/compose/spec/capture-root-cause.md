@@ -40,6 +40,7 @@ commits: 4f11191..bc00403
 | probe_seen=false 仍能录 | 探针假阴性（已知） |
 | 日志 armed=false 仍能录 | 钩子非 gating（WebView 主路径） |
 | 断线重连不停钩 | stop 仅退出/托盘/重启 |
+| 点录入不会绑成 F24 | 前端忽略探针 VK 0x87 |
 
 ## [S3] Out of Scope
 

@@ -338,14 +338,12 @@ impl CaptureRuntime {
     }
 }
 
-/// 轮询快照：最终结果 + 进度 + 网页漏键计数（钩子没吞住时 JS 仍能收到 keydown）
+/// 轮询快照：最终结果 + 进度
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShortcutPollSnapshot {
     pub pending: Option<ShortcutCapturedPayload>,
     pub progress: Vec<String>,
-    pub leaks: u32,
-    pub health_failed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -357,11 +355,6 @@ static CAPTURE_SUBMITTED: AtomicBool = AtomicBool::new(false);
 static SWALLOW_HIT_LOGGED: AtomicBool = AtomicBool::new(false);
 static HOOK_PROC_SEEN: AtomicBool = AtomicBool::new(false);
 static LAST_HOOK_PROC_VK: AtomicU32 = AtomicU32::new(0);
-static WEB_LEAKS: AtomicU32 = AtomicU32::new(0);
-static HEALTH_FAILED: AtomicBool = AtomicBool::new(false);
-static LEAK_RESTARTS: AtomicU32 = AtomicU32::new(0);
-static LEAK_RESTART_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-static LAST_LEAK_RESTART: Mutex<Option<Instant>> = Mutex::new(None);
 static BLOCKED_VKS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -369,6 +362,7 @@ static HOOK_RUNTIME: LazyLock<Mutex<Option<Arc<CaptureRuntime>>>> =
     LazyLock::new(|| Mutex::new(None));
 
 /// 探针键：录入自检用，选冷门 VK，避免与用户按键冲突。
+/// 前端 chordFromEvent 必须忽略 0x87，防止钩子失效时探针被录成绑定。
 const PROBE_VK: u32 = 0x87; // VK_F24
 
 /// special_keys 钩子入口在 swallow 激活时调用。
@@ -377,63 +371,10 @@ pub fn note_hook_proc_hit(vk: u32) {
     HOOK_PROC_SEEN.store(true, Ordering::SeqCst);
 }
 
-/// 前端在 capturing 期间收到 keydown = LL 钩子未吞住 → 记一次漏键。
-/// 组合键（如 Shift+F10）会连发多个 keydown：先整线程重启并吸收同波，
-/// 重启完成后再漏才 health_failed。
-pub fn note_web_leak(vk: u32) {
-    if !SWALLOW_ACTIVE.load(Ordering::SeqCst) {
-        return;
-    }
-    // 重启进行中：吸收同一和弦的后续键，避免 2 次 keydown 直接判死
-    if LEAK_RESTART_IN_FLIGHT.load(Ordering::SeqCst) {
-        log::info!("[DEBUG-cap] web leak absorbed (restart in flight) vk=0x{vk:02X}");
-        return;
-    }
-    let n = WEB_LEAKS.fetch_add(1, Ordering::SeqCst) + 1;
-    log::info!("[DEBUG-cap] web leak#{n} vk=0x{vk:02X} (hook did not swallow)");
-
-    // 已经重启过、且距上次重启超过 400ms 仍漏 → 真失败
-    let restarts = LEAK_RESTARTS.load(Ordering::SeqCst);
-    if restarts >= 1 {
-        let last = LAST_LEAK_RESTART.lock().unwrap().clone();
-        if let Some(t) = last {
-            if t.elapsed() >= Duration::from_millis(400) {
-                HEALTH_FAILED.store(true, Ordering::SeqCst);
-                log::error!("[DEBUG-cap] capture health FAILED after restart still leaking");
-                return;
-            }
-        }
-    }
-
-    // 第一波：整线程重启（比 bump 更能清假就绪）
-    LEAK_RESTART_IN_FLIGHT.store(true, Ordering::SeqCst);
-    std::thread::spawn(|| {
-        #[cfg(target_os = "windows")]
-        {
-            crate::bridges::xiaomi::special_keys::restart_special_key_hook();
-            // 重启后清计数，给用户一次干净的重试波
-            WEB_LEAKS.store(0, Ordering::SeqCst);
-            LEAK_RESTARTS.fetch_add(1, Ordering::SeqCst);
-            if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
-                *t = Some(Instant::now());
-            }
-            log::info!("[DEBUG-cap] leak full hook restart done");
-        }
-        LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
-    });
-}
-
 fn reset_hook_session() {
     CAPTURE_SUBMITTED.store(false, Ordering::SeqCst);
     HOOK_PROC_SEEN.store(false, Ordering::SeqCst);
     LAST_HOOK_PROC_VK.store(0, Ordering::SeqCst);
-    WEB_LEAKS.store(0, Ordering::SeqCst);
-    HEALTH_FAILED.store(false, Ordering::SeqCst);
-    LEAK_RESTARTS.store(0, Ordering::SeqCst);
-    LEAK_RESTART_IN_FLIGHT.store(false, Ordering::SeqCst);
-    if let Ok(mut t) = LAST_LEAK_RESTART.lock() {
-        *t = None;
-    }
     if let Ok(mut blocked) = BLOCKED_VKS.lock() {
         blocked.clear();
     }
@@ -1115,7 +1056,7 @@ impl ShortcutCaptureSession {
 
         // 探针只作诊断：F24 SendInput 在物理键可录时也常 seen=false（假阴性）。
         // **禁止**因探针失败自动 restart/bump——那会反复触发线程竞态拆钩。
-        // 真故障由 web leak（键到达 WebView）触发一次带 join 的 restart。
+        // 录入主路径是 WebView；探针键由前端 chordFromEvent 忽略，不会进绑定。
         #[cfg(target_os = "windows")]
         {
             probe_hook_alive();
@@ -1128,10 +1069,9 @@ impl ShortcutCaptureSession {
 
         log::info!("Shortcut capture started (WebView primary + special_keys swallow)");
         log::info!(
-            "[DEBUG-cap] start OK swallow=1 elapsed_ms={} probe_seen={} leaks={}",
+            "[DEBUG-cap] start OK swallow=1 elapsed_ms={} probe_seen={}",
             t0.elapsed().as_millis(),
-            HOOK_PROC_SEEN.load(Ordering::SeqCst),
-            WEB_LEAKS.load(Ordering::SeqCst)
+            HOOK_PROC_SEEN.load(Ordering::SeqCst)
         );
         Ok(())
     }
@@ -1145,13 +1085,7 @@ impl ShortcutCaptureSession {
         ShortcutPollSnapshot {
             pending: self.runtime.take_pending(),
             progress: self.runtime.peek_progress(),
-            leaks: WEB_LEAKS.load(Ordering::SeqCst),
-            health_failed: HEALTH_FAILED.load(Ordering::SeqCst),
         }
-    }
-
-    pub fn note_web_leak(&self, vk: u32) {
-        note_web_leak(vk);
     }
 
     pub fn is_active(&self) -> bool {

@@ -174,23 +174,6 @@ pub fn ensure_hook_for_capture() {
     start_special_key_hook();
 }
 
-/// 整线程重启：**必须先 join 旧线程**，禁止双线程抢 HOOK_PTR。
-pub fn restart_special_key_hook() {
-    log::info!("[DEBUG-cap] hook thread restart begin");
-    stop_special_key_hook(); // 内部 join
-    HOOK_ENABLED.store(true, Ordering::Release);
-    start_special_key_hook();
-    let deadline = Instant::now() + Duration::from_millis(800);
-    while !is_hook_armed() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    log::info!(
-        "[DEBUG-cap] hook thread restart done running={} armed={}",
-        is_hook_running(),
-        is_hook_armed()
-    );
-}
-
 pub fn start_special_key_hook() {
     log::info!(
         "[DEBUG-cap] hook start req enabled={} running={}",

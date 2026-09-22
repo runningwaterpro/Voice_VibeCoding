@@ -305,16 +305,6 @@ pub async fn capture_shortcut_start(
     Ok(())
 }
 
-/// 前端在 capturing 期间收到 keydown = 钩子未吞住
-#[tauri::command]
-pub async fn capture_shortcut_note_leak(
-    vk: u32,
-    session: State<'_, crate::bridges::shared::shortcut_capture::ShortcutCaptureSession>,
-) -> Result<(), String> {
-    session.note_web_leak(vk);
-    Ok(())
-}
-
 /// 取消快捷键捕获
 #[tauri::command]
 pub async fn capture_shortcut_stop(

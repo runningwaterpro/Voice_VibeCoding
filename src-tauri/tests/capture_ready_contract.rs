@@ -128,7 +128,7 @@ fn ensure_hook_must_not_force_bump_every_capture() {
     let ensure = src
         .split("pub fn ensure_hook_for_capture")
         .nth(1)
-        .and_then(|s| s.split("pub fn restart_special_key_hook").next())
+        .and_then(|s| s.split("pub fn start_special_key_hook").next())
         .expect("ensure body");
     assert!(
         !ensure.contains("bump_hook_to_front"),
@@ -137,15 +137,22 @@ fn ensure_hook_must_not_force_bump_every_capture() {
 }
 
 #[test]
-fn leak_chord_must_not_fail_before_restart() {
-    let src = include_str!("../src/bridges/shared/shortcut_capture.rs");
+fn frontend_ignores_probe_vk_f24() {
+    // 探针 F24 在钩子失效时会漏到 WebView；前端必须忽略，禁止录成绑定。
+    for rel in [
+        "src/components/KeyMappingStage.vue",
+        "src/components/KeyBindingEditor.vue",
+    ] {
+        let src = std::fs::read_to_string(format!("../{rel}")).expect(rel);
+        assert!(
+            src.contains("0x87"),
+            "{rel}: chordFromEvent must filter probe VK F24 (0x87)"
+        );
+    }
+    let backend = include_str!("../src/bridges/shared/shortcut_capture.rs");
     assert!(
-        src.contains("LEAK_RESTART_IN_FLIGHT") || src.contains("restart in flight"),
-        "must absorb chord keys while hook restart in flight"
-    );
-    assert!(
-        src.contains("restart_special_key_hook"),
-        "leak recovery must full-restart hook thread"
+        !backend.contains("note_web_leak") && !backend.contains("HEALTH_FAILED"),
+        "web-leak health path is dead; must not return"
     );
 }
 
