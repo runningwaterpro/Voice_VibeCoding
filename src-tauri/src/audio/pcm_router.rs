@@ -249,7 +249,8 @@ fn run_router(port: u16) -> Result<(), String> {
 
     let sock = UdpSocket::bind(format!("127.0.0.1:{port}"))
         .map_err(|e| format!("bind pcm {port}: {e}"))?;
-    sock.set_read_timeout(Some(Duration::from_millis(200)))
+    // ponytail: 空闲少醒；有包时 recv 立刻返回，不加语音延迟
+    sock.set_read_timeout(Some(Duration::from_millis(1000)))
         .map_err(|e| e.to_string())?;
     log::info!(
         "AUDIO ROUTER READY pcm=127.0.0.1:{port} lifecycle={}",

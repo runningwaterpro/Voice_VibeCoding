@@ -265,6 +265,7 @@ pub fn run() {
             ipc::update_cmds::ignore_app_update,
             ipc::update_cmds::download_app_update,
             ipc::commands::webview_ping,
+            ipc::commands::set_voice_meter_ui,
             ipc::commands::reveal_main_on_frontend_ready,
         ])
         .build(tauri::generate_context!())

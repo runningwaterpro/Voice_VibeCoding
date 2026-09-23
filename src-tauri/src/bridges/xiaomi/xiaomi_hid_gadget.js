@@ -1,6 +1,7 @@
 const READ_CHARACTERISTIC_IOCTL = 0x80018483;
 const EXPECTED_OUTPUT_LENGTH = 9;
-const HEARTBEAT_INTERVAL_MS = 5000;
+// ponytail: 15s 仍 < hid_report_tap 20s timeout
+const HEARTBEAT_INTERVAL_MS = 15000;
 const RECONNECT_DELAY_MS = 1000;
 
 let host = "127.0.0.1";

@@ -1206,13 +1206,17 @@ let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 function applyPollInterval(ms: number) {
   if (hostPollTimer) clearInterval(hostPollTimer);
   if (devicePollTimer) clearInterval(devicePollTimer);
+  hostPollTimer = null;
+  devicePollTimer = null;
+  if (ms <= 0) return;
   hostPollTimer = setInterval(refreshHost, ms);
   devicePollTimer = setInterval(() => void bridge.refreshStatus(type), ms);
 }
 
 function onVisibilityChange() {
+  // 后台停轮询（状态在事件/恢复时刷），可见再回 1s
   if (document.hidden) {
-    applyPollInterval(5000);
+    applyPollInterval(0);
   } else {
     applyPollInterval(1000);
     void refreshHost();

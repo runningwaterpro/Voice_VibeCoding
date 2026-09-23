@@ -30,6 +30,12 @@ pub fn webview_ping() {
     crate::webview_guard::ping();
 }
 
+/// 前端 visibilitychange：隐藏时停 voice_meter UI 路
+#[tauri::command]
+pub fn set_voice_meter_ui(visible: bool) {
+    crate::bridges::xiaomi::voice_meter::set_ui_visible(visible);
+}
+
 /// 前端 onMounted：按启动策略显示或最小化到托盘（不用 hide）
 #[tauri::command]
 pub fn reveal_main_on_frontend_ready(app: AppHandle) {

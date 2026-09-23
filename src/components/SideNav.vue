@@ -89,20 +89,40 @@ async function refreshSession() {
   }
 }
 
-onMounted(async () => {
-  if (!globalSettings.loaded) {
-    await globalSettings.load();
+function stopHostPoll() {
+  if (hostTimer) {
+    clearInterval(hostTimer);
+    hostTimer = null;
   }
-  await bridge.refreshStatus("xiaomi");
-  await refreshSession();
+}
+
+function startHostPoll() {
+  stopHostPoll();
+  void refreshSession();
+  void bridge.refreshStatus("xiaomi");
   hostTimer = setInterval(() => {
     void refreshSession();
     void bridge.refreshStatus("xiaomi");
   }, 2000);
+}
+
+function onVisibility() {
+  // 托盘/最小化：停 2s IPC；恢复可见立刻刷一次再开轮询
+  if (document.hidden) stopHostPoll();
+  else startHostPoll();
+}
+
+onMounted(async () => {
+  if (!globalSettings.loaded) {
+    await globalSettings.load();
+  }
+  document.addEventListener("visibilitychange", onVisibility);
+  onVisibility();
 });
 
 onUnmounted(() => {
-  if (hostTimer) clearInterval(hostTimer);
+  document.removeEventListener("visibilitychange", onVisibility);
+  stopHostPoll();
 });
 
 function navigate(path: string) {

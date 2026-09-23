@@ -34,6 +34,11 @@ let unlistenConflict: UnlistenFn | null = null;
 // WebView2 健康心跳：页面 JS 存活时每 5s 报告一次，供后端判定渲染进程是否死亡（自动 reload）
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+function syncMeterUi() {
+  // 托盘/最小化：停 voice_meter UI 路（后台看不到电平）
+  invoke("set_voice_meter_ui", { visible: !document.hidden }).catch(() => {});
+}
+
 const showConflict = ref(false);
 const conflict = ref<ConflictSnapshot | null>(null);
 const busy = ref(false);
@@ -237,12 +242,15 @@ onMounted(async () => {
       /* 渲染进程已死时 invoke 必然失败，交给后端守卫处理 */
     });
   }, 5000);
+  document.addEventListener("visibilitychange", syncMeterUi);
+  syncMeterUi();
 });
 
 onUnmounted(() => {
   unlistenNav?.();
   unlistenConflict?.();
   appUpdate.dispose();
+  document.removeEventListener("visibilitychange", syncMeterUi);
   if (heartbeatTimer) clearInterval(heartbeatTimer);
 });
 </script>

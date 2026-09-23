@@ -413,7 +413,8 @@ fn windows_run_input_session(
     const ATVV_PERIODIC_MAX_FAILURES: u32 = 10;
     const ATVV_PERIODIC_RETRY_SECS: u64 = 30;
     while !runtime.should_stop() {
-        std::thread::sleep(Duration::from_millis(200));
+        // ponytail: 固定 2s 足够覆盖 2s PCM 预热 / 30s ATVV / 60s 电量；更细 deadline 不必
+        std::thread::sleep(Duration::from_millis(2000));
         if !atvv_ok
             && atvv_periodic_failures < ATVV_PERIODIC_MAX_FAILURES
             && since_atvv_retry.elapsed() >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)

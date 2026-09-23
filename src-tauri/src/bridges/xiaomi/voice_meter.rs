@@ -4,7 +4,7 @@
 //! - `ble_level`：增益前「输入」RMS（0..1，UI 换算 dBFS）
 //! - `cable_level`：增益后「送声」RMS（UDP 成功时写入）
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -111,6 +111,21 @@ static METER: Mutex<MeterInner> = Mutex::new(MeterInner {
 
 static TICKER_STARTED: AtomicBool = AtomicBool::new(false);
 
+/// 0=未知(按可见), 1=可见, 2=隐藏（托盘/最小化）— UI 才需要电平/波形
+static UI_VIS: AtomicU8 = AtomicU8::new(0);
+
+/// 前端 visibilitychange 上报；隐藏时停 UI 路（波形/emit/ticker）
+pub fn set_ui_visible(visible: bool) {
+    UI_VIS.store(if visible { 1 } else { 2 }, Ordering::SeqCst);
+    if visible {
+        emit_if_needed(true);
+    }
+}
+
+fn ui_visible() -> bool {
+    UI_VIS.load(Ordering::SeqCst) != 2
+}
+
 /// 在 app setup 时绑定，便于 PCM 线程发事件
 pub fn bind_app(app: AppHandle) {
     if let Ok(mut g) = METER.lock() {
@@ -126,8 +141,13 @@ fn start_ticker_once() {
     std::thread::Builder::new()
         .name("xiaomi-voice-meter".into())
         .spawn(|| loop {
-            std::thread::sleep(Duration::from_millis(100));
-            emit_if_needed(false);
+            if ui_visible() {
+                std::thread::sleep(Duration::from_millis(100));
+                emit_if_needed(false);
+            } else {
+                // 后台不发 UI 事件；PCM 回调仍可写增益所需电平
+                std::thread::sleep(Duration::from_millis(500));
+            }
         })
         .ok();
 }
@@ -155,24 +175,33 @@ pub fn on_input_pcm(samples: &[i16]) {
     if samples.is_empty() {
         return;
     }
+    let ui = ui_visible();
+    // 后台：仅自动增益还需要电平；关 auto 且不可见 → 整段跳过
+    if !ui && !crate::bridges::xiaomi::voice_gain::auto_enabled() {
+        return;
+    }
     let now = Instant::now();
-    let (level, bins) = analyze(samples);
+    let (level, bins) = analyze(samples, ui);
     if let Ok(mut g) = METER.lock() {
         g.session = true;
         g.last_pcm = Some(now);
         g.ble_level = level;
-        g.waveform = bins;
+        if ui {
+            g.waveform = bins;
+        }
     }
-    emit_if_needed(false);
+    if ui {
+        emit_if_needed(false);
+    }
 }
 
-/// 增益后送声 PCM（由 voice_pcm 在 UDP 发送路径调用）
+/// 增益后送声 PCM（由 voice_pcm 在 UDP 发送路径调用）；仅 UI 用，后台直接跳过
 pub fn on_output_pcm(samples: &[i16], udp_ok: bool) {
-    if samples.is_empty() || !udp_ok {
+    if !ui_visible() || samples.is_empty() || !udp_ok {
         return;
     }
     let now = Instant::now();
-    let (level, _) = analyze(samples);
+    let (level, _) = analyze(samples, true);
     if let Ok(mut g) = METER.lock() {
         g.last_udp = Some(now);
         g.cable_level = level;
@@ -186,7 +215,7 @@ pub fn on_pcm(samples: &[i16], udp_ok: bool) {
 }
 
 /// RMS 为主（诚实反映响度）；峰值仅 15% 权重，避免瞬时尖刺抬满标尺
-fn analyze(samples: &[i16]) -> (f32, [f32; WAVE_BINS]) {
+fn analyze(samples: &[i16], with_waveform: bool) -> (f32, [f32; WAVE_BINS]) {
     let mut peak = 0i32;
     let mut sum_sq: f64 = 0.0;
     for &s in samples {
@@ -202,23 +231,28 @@ fn analyze(samples: &[i16]) -> (f32, [f32; WAVE_BINS]) {
     let level = (rms * 0.85 + peak_n * 0.15).min(1.0);
 
     let mut bins = [0.0f32; WAVE_BINS];
-    let chunk = (samples.len() / WAVE_BINS).max(1);
-    for (i, bin) in bins.iter_mut().enumerate() {
-        let start = i * chunk;
-        if start >= samples.len() {
-            break;
+    if with_waveform {
+        let chunk = (samples.len() / WAVE_BINS).max(1);
+        for (i, bin) in bins.iter_mut().enumerate() {
+            let start = i * chunk;
+            if start >= samples.len() {
+                break;
+            }
+            let end = (start + chunk).min(samples.len());
+            let mut local = 0i32;
+            for &s in &samples[start..end] {
+                local = local.max((s as i32).abs());
+            }
+            *bin = (local as f32 / 32768.0).min(1.0);
         }
-        let end = (start + chunk).min(samples.len());
-        let mut local = 0i32;
-        for &s in &samples[start..end] {
-            local = local.max((s as i32).abs());
-        }
-        *bin = (local as f32 / 32768.0).min(1.0);
     }
     (level, bins)
 }
 
 fn emit_if_needed(force: bool) {
+    if !ui_visible() {
+        return;
+    }
     let now = Instant::now();
     let (app, snap, should) = {
         let Ok(mut g) = METER.lock() else {
