@@ -4,13 +4,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Voice VibeCoding · 界面 Demo v5.4（剃刀优化 · 一键修复基线）</title>
+<title>Voice VibeCoding · 界面 Demo v5.4（青绿遮罩 · 白符号）</title>
 <style>
 :root {
   --chassis:#171a1f; --panel:#1f242b; --panel2:#262c35; --edge:#343b46;
   --ink:#e8ecf1; --muted:#8b95a3; --dim:#5c6673;
   --signal:#4db6a4; --warn:#d4a84b; --fail:#e06b6b;
-  --link:#4db6a4; --link-dim:#7ed9cb; --ring:rgba(77,182,164,.28); --ring-soft:rgba(77,182,164,.18); --key-on:rgba(77,182,164,.48); --key-on-press:rgba(77,182,164,.62); --key-edge:rgba(153,230,218,.95); --ink-on-key:#0f172a;
+  --link:#4db6a4; --link-dim:#7ed9cb; --ring:rgba(77,182,164,.28); --ring-soft:rgba(77,182,164,.18); --key-on:rgba(77,182,164,.48); --key-on-press:rgba(77,182,164,.62); --key-edge:rgba(153,230,218,.95); --ink-on-key:#e8faf6;
   --font:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
   --mono:"Cascadia Mono",ui-monospace,Consolas,monospace;
   --r:10px;
@@ -621,6 +621,7 @@ button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 /* 与音量±同构：键帽高亮为 34px 圆透镜，四周保留深色 well */
 .key-cap-md{width:34px;height:34px}
 .key-cap-sm{width:26px;height:26px}
+/* 半透明青绿遮罩叠深底；符号保持白（e62de98 之前） */
 .key-cap:hover,.key-cap.hover,.dpad-dir:hover,.dpad-dir.hover,.key-ok:hover,.key-ok.hover,.vol-half:hover .vol-hit,.vol-half.hover .vol-hit{
   color:var(--ink-on-key);background:linear-gradient(var(--key-on),var(--key-on)),var(--key);box-shadow:inset 0 0 0 1.5px var(--key-edge)}
 .key-cap-sm:hover,.key-cap-sm.hover{color:var(--ink-on-key);border-color:var(--key-edge);background:linear-gradient(var(--key-on),var(--key-on)),var(--key);box-shadow:inset 0 0 0 1.5px var(--key-edge)}

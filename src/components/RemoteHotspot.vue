@@ -510,7 +510,7 @@ defineExpose({ keyEl, rootRef });
 .dpad-dir.hover,
 .key-ok:hover,
 .key-ok.hover {
-  color: #0f172a;
+  color: #e8faf6;
   background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
@@ -518,7 +518,7 @@ defineExpose({ keyEl, rootRef });
 .key-cap.active,
 .dpad-dir.active,
 .key-ok.active {
-  color: #0f172a;
+  color: #e8faf6;
   background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
@@ -526,7 +526,7 @@ defineExpose({ keyEl, rootRef });
 .key-cap-sm:hover,
 .key-cap-sm.hover,
 .key-cap-sm.active {
-  color: #0f172a;
+  color: #e8faf6;
   border-color: rgba(153, 230, 218, 0.95);
   background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
@@ -705,13 +705,13 @@ defineExpose({ keyEl, rootRef });
 
 .vol-half:hover .vol-hit,
 .vol-half.hover .vol-hit {
-  color: #0f172a;
+  color: #e8faf6;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .vol-half.active .vol-hit {
-  color: #0f172a;
+  color: #e8faf6;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
