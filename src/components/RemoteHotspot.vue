@@ -497,14 +497,14 @@ defineExpose({ keyEl, rootRef });
   height: 19px;
 }
 
-/* 选中 / 悬停：主题色半透明遮罩 + 浅青绿描边（对齐 Demo v5.3b） */
+/* 选中 / 悬停：主题色半透明遮罩 + 深色图标（对齐 Demo v5.4） */
 .key-cap:hover,
 .key-cap.hover,
 .dpad-dir:hover,
 .dpad-dir.hover,
 .key-ok:hover,
 .key-ok.hover {
-  color: #e8faf6;
+  color: #0f172a;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
@@ -512,7 +512,7 @@ defineExpose({ keyEl, rootRef });
 .key-cap.active,
 .dpad-dir.active,
 .key-ok.active {
-  color: #e8faf6;
+  color: #0f172a;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
@@ -520,7 +520,7 @@ defineExpose({ keyEl, rootRef });
 .key-cap-sm:hover,
 .key-cap-sm.hover,
 .key-cap-sm.active {
-  color: #e8faf6;
+  color: #0f172a;
   border-color: rgba(153, 230, 218, 0.95);
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
@@ -699,13 +699,13 @@ defineExpose({ keyEl, rootRef });
 
 .vol-half:hover .vol-hit,
 .vol-half.hover .vol-hit {
-  color: #e8faf6;
+  color: #0f172a;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .vol-half.active .vol-hit {
-  color: #e8faf6;
+  color: #0f172a;
   background: rgba(77, 182, 164, 0.48);
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
