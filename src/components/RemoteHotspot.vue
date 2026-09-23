@@ -497,32 +497,33 @@ defineExpose({ keyEl, rootRef });
   height: 19px;
 }
 
-/* 选中 / 悬停：扁平蓝 + 淡蓝同色边高亮，无凸起阴影 */
+/* 选中 / 悬停：主题色半透明遮罩 + 浅青绿描边（对齐 Demo v5.3b） */
 .key-cap:hover,
 .key-cap.hover,
 .dpad-dir:hover,
 .dpad-dir.hover,
 .key-ok:hover,
 .key-ok.hover {
-  color: #eaf2ff;
-  background: rgba(37, 99, 235, 0.9);
-  box-shadow: inset 0 0 0 1.5px rgba(147, 197, 253, 0.95);
+  color: #e8faf6;
+  background: rgba(77, 182, 164, 0.48);
+  box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .key-cap.active,
 .dpad-dir.active,
 .key-ok.active {
-  color: #eaf2ff;
-  background: rgba(37, 99, 235, 0.9);
-  box-shadow: inset 0 0 0 1.5px rgba(147, 197, 253, 0.95);
+  color: #e8faf6;
+  background: rgba(77, 182, 164, 0.48);
+  box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .key-cap-sm:hover,
 .key-cap-sm.hover,
 .key-cap-sm.active {
-  color: #eaf2ff;
-  border-color: #93c5fd;
-  box-shadow: none;
+  color: #e8faf6;
+  border-color: rgba(153, 230, 218, 0.95);
+  background: rgba(77, 182, 164, 0.48);
+  box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 /* 方向大环：扁平实色 */
@@ -698,15 +699,15 @@ defineExpose({ keyEl, rootRef });
 
 .vol-half:hover .vol-hit,
 .vol-half.hover .vol-hit {
-  color: #eaf2ff;
-  background: rgba(37, 99, 235, 0.9);
-  box-shadow: inset 0 0 0 1.5px rgba(147, 197, 253, 0.95);
+  color: #e8faf6;
+  background: rgba(77, 182, 164, 0.48);
+  box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .vol-half.active .vol-hit {
-  color: #eaf2ff;
-  background: rgba(37, 99, 235, 0.9);
-  box-shadow: inset 0 0 0 1.5px rgba(147, 197, 253, 0.95);
+  color: #e8faf6;
+  background: rgba(77, 182, 164, 0.48);
+  box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
 .remote-footer {

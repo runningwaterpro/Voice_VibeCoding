@@ -251,7 +251,7 @@ function progressWidth(): string {
 .update-progress-bar {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  background: linear-gradient(90deg, #4db6a4, #3a9a8a);
   transition: width 0.15s ease;
 }
 

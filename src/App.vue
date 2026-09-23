@@ -342,14 +342,17 @@ onUnmounted(() => {
   --border: #343b46;
   --text: #e8ecf1;
   --text-secondary: #8b95a3;
-  --success: #4db6a4;
+  --success: #34d399;
   --warning: #d4a84b;
   --danger: #e06b6b;
   --radius: 10px;
   --surface-hover: #2a313b;
   --surface-muted: #262c35;
   --surface-selected: #243044;
-  --focus-ring: rgba(59, 130, 246, 0.25);
+  --primary-soft: #1a2c29;
+  --primary-tint: #1e3d38;
+  --primary-edge: #2f6a5f;
+  --focus-ring: rgba(77, 182, 164, 0.28);
   color-scheme: dark;
 }
 

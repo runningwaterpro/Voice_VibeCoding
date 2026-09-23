@@ -2779,7 +2779,7 @@ async function retryLoadConfig() {
   transform: translateX(18px);
 }
 .switch input:focus-visible + .switch-slider {
-  outline: 2px solid rgba(37, 99, 235, 0.35);
+  outline: 2px solid rgba(77, 182, 164, 0.35);
   outline-offset: 2px;
 }
 
@@ -3166,7 +3166,7 @@ async function retryLoadConfig() {
 .winuhid-download-bar {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  background: linear-gradient(90deg, #4db6a4, #3a9a8a);
   transition: width 0.15s ease;
 }
 .winuhid-download-msg {
@@ -3315,7 +3315,7 @@ async function retryLoadConfig() {
 .setup-ime-tab.active {
   background: var(--surface-selected);
   border-color: var(--primary);
-  color: #1d4ed8;
+  color: var(--primary);
 }
 .setup-ime-panel {
   min-height: 120px;
@@ -3422,7 +3422,7 @@ async function retryLoadConfig() {
   padding: 0;
   font-size: 13px;
   line-height: 1.55;
-  color: #2563eb !important;
+  color: var(--primary) !important;
   font-weight: 600;
 }
 .setup-ime-steps code {
@@ -3738,7 +3738,7 @@ async function retryLoadConfig() {
   background: #141c26;
 }
 .repair-modal.booting .repair-card h3 {
-  color: #93c5fd;
+  color: var(--primary);
   font-weight: 500;
 }
 .boot-row {

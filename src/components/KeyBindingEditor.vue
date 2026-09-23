@@ -433,12 +433,12 @@ function pickMediaKey(vk: number) {
 }
 
 .key-row:hover {
-  background: #f8fafc;
+  background: var(--surface-hover);
   border-color: var(--border);
 }
 
 .key-row.editing {
-  background: #eff6ff;
+  background: var(--primary-tint, #1e3d38);
   border-color: var(--primary);
 }
 
@@ -457,7 +457,7 @@ function pickMediaKey(vk: number) {
 .key-action {
   font-size: 12px;
   font-family: monospace;
-  background: #f1f5f9;
+  background: var(--panel-2);
   padding: 3px 8px;
   border-radius: 4px;
   color: var(--text);
@@ -485,15 +485,17 @@ function pickMediaKey(vk: number) {
 }
 
 .btn-sm:hover {
-  background: #f1f5f9;
+  background: var(--surface-hover);
 }
 
 .btn-edit {
   color: var(--primary);
-  border-color: var(--primary);
+  border-color: var(--primary-edge, #2f6a5f);
+  background: var(--primary-tint, #1e3d38);
 }
 .btn-edit:hover:not(:disabled) {
-  background: #eff6ff;
+  background: var(--primary-soft, #1a2c29);
+  border-color: var(--primary);
 }
 .btn-edit:disabled {
   opacity: 0.6;
@@ -505,7 +507,7 @@ function pickMediaKey(vk: number) {
   border-color: transparent;
 }
 .btn-clear:hover:not(:disabled) {
-  background: #fef2f2;
+  background: #3a2424;
   border-color: var(--danger);
 }
 
@@ -577,16 +579,17 @@ function pickMediaKey(vk: number) {
 
 .media-pick-label {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .btn-media {
-  color: #0f766e;
-  border-color: #99f6e4;
-  background: #f0fdfa;
+  color: var(--primary);
+  border-color: var(--primary-edge, #2f6a5f);
+  background: var(--primary-tint, #1e3d38);
 }
 .btn-media:hover:not(:disabled) {
-  background: #ccfbf1;
+  background: var(--primary-soft, #1a2c29);
+  border-color: var(--primary);
 }
 </style>

@@ -325,17 +325,17 @@ function isActive(path: string) {
 .brand-update-badge {
   font-size: 11px;
   font-weight: 600;
-  color: #93c5fd;
+  color: var(--primary);
   white-space: nowrap;
 }
 
 .brand-update-btn {
   height: 24px;
   padding: 0 8px;
-  border: 1px solid rgba(147, 197, 253, 0.45);
+  border: 1px solid rgba(77, 182, 164, 0.45);
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.15);
-  color: #bfdbfe;
+  background: rgba(77, 182, 164, 0.15);
+  color: #99e6da;
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -344,7 +344,7 @@ function isActive(path: string) {
 }
 
 .brand-update-btn:hover {
-  background: rgba(59, 130, 246, 0.28);
+  background: rgba(77, 182, 164, 0.28);
   color: #fff;
 }
 

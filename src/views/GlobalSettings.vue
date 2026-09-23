@@ -390,7 +390,7 @@ async function checkUpdate() {
   border-radius: 50%;
 }
 .toggle input:checked + .toggle-slider {
-  background-color: var(--primary, #3b82f6);
+  background-color: var(--primary, #4db6a4);
 }
 .toggle input:checked + .toggle-slider:before {
   transform: translateX(20px);
@@ -411,7 +411,7 @@ async function checkUpdate() {
   cursor: not-allowed;
 }
 .btn-primary {
-  background: var(--primary, #3b82f6);
+  background: var(--primary, #4db6a4);
   color: #fff;
 }
 .btn-secondary {
@@ -483,7 +483,7 @@ async function checkUpdate() {
   padding: 0;
   border: none;
   background: none;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, #4db6a4);
   font-size: 12px;
   text-align: left;
   cursor: pointer;

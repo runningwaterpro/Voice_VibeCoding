@@ -648,7 +648,7 @@ onUnmounted(() => {
           v-if="linePath"
           :d="linePath"
           fill="none"
-          :stroke="lineStrong ? '#2563eb' : '#94a3b8'"
+          :stroke="lineStrong ? '#4db6a4' : '#94a3b8'"
           :stroke-width="lineStrong ? 2.2 : 1.5"
           stroke-linecap="round"
           :opacity="lineOpacity"
@@ -658,7 +658,7 @@ onUnmounted(() => {
           :cx="dotA.x"
           :cy="dotA.y"
           r="3.5"
-          :fill="lineStrong ? '#2563eb' : '#94a3b8'"
+          :fill="lineStrong ? '#4db6a4' : '#94a3b8'"
           :opacity="lineOpacity"
         />
         <circle
@@ -666,7 +666,7 @@ onUnmounted(() => {
           :cx="dotB.x"
           :cy="dotB.y"
           r="3.5"
-          :fill="lineStrong ? '#2563eb' : '#94a3b8'"
+          :fill="lineStrong ? '#4db6a4' : '#94a3b8'"
           :opacity="lineOpacity"
         />
       </svg>
@@ -1007,12 +1007,12 @@ onUnmounted(() => {
 .map-card.pressed {
   border-color: var(--primary);
   background: var(--surface-selected);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  box-shadow: 0 0 0 3px rgba(77, 182, 164, 0.18);
 }
 
 .map-card.active {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 2px rgba(77, 182, 164, 0.15);
   background: var(--surface-selected);
 }
 
@@ -1068,14 +1068,14 @@ onUnmounted(() => {
     box-shadow: none;
   }
   33% {
-    background: #dbeafe;
-    color: #1d4ed8;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.22);
+    background: var(--primary-soft, #1a2c29);
+    color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(77, 182, 164, 0.22);
   }
   66% {
     background: var(--surface-selected);
     color: var(--primary);
-    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
+    box-shadow: 0 0 0 1px rgba(77, 182, 164, 0.18);
   }
 }
 
@@ -1102,10 +1102,12 @@ onUnmounted(() => {
 
 .btn-edit {
   color: var(--primary);
-  border-color: #2f6a5f;
+  border-color: var(--primary-edge, #2f6a5f);
+  background: var(--primary-tint, #1e3d38);
 }
 .btn-edit:hover:not(:disabled) {
-  background: var(--surface-selected);
+  background: var(--primary-soft, #1a2c29);
+  border-color: var(--primary);
 }
 .btn-clear {
   color: var(--danger);
@@ -1190,12 +1192,13 @@ onUnmounted(() => {
 
 .btn-media {
   color: var(--primary);
-  border-color: #2f6a5f;
-  background: #1a2c29;
+  border-color: var(--primary-edge, #2f6a5f);
+  background: var(--primary-tint, #1e3d38);
   padding: 3px 8px;
 }
 .btn-media:hover:not(:disabled) {
-  background: #1e3d38;
+  background: var(--primary-soft, #1a2c29);
+  border-color: var(--primary);
 }
 
 .capture-err {
