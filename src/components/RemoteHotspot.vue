@@ -487,6 +487,12 @@ defineExpose({ keyEl, rootRef });
   box-shadow: none;
 }
 
+/* 返回/主页/菜单/TV：与音量±同构的 34px 圆透镜，四周留深色 well */
+.key-cap-md {
+  width: 34px;
+  height: 34px;
+}
+
 .key-cap-sm .key-icon {
   width: 18px;
   height: 18px;
@@ -497,7 +503,7 @@ defineExpose({ keyEl, rootRef });
   height: 19px;
 }
 
-/* 选中 / 悬停：主题色半透明遮罩 + 深色图标（对齐 Demo v5.4） */
+/* 选中 / 悬停：深键面 + 半透明青绿罩（与音量±同构，不整底替换） */
 .key-cap:hover,
 .key-cap.hover,
 .dpad-dir:hover,
@@ -505,7 +511,7 @@ defineExpose({ keyEl, rootRef });
 .key-ok:hover,
 .key-ok.hover {
   color: #0f172a;
-  background: rgba(77, 182, 164, 0.48);
+  background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
@@ -513,7 +519,7 @@ defineExpose({ keyEl, rootRef });
 .dpad-dir.active,
 .key-ok.active {
   color: #0f172a;
-  background: rgba(77, 182, 164, 0.48);
+  background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
@@ -522,7 +528,7 @@ defineExpose({ keyEl, rootRef });
 .key-cap-sm.active {
   color: #0f172a;
   border-color: rgba(153, 230, 218, 0.95);
-  background: rgba(77, 182, 164, 0.48);
+  background: linear-gradient(rgba(77, 182, 164, 0.48), rgba(77, 182, 164, 0.48)), #1c1d1f;
   box-shadow: inset 0 0 0 1.5px rgba(153, 230, 218, 0.95);
 }
 
