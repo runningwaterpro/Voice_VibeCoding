@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 const FORWARDED: &[u16] = &[
-    0x00F1, 0x0028, 0x0035, 0x004A, 0x004F, 0x0050, 0x0051, 0x0052, 0x0065, 0x0066, 0x007F,
-    0x0080, 0x0081,
+    0x00F1, 0x0028, 0x0035, 0x004A, 0x004F, 0x0050, 0x0051, 0x0052, 0x0065, 0x0066, 0x007F, 0x0080,
+    0x0081,
 ];
 
 /// 附着/首包 IO 后短冷静期：只同步按键状态，不注入（避免连接抖动误触）
@@ -173,10 +173,7 @@ pub fn ensure_started(app: AppHandle, gate: Arc<KeyEmitGate>) -> bool {
         join,
     });
 
-    emit_message(
-        &app,
-        "HID Tap 已启动（首次需允许 UAC，以捕获返回/音量键）",
-    );
+    emit_message(&app, "HID Tap 已启动（首次需允许 UAC，以捕获返回/音量键）");
     tap_log("XIAOMI HID TAP hub thread spawned (singleton)");
     true
 }
@@ -285,7 +282,10 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
                     tap_log(&format!("XIAOMI HID TAP injection requested pid={pid}"));
                 }
                 Ok(false) => {
-                    emit_message(&app, "UAC 注入被拒绝，返回/音量键将无效；Windows 原生音量仍可用");
+                    emit_message(
+                        &app,
+                        "UAC 注入被拒绝，返回/音量键将无效；Windows 原生音量仍可用",
+                    );
                     tap_log("XIAOMI HID TAP UAC declined");
                     drop(listener);
                     sleep_interruptible(&stop, retry);
@@ -459,12 +459,7 @@ fn release_active(active: &Mutex<HashSet<u16>>) {
     active.lock().clear();
 }
 
-fn handle_ioctl(
-    app: &AppHandle,
-    gate: &KeyEmitGate,
-    active: &Mutex<HashSet<u16>>,
-    data: &[u8],
-) {
+fn handle_ioctl(app: &AppHandle, gate: &KeyEmitGate, active: &Mutex<HashSet<u16>>, data: &[u8]) {
     let Some(payload) = decode_rc003_ioctl_output(data) else {
         return;
     };

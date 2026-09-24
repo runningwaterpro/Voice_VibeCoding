@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   composeShortcutVks,
-  isLegacyIncompleteCodexShortcut,
   normalizeShortcutVks,
   splitShortcutVks,
   vksToHotkeyNames,
 } from "./shortcut";
 
 describe("shortcut helpers", () => {
-  it("keeps valid modifier-only input-method shortcuts valid", () => {
-    expect(isLegacyIncompleteCodexShortcut([0xa2, 0x5b])).toBe(false);
-    expect(isLegacyIncompleteCodexShortcut([0xa5])).toBe(false);
-    expect(isLegacyIncompleteCodexShortcut([0xa2, 0xa0])).toBe(true);
-  });
-
   it("removes generic modifier duplicates once an explicit side is selected", () => {
     expect(normalizeShortcutVks([0x11, 0xa2, 0x44, 0x44])).toEqual([0xa2, 0x44]);
     expect(normalizeShortcutVks([0x10, 0xa1, 0xa5])).toEqual([0xa1, 0xa5]);

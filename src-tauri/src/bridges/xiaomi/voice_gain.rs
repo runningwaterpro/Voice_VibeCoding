@@ -199,7 +199,11 @@ mod tests {
             auto_adjust(0.01);
         }
         let after_quiet = gain_db();
-        assert!(after_quiet > 10.0, "phase1 quiet should raise gain, got {}", after_quiet);
+        assert!(
+            after_quiet > 10.0,
+            "phase1 quiet should raise gain, got {}",
+            after_quiet
+        );
 
         // 阶段2：大声输入 0.5 ≈ -6dBFS，输出 = -6+gain 远超目标，attack 应降增益
         for _ in 0..200 {
@@ -209,7 +213,8 @@ mod tests {
         assert!(
             after_loud < after_quiet,
             "phase2 loud should DECREASE gain from {}, but got {}",
-            after_quiet, after_loud
+            after_quiet,
+            after_loud
         );
         set_auto_enabled(false);
     }

@@ -1,6 +1,7 @@
 //! Tauri IPC 命令 — 前端调用后端的所有接口
 
 use crate::bridges::xiaomi::connect::{self, XiaomiRuntime};
+use crate::bridges::xiaomi::voice_session::{snapshot_from_readiness, VoiceSnapshot};
 use crate::bridges::{BridgeState, BridgeStatus, BridgeType, DeviceInfo};
 use crate::config::manager::{ConfigManager, DeviceConfig, GlobalSettings, KeyAction};
 use serde::{Deserialize, Serialize};
@@ -62,16 +63,7 @@ pub async fn start_bridge(
 ) -> Result<(), String> {
     let bt = parse_bridge_type(&bridge_type)?;
     state.update_status(bt, BridgeStatus::Connecting);
-
-    match bt {
-        BridgeType::Xiaomi => start_xiaomi_bridge(app, &state, &config_manager).await,
-        BridgeType::T1 | BridgeType::Hanvon => {
-            // 其他设备后续接入；避免假成功
-            let msg = format!("{bt} 连接逻辑尚未接入");
-            state.update_status(bt, BridgeStatus::Error(msg.clone()));
-            Err(msg)
-        }
-    }
+    start_xiaomi_bridge(app, &state, &config_manager).await
 }
 
 async fn start_xiaomi_bridge(
@@ -80,18 +72,9 @@ async fn start_xiaomi_bridge(
     config_manager: &ConfigManager,
 ) -> Result<(), String> {
     let runtime = app.state::<Arc<XiaomiRuntime>>();
-    if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
-        // 旧 worker 仍在：请求停止并等待，而不是直接失败
-        runtime.request_stop();
-        for _ in 0..50 {
-            if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err("小米桥接仍在退出中，请稍后再点「重新连接」".into());
-        }
+    let _lifecycle = runtime.lifecycle.lock();
+    if runtime.running.load(std::sync::atomic::Ordering::SeqCst) || runtime.session_is_active() {
+        return Ok(());
     }
     runtime.clear_stop();
     runtime
@@ -183,9 +166,8 @@ fn xiaomi_reconnect_loop(
 
         let result =
             connect::monitor_connection(&connection, Arc::clone(&runtime), Some(app.clone()));
-        // 钩子启停单一所有权：断线重连不停钩（避免与新连接 start 竞态拆钩）。
-        // 只有进程退出 / 托盘退出 / 应用重启才 stop（见 lib/tray/webview_recovery）。
-        crate::bridges::xiaomi::voice_pcm::stop();
+        // The input session owns voice/PCM cleanup; the reconnect loop must not
+        // stop resources that may already belong to a newer generation.
 
         if runtime.should_stop() {
             if let Some(state) = app.try_state::<BridgeState>() {
@@ -199,10 +181,7 @@ fn xiaomi_reconnect_loop(
             Err(e) => log::warn!("Xiaomi disconnected: {e}; reconnecting..."),
         }
         if let Some(state) = app.try_state::<BridgeState>() {
-            state.update_status(
-                BridgeType::Xiaomi,
-                BridgeStatus::Connecting,
-            );
+            state.update_status(BridgeType::Xiaomi, BridgeStatus::Connecting);
         }
         if wait_interruptible(&runtime, retry) {
             break;
@@ -237,16 +216,22 @@ pub async fn stop_bridge(
     let bt = parse_bridge_type(&bridge_type)?;
     if bt == BridgeType::Xiaomi {
         if let Some(runtime) = app.try_state::<Arc<XiaomiRuntime>>() {
+            let _lifecycle = runtime.lifecycle.lock();
             runtime.request_stop();
+            crate::bridges::xiaomi::key_mapping::release_voice_resources();
             // 与 restart 一致：等 worker 把 running 置 false，否则立刻 start 会报「已在运行」
             for _ in 0..50 {
-                if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                if !runtime.running.load(std::sync::atomic::Ordering::SeqCst)
+                    && !runtime.session_is_active()
+                {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
-                log::warn!("stop_bridge: xiaomi worker still running after 5s wait");
+            if runtime.running.load(std::sync::atomic::Ordering::SeqCst)
+                || runtime.session_is_active()
+            {
+                return Err("小米桥接尚未退出，请稍后再试".into());
             }
         }
     }
@@ -357,9 +342,7 @@ pub async fn set_autostart(
 
 /// 获取开机自启状态
 #[tauri::command]
-pub async fn get_autostart(
-    config_manager: State<'_, ConfigManager>,
-) -> Result<bool, String> {
+pub async fn get_autostart(config_manager: State<'_, ConfigManager>) -> Result<bool, String> {
     let settings = config_manager.get_global_settings()?;
     Ok(settings.autostart || crate::bridges::xiaomi::autostart::is_autostart_enabled())
 }
@@ -430,6 +413,57 @@ pub async fn get_xiaomi_host_status(app: AppHandle) -> Result<XiaomiHostStatus, 
     Ok(xiaomi_host_status_now(&app))
 }
 
+#[tauri::command]
+pub async fn get_voice_snapshot(app: AppHandle) -> Result<VoiceSnapshot, String> {
+    let snapshot = current_voice_snapshot(&app);
+    let _ = app.emit("voice-snapshot", snapshot.clone());
+    Ok(snapshot)
+}
+
+pub fn current_voice_snapshot(app: &AppHandle) -> VoiceSnapshot {
+    let worker_alive = app
+        .try_state::<Arc<XiaomiRuntime>>()
+        .map(|runtime| runtime.running.load(std::sync::atomic::Ordering::SeqCst))
+        .unwrap_or(false);
+    let device_connected = app
+        .try_state::<BridgeState>()
+        .map(|state| state.get_info(BridgeType::Xiaomi).status == BridgeStatus::Connected)
+        .unwrap_or(false);
+    let cable_ready = crate::audio::vb_cable::voice_env_status().ready;
+    let voice_channel = crate::bridges::xiaomi::connect::atvv_subscribed()
+        && crate::bridges::xiaomi::connect::atvv_audio_subscribed();
+    let audio_ready = cable_ready && crate::audio::pcm_router::audio_router_ready();
+    let winuhid_ready = crate::bridges::xiaomi::winuhid_env::env_status().ready;
+    let generation = app
+        .try_state::<Arc<XiaomiRuntime>>()
+        .map(|runtime| runtime.current_generation())
+        .unwrap_or(0);
+    let current = snapshot_from_readiness(
+        generation,
+        worker_alive,
+        device_connected,
+        voice_channel,
+        audio_ready,
+        winuhid_ready,
+    );
+    if let Some(mut live) = crate::bridges::xiaomi::voice_session::latest_snapshot() {
+        if live.generation == generation {
+            live.worker_alive = current.worker_alive;
+            live.device_connected = current.device_connected;
+            live.voice_channel = current.voice_channel;
+            live.voice_ready = current.voice_ready;
+            if !current.voice_ready {
+                live.phase = current.phase;
+                live.status_code = current.status_code;
+                live.detail = current.detail;
+                live.primary_action = current.primary_action;
+            }
+            return live;
+        }
+    }
+    current
+}
+
 /// BLE / 虚拟声卡输送电平快照（页面初次打开兜底）
 #[tauri::command]
 pub async fn get_xiaomi_voice_meter(
@@ -442,12 +476,12 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
         .try_state::<Arc<XiaomiRuntime>>()
         .map(|r| r.running.load(std::sync::atomic::Ordering::SeqCst))
         .unwrap_or(false);
-    let audio_alive = crate::audio::pcm_router::audio_router_ready()
-        || crate::audio::pcm_router::audio_router_process_alive();
+    let audio_alive = crate::audio::pcm_router::audio_router_ready();
     let cable_ready = crate::audio::vb_cable::voice_env_status().ready;
-    // 状态轮询禁止 ensure_init：CreateDevice 可能与窗口消息泵互相拖死
-    let winuhid_ready = crate::bridges::xiaomi::hid_injector::is_ready_cached();
-    let atvv_ok = crate::bridges::xiaomi::connect::atvv_subscribed();
+    // Status must observe the current WinUHid capability, not a stale cache.
+    let winuhid_ready = crate::bridges::xiaomi::winuhid_env::env_status().ready;
+    let atvv_ok = crate::bridges::xiaomi::connect::atvv_subscribed()
+        && crate::bridges::xiaomi::connect::atvv_audio_subscribed();
 
     let items = vec![
         XiaomiHostStatusItem {
@@ -508,12 +542,13 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
         },
     ];
 
-    let (status_text, detail, tone) = if bridge_alive && audio_alive && cable_ready && winuhid_ready && atvv_ok {
-        (
-            "运行正常".into(),
-            String::new(),
-            "ok".into(),
-        )
+    let (status_text, detail, tone) = if bridge_alive
+        && audio_alive
+        && cable_ready
+        && winuhid_ready
+        && atvv_ok
+    {
+        ("运行正常".into(), String::new(), "ok".into())
     } else if bridge_alive && !winuhid_ready {
         (
             "虚拟键盘未就绪".into(),
@@ -557,8 +592,7 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
         )
     };
 
-    let voice_ready =
-        bridge_alive && audio_alive && cable_ready && winuhid_ready && atvv_ok;
+    let voice_ready = bridge_alive && audio_alive && cable_ready && winuhid_ready && atvv_ok;
     // 托盘：绿=语音就绪；红=桥接在跑但未完全就绪；黄=尚未起来
     let tray_kind = if voice_ready {
         crate::ipc::tray::TrayIconKind::Ready
@@ -601,11 +635,17 @@ pub fn restart_xiaomi_bridge_inner(
     append_host_log(config_manager, "bridge restart requested");
     crate::ipc::tray::sync_runtime_icons(app, crate::ipc::tray::TrayIconKind::Init);
 
+    let runtime = app
+        .try_state::<Arc<XiaomiRuntime>>()
+        .ok_or_else(|| "XiaomiRuntime missing".to_string())?;
+    let _lifecycle = runtime.lifecycle.lock();
+
     // 仅停 BLE worker；HID Tap 为进程级单例，重启不解绑 30684（避免自占用）
-    if let Some(runtime) = app.try_state::<Arc<XiaomiRuntime>>() {
+    {
         let t_wait = std::time::Instant::now();
         let was_running = runtime.running.load(std::sync::atomic::Ordering::SeqCst);
         runtime.request_stop();
+        crate::bridges::xiaomi::key_mapping::release_voice_resources();
         // 等旧 worker 退出
         let mut exited = false;
         for _ in 0..50 {
@@ -631,10 +671,7 @@ pub fn restart_xiaomi_bridge_inner(
         }
     }
 
-    let runtime = app
-        .try_state::<Arc<XiaomiRuntime>>()
-        .ok_or_else(|| "XiaomiRuntime missing".to_string())?;
-    if runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+    if runtime.running.load(std::sync::atomic::Ordering::SeqCst) || runtime.session_is_active() {
         log::error!("XIAOMI restart abort: worker still running after wait");
         return Err("旧桥接尚未退出，请稍后再试".into());
     }
@@ -664,14 +701,18 @@ pub fn restart_xiaomi_bridge_inner(
 
 /// 检测小米语音环境（VB-CABLE）；已就绪则直接 Repair，否则前端弹出内嵌/下载选择
 #[tauri::command]
-pub async fn check_xiaomi_voice_env() -> Result<crate::audio::vb_cable::VoiceEnvActionResult, String> {
-    Ok(tokio::task::spawn_blocking(crate::audio::vb_cable::check_or_prompt)
-        .await
-        .map_err(|e| format!("voice env task: {e}"))?)
+pub async fn check_xiaomi_voice_env() -> Result<crate::audio::vb_cable::VoiceEnvActionResult, String>
+{
+    Ok(
+        tokio::task::spawn_blocking(crate::audio::vb_cable::check_or_prompt)
+            .await
+            .map_err(|e| format!("voice env task: {e}"))?,
+    )
 }
 
 #[tauri::command]
-pub async fn get_xiaomi_voice_env_status() -> Result<crate::audio::vb_cable::VoiceEnvStatus, String> {
+pub async fn get_xiaomi_voice_env_status() -> Result<crate::audio::vb_cable::VoiceEnvStatus, String>
+{
     Ok(crate::audio::vb_cable::voice_env_status_fresh())
 }
 
@@ -713,17 +754,16 @@ pub async fn repair_xiaomi_voice_env(
 #[tauri::command]
 pub async fn get_xiaomi_winuhid_status(
 ) -> Result<crate::bridges::xiaomi::winuhid_env::WinUHidEnvStatus, String> {
-    Ok(tokio::task::spawn_blocking(crate::bridges::xiaomi::winuhid_env::env_status)
-        .await
-        .map_err(|e| format!("winuhid status task: {e}"))?)
+    Ok(
+        tokio::task::spawn_blocking(crate::bridges::xiaomi::winuhid_env::env_status)
+            .await
+            .map_err(|e| format!("winuhid status task: {e}"))?,
+    )
 }
 
 /// 应用内下载 VB-CABLE 驱动包（dest_path 由前端 save 对话框选定）
 #[tauri::command]
-pub async fn download_xiaomi_vbcable_zip(
-    app: AppHandle,
-    dest_path: String,
-) -> Result<(), String> {
+pub async fn download_xiaomi_vbcable_zip(app: AppHandle, dest_path: String) -> Result<(), String> {
     let url = crate::audio::vb_cable::DOWNLOAD_ZIP_URL.to_string();
     let dest = std::path::PathBuf::from(dest_path.trim());
     if dest.as_os_str().is_empty() {
@@ -752,7 +792,8 @@ pub async fn repair_xiaomi_winuhid(
 ) -> Result<crate::bridges::xiaomi::winuhid_env::WinUHidActionResult, String> {
     let force = force.unwrap_or(false);
     log::info!("XIAOMI WINUHID repair enter source={source:?} force={force}");
-    let result: crate::bridges::xiaomi::winuhid_env::WinUHidActionResult = if let Some(src) = source {
+    let result: crate::bridges::xiaomi::winuhid_env::WinUHidActionResult = if let Some(src) = source
+    {
         tokio::task::spawn_blocking(move || {
             crate::bridges::xiaomi::winuhid_env::repair_with_source(&src, force)
         })
@@ -787,10 +828,7 @@ pub async fn repair_xiaomi_winuhid(
 
 /// 应用内下载 WinUHid 驱动包（dest_path 由前端 save 对话框选定）
 #[tauri::command]
-pub async fn download_xiaomi_winuhid_zip(
-    app: AppHandle,
-    dest_path: String,
-) -> Result<(), String> {
+pub async fn download_xiaomi_winuhid_zip(app: AppHandle, dest_path: String) -> Result<(), String> {
     let url = crate::bridges::xiaomi::winuhid_env::download_zip_url();
     let dest = std::path::PathBuf::from(dest_path.trim());
     if dest.as_os_str().is_empty() {
@@ -917,7 +955,10 @@ pub async fn repair_xiaomi_atvv(
                     .iter()
                     .map(|p| format!("{} (PID {})", p.name, p.pid))
                     .collect();
-                log::warn!("XIAOMI ATVV repair awaiting_conflict_clear: {}", names.join("、"));
+                log::warn!(
+                    "XIAOMI ATVV repair awaiting_conflict_clear: {}",
+                    names.join("、")
+                );
                 return Ok(AtvvRepairResult {
                     phase: "awaiting_conflict_clear".into(),
                     message: format!(
@@ -1006,11 +1047,11 @@ pub(crate) fn run_atvv_repair_pipeline(
         "XIAOMI ATVV repair hid_tap joined ms={}",
         t0.elapsed().as_millis()
     );
-    let t1 = std::time::Instant::now();
+    let restart_started = std::time::Instant::now();
     restart_xiaomi_bridge_inner(app, state, config_manager)?;
     log::info!(
         "XIAOMI ATVV repair restart done ms={}",
-        t1.elapsed().as_millis()
+        restart_started.elapsed().as_millis()
     );
     let wait_timeout = std::time::Duration::from_secs(12);
     let t2 = std::time::Instant::now();
@@ -1034,10 +1075,7 @@ pub(crate) fn run_atvv_repair_pipeline(
     );
     let diag = connect::diagnose_voice(host.bridge_alive);
     let (mut msg, mut code) = if ok {
-        (
-            "ATVV 语音通道已恢复（已重启桥接）".to_string(),
-            "ok",
-        )
+        ("ATVV 语音通道已恢复（已重启桥接）".to_string(), "ok")
     } else if !conflicts.is_empty() {
         (
             "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复」。".to_string(),
@@ -1073,17 +1111,13 @@ fn append_host_log(_config_manager: &ConfigManager, message: &str) {
 fn parse_bridge_type(s: &str) -> Result<BridgeType, String> {
     match s.to_lowercase().as_str() {
         "xiaomi" => Ok(BridgeType::Xiaomi),
-        "t1" => Ok(BridgeType::T1),
-        "hanvon" | "v60" => Ok(BridgeType::Hanvon),
-        _ => Err(format!("未知设备类型: {}", s)),
+        _ => Err(format!("仅支持 RC003（xiaomi），未知设备类型: {}", s)),
     }
 }
 
 fn bridge_type_to_device(s: &str) -> Result<&str, String> {
     match s.to_lowercase().as_str() {
         "xiaomi" => Ok("xiaomi"),
-        "t1" => Ok("t1"),
-        "hanvon" | "v60" => Ok("hanvon"),
-        _ => Err(format!("未知设备类型: {}", s)),
+        _ => Err(format!("仅支持 RC003（xiaomi），未知设备类型: {}", s)),
     }
 }

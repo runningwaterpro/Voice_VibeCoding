@@ -158,7 +158,7 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'get_xiaomi_voice_meter') return window.__MOCK_METER__;
     if (cmd === 'get_app_update_status') return { available: false };
     if (cmd === 'get_global_settings') return {
-      autostart: false, start_minimized: false, minimize_to_tray: true, hide_dev_menus: true,
+      autostart: false, start_minimized: false, minimize_to_tray: true,
     };
     return null;
   },

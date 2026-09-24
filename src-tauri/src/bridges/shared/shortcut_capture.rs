@@ -16,6 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
+const VK_ESCAPE: u32 = 0x1B;
 const VK_SHIFT: u32 = 0x10;
 const VK_CONTROL: u32 = 0x11;
 const VK_MENU: u32 = 0x12;
@@ -88,10 +89,7 @@ pub fn normalize_chord(keys: &[u32]) -> Vec<u32> {
     for m in [ctrl, shift, alt, win].into_iter().flatten() {
         out.push(m);
     }
-    let mut mains: Vec<u32> = set
-        .into_iter()
-        .filter(|vk| !is_modifier(*vk))
-        .collect();
+    let mut mains: Vec<u32> = set.into_iter().filter(|vk| !is_modifier(*vk)).collect();
     mains.sort();
     out.extend(mains);
     out
@@ -272,9 +270,13 @@ pub struct ShortcutCaptureProgress {
     pub labels: Vec<String>,
 }
 
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
+
 struct CaptureRuntime {
     stop: AtomicBool,
     capturing: AtomicBool,
+    cancel_requested: AtomicBool,
+    deadline: Mutex<Option<Instant>>,
     pending: Mutex<Option<ShortcutCapturedPayload>>,
     progress: Mutex<Vec<String>>,
     app: Mutex<Option<AppHandle>>,
@@ -285,6 +287,8 @@ impl CaptureRuntime {
         Self {
             stop: AtomicBool::new(true),
             capturing: AtomicBool::new(false),
+            cancel_requested: AtomicBool::new(false),
+            deadline: Mutex::new(None),
             pending: Mutex::new(None),
             progress: Mutex::new(Vec::new()),
             app: Mutex::new(None),
@@ -312,7 +316,10 @@ impl CaptureRuntime {
         }
         let labels: Vec<String> = keys.iter().copied().map(vk_to_label).collect();
         log::info!("Shortcut captured: {}", labels.join("+"));
-        log::info!("[DEBUG-cap] publish keys={keys:?} labels={}", labels.join("+"));
+        log::info!(
+            "[DEBUG-cap] publish keys={keys:?} labels={}",
+            labels.join("+")
+        );
         let payload = ShortcutCapturedPayload {
             keys,
             labels: labels.clone(),
@@ -327,6 +334,20 @@ impl CaptureRuntime {
                 let _ = app.emit("shortcut-captured", payload);
             });
         }
+    }
+
+    fn request_cancel(&self) {
+        self.cancel_requested.store(true, Ordering::SeqCst);
+        self.capturing.store(false, Ordering::SeqCst);
+        self.stop.store(true, Ordering::SeqCst);
+    }
+
+    fn expired(&self) -> bool {
+        self.deadline
+            .lock()
+            .unwrap()
+            .map(|deadline| Instant::now() >= deadline)
+            .unwrap_or(false)
     }
 
     fn take_pending(&self) -> Option<ShortcutCapturedPayload> {
@@ -356,8 +377,7 @@ static SWALLOW_HIT_LOGGED: AtomicBool = AtomicBool::new(false);
 static HOOK_PROC_SEEN: AtomicBool = AtomicBool::new(false);
 static LAST_HOOK_PROC_VK: AtomicU32 = AtomicU32::new(0);
 static BLOCKED_VKS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> =
-    LazyLock::new(|| Mutex::new(None));
+static HOOK_ENGINE: LazyLock<Mutex<Option<CaptureEngine>>> = LazyLock::new(|| Mutex::new(None));
 static HOOK_RUNTIME: LazyLock<Mutex<Option<Arc<CaptureRuntime>>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -397,10 +417,7 @@ fn maybe_finish_hook_after_drain() {
         log::info!("[DEBUG-cap] drain skip: not submitted (swallow stays on)");
         return;
     }
-    let empty = BLOCKED_VKS
-        .lock()
-        .map(|g| g.is_empty())
-        .unwrap_or(false);
+    let empty = BLOCKED_VKS.lock().map(|g| g.is_empty()).unwrap_or(false);
     log::info!("[DEBUG-cap] drain check submitted={submitted} blocked_empty={empty}");
     if empty {
         set_swallow_active(false);
@@ -434,7 +451,11 @@ fn probe_hook_alive() {
             ki: KEYBDINPUT {
                 wVk: VIRTUAL_KEY(PROBE_VK as u16),
                 wScan: scan as u16,
-                dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                dwFlags: if up {
+                    KEYEVENTF_KEYUP
+                } else {
+                    Default::default()
+                },
                 time: 0,
                 // 与业务注入区分：不用 EXTRA_INFO
                 dwExtraInfo: 0,
@@ -470,6 +491,14 @@ pub fn feed_capture_key(vk: u32, is_down: bool) {
     if vk == PROBE_VK {
         return;
     }
+    if vk == VK_ESCAPE && is_down {
+        if let Ok(runtime) = HOOK_RUNTIME.try_lock() {
+            if let Some(runtime) = runtime.as_ref() {
+                runtime.request_cancel();
+            }
+        }
+        return;
+    }
     if CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
         return;
     }
@@ -496,8 +525,7 @@ pub fn feed_capture_key(vk: u32, is_down: bool) {
                 }
                 CaptureStep::Progress(mods) => {
                     if !mods.is_empty() {
-                        let labels: Vec<String> =
-                            mods.iter().copied().map(vk_to_label).collect();
+                        let labels: Vec<String> = mods.iter().copied().map(vk_to_label).collect();
                         runtime.publish_progress(labels);
                     }
                 }
@@ -754,8 +782,7 @@ mod consumer_listen {
         struct WNDCLASSEXW {
             cb_size: UINT,
             style: UINT,
-            lpfn_wnd_proc:
-                Option<unsafe extern "system" fn(HWND, UINT, WPARAM, LPARAM) -> LRESULT>,
+            lpfn_wnd_proc: Option<unsafe extern "system" fn(HWND, UINT, WPARAM, LPARAM) -> LRESULT>,
             cb_cls_extra: i32,
             cb_wnd_extra: i32,
             h_instance: HINSTANCE,
@@ -1009,6 +1036,8 @@ impl ShortcutCaptureSession {
         );
         self.runtime.stop.store(true, Ordering::SeqCst);
         self.runtime.capturing.store(false, Ordering::SeqCst);
+        self.runtime.cancel_requested.store(false, Ordering::SeqCst);
+        *self.runtime.deadline.lock().unwrap() = None;
         consumer_listen::stop();
 
         // 仅在「已提交、正在等物理键抬完」时才值得等排空。
@@ -1016,7 +1045,7 @@ impl ShortcutCaptureSession {
         // 期间 SWALLOW_ACTIVE 仍 true 但 capturing 已 false，键被白吞、不录制、不投递。
         // 已提交时给 800ms：组合键录入时修饰键（如 Ctrl）常晚于主键松开，
         // 300ms 会在修饰键 keyup 到达前超时强制关闭，使其 keyup 泄漏进系统。
-        if SWALLOW_ACTIVE.load(Ordering::SeqCst) && CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
+        if SWALLOW_ACTIVE.load(Ordering::SeqCst) {
             wait_swallow_inactive(Duration::from_millis(800));
         }
         set_swallow_active(false);
@@ -1035,6 +1064,8 @@ impl ShortcutCaptureSession {
         self.runtime.progress.lock().unwrap().clear();
         self.runtime.stop.store(false, Ordering::SeqCst);
         self.runtime.capturing.store(true, Ordering::SeqCst);
+        self.runtime.cancel_requested.store(false, Ordering::SeqCst);
+        *self.runtime.deadline.lock().unwrap() = Some(Instant::now() + CAPTURE_TIMEOUT);
         reset_hook_session();
 
         // 录入主路径 = WebView keydown（前端 chordFromEvent），不依赖 LL 是否 armed。
@@ -1082,6 +1113,9 @@ impl ShortcutCaptureSession {
 
     /// 取出最终结果（若有）并同时返回当前进度标签，供前端在 emit 丢失时刷新 live UI。
     pub fn poll_snapshot(&self) -> ShortcutPollSnapshot {
+        if self.runtime.cancel_requested.load(Ordering::SeqCst) || self.runtime.expired() {
+            let _ = self.cancel();
+        }
         ShortcutPollSnapshot {
             pending: self.runtime.take_pending(),
             progress: self.runtime.peek_progress(),
@@ -1089,6 +1123,9 @@ impl ShortcutCaptureSession {
     }
 
     pub fn is_active(&self) -> bool {
+        if self.runtime.cancel_requested.load(Ordering::SeqCst) || self.runtime.expired() {
+            let _ = self.cancel();
+        }
         self.runtime.capturing.load(Ordering::SeqCst)
     }
 }
@@ -1115,6 +1152,17 @@ mod tests {
 
     fn idle_engine() -> CaptureEngine {
         CaptureEngine::new(HashMap::new())
+    }
+
+    #[test]
+    fn capture_deadline_expires_and_cancel_request_is_visible() {
+        let runtime = CaptureRuntime::new();
+        assert!(!runtime.expired());
+        *runtime.deadline.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1));
+        assert!(runtime.expired());
+        runtime.request_cancel();
+        assert!(runtime.cancel_requested.load(Ordering::SeqCst));
+        assert!(!runtime.capturing.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -1158,7 +1206,11 @@ mod tests {
         let mut eng = idle_engine();
         eng.step(&frame(&[(VK_LCONTROL, true), (VK_CONTROL, true)]));
         assert_eq!(
-            eng.step(&frame(&[(VK_LCONTROL, true), (VK_CONTROL, true), (0x41, true)])),
+            eng.step(&frame(&[
+                (VK_LCONTROL, true),
+                (VK_CONTROL, true),
+                (0x41, true)
+            ])),
             CaptureStep::Captured(vec![VK_LCONTROL, 0x41])
         );
     }
@@ -1309,7 +1361,10 @@ mod tests {
             .publish_progress(vec!["左 Ctrl".into(), "左 Win".into()]);
         let snap = session.poll_snapshot();
         assert!(snap.pending.is_none());
-        assert_eq!(snap.progress, vec!["左 Ctrl".to_string(), "左 Win".to_string()]);
+        assert_eq!(
+            snap.progress,
+            vec!["左 Ctrl".to_string(), "左 Win".to_string()]
+        );
 
         session.runtime.publish_result(vec![VK_LCONTROL, VK_LWIN]);
         let snap2 = session.poll_snapshot();

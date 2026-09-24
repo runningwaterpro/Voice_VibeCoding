@@ -126,7 +126,11 @@ pub fn scan_conflicts(include_idle_bridges: bool) -> Vec<ConflictProcess> {
     list
 }
 
-pub fn current_snapshot(trigger: &str, detail: &str, include_idle_bridges: bool) -> ConflictSnapshot {
+pub fn current_snapshot(
+    trigger: &str,
+    detail: &str,
+    include_idle_bridges: bool,
+) -> ConflictSnapshot {
     ConflictSnapshot {
         trigger: trigger.to_string(),
         detail: detail.to_string(),
@@ -155,7 +159,11 @@ pub fn emit_if_conflicts(trigger: &str, detail: &str, include_idle_bridges: bool
 }
 
 /// 用户主动修复：立即弹出冲突框（不节流）
-pub fn emit_conflicts_now(trigger: &str, detail: &str, include_idle_bridges: bool) -> ConflictSnapshot {
+pub fn emit_conflicts_now(
+    trigger: &str,
+    detail: &str,
+    include_idle_bridges: bool,
+) -> ConflictSnapshot {
     let snap = current_snapshot(trigger, detail, include_idle_bridges);
     if !snap.processes.is_empty() {
         *LAST_EMIT.lock() = Some(Instant::now());
@@ -348,9 +356,7 @@ fn terminate_pid(pid: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-        };
+        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
         unsafe {
             let handle = OpenProcess(PROCESS_TERMINATE, false, pid)
                 .map_err(|e| format!("OpenProcess({pid}): {e}"))?;
@@ -385,14 +391,10 @@ pub fn check_audio_router_after_spawn(app: &AppHandle) {
                 // 试探：本机能否独占绑定 PCM 端口
                 let port = pcm_port();
                 let bind_fail = std::net::UdpSocket::bind(("127.0.0.1", port)).is_err();
-                if bind_fail
-                    || !crate::audio::pcm_router::audio_router_ready()
-                {
+                if bind_fail || !crate::audio::pcm_router::audio_router_ready() {
                     emit_if_conflicts(
                         "pcm_port",
-                        &format!(
-                            "语音路由端口 {port} 可能被占用（WinError 10048）或路由未就绪"
-                        ),
+                        &format!("语音路由端口 {port} 可能被占用（WinError 10048）或路由未就绪"),
                         true,
                     );
                     let _ = app2;

@@ -5,10 +5,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-pub const DOWNLOAD_PAGE_URL: &str =
-    "https://gitee.com/mwlt/remote-voice-vibe-coding/releases";
+pub const DOWNLOAD_PAGE_URL: &str = "https://gitee.com/mwlt/remote-voice-vibe-coding/releases";
 
 pub fn download_zip_url() -> String {
     let ver = env!("CARGO_PKG_VERSION");
@@ -22,6 +22,8 @@ pub fn download_zip_filename() -> String {
 }
 
 pub const MANUAL_FOLDER_NAME: &str = "Voice VibeCoding WinUHid 手动安装";
+
+static REPROBE_STOP: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,7 +135,8 @@ pub fn open_download_page() -> Result<WinUHidActionResult, String> {
         ready: false,
         needs_choice: false,
         needs_reboot: false,
-        message: "已打开 Release 页。下载 WinUHid_Manual 压缩包，解压后阅读「安装说明.txt」安装。".into(),
+        message: "已打开 Release 页。下载 WinUHid_Manual 压缩包，解压后阅读「安装说明.txt」安装。"
+            .into(),
         export_path: None,
     })
 }
@@ -291,13 +294,7 @@ fn should_copy(src: &Path, dst: &Path) -> bool {
     if !dst.is_file() {
         return true;
     }
-    let Ok(sm) = fs::metadata(src) else {
-        return false;
-    };
-    let Ok(dm) = fs::metadata(dst) else {
-        return true;
-    };
-    sm.len() != dm.len()
+    fs::read(src).ok() != fs::read(dst).ok()
 }
 
 #[cfg(target_os = "windows")]
@@ -319,13 +316,17 @@ fn probe_driver_device() -> bool {
     false
 }
 
+pub(crate) fn driver_device_present() -> bool {
+    probe_driver_device()
+}
+
 pub fn env_status() -> WinUHidEnvStatus {
     let dll = find_dll();
     let dll_found = dll.is_some();
     let package = find_driver_package_dir();
     let embedded = package.is_some() && find_install_script().is_some();
     // hid_injector 成功打开设备 = 真正可用
-    let injector_ok = crate::bridges::xiaomi::hid_injector::is_available();
+    let injector_ok = crate::bridges::xiaomi::hid_injector::is_available_current();
     let driver_ready = injector_ok || probe_driver_device();
     let ready = injector_ok;
     let message = if ready {
@@ -462,9 +463,7 @@ fn should_run_post_reboot_repair(
 
 fn script_requests_reboot(result_raw: &str, exit_code: Option<i32>) -> bool {
     let raw_l = result_raw.to_ascii_lowercase();
-    raw_l.contains("restart required")
-        || result_raw.contains("需要重启")
-        || exit_code == Some(3010)
+    raw_l.contains("restart required") || result_raw.contains("需要重启") || exit_code == Some(3010)
 }
 
 fn script_device_not_accessible(result_raw: &str, stdout: &str) -> bool {
@@ -476,9 +475,14 @@ fn reboot_required_message() -> &'static str {
     "驱动已安装，必须重启 Windows 后虚拟键盘才会生效。重启后若仍未就绪，会自动完成剩余步骤。"
 }
 
+pub fn cancel_runtime_reprobe() {
+    REPROBE_STOP.store(true, Ordering::Release);
+}
+
 /// 启动时尽力部署 DLL 并尝试打开注入器（不弹 UAC）。
 /// 失败时后台静默重探：覆盖「驱动已装好但应用启动时缓存为 false」以及重启后晚就绪。
 pub fn ensure_runtime_quiet() {
+    REPROBE_STOP.store(false, Ordering::Release);
     match deploy_dll_beside_exe() {
         Ok(Some(p)) => {
             if let Ok(s) = p.into_os_string().into_string() {
@@ -513,6 +517,9 @@ pub fn ensure_runtime_quiet() {
         .name("winuhid-reprobe".into())
         .spawn(|| {
             for i in 1..=90 {
+                if REPROBE_STOP.load(Ordering::Acquire) {
+                    return;
+                }
                 std::thread::sleep(Duration::from_secs(1));
                 crate::bridges::xiaomi::hid_injector::reset_and_retry();
                 if crate::bridges::xiaomi::hid_injector::is_available() {
@@ -596,7 +603,9 @@ pub fn repair_embedded(force: bool) -> Result<WinUHidActionResult, String> {
 
     // 已重启过仍失败 → 禁止再要求重启
     if needs_reboot && should_run_post_reboot_repair(ready, reboot_flag_age(), os_uptime()) {
-        log::warn!("WinUHid claims reboot needed but system already rebooted — demoting to failure");
+        log::warn!(
+            "WinUHid claims reboot needed but system already rebooted — demoting to failure"
+        );
         needs_reboot = false;
         clear_reboot_flag();
     }
@@ -682,9 +691,6 @@ mod tests {
             script_last_phase(text).as_deref(),
             Some("Error | pnputil failed")
         );
-        assert_eq!(
-            script_error_phase(text).as_deref(),
-            Some("pnputil failed")
-        );
+        assert_eq!(script_error_phase(text).as_deref(), Some("pnputil failed"));
     }
 }

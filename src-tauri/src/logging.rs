@@ -56,9 +56,7 @@ fn format_line(level: log::Level, msg: &str) -> String {
 }
 
 fn chrono_like_now() -> String {
-    chrono::Local::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn rotate_if_needed(path: &Path) {
@@ -98,8 +96,8 @@ impl log::Log for AppFileLogger {
         }
         // 只收本应用；第三方 crate 的 info 容易刷屏
         let target = record.target();
-        let ours = target.starts_with("remote_bridge_hub")
-            || target.starts_with("remote_bridge_hub_lib");
+        let ours =
+            target.starts_with("remote_bridge_hub") || target.starts_with("remote_bridge_hub_lib");
         if !ours && record.level() > log::Level::Warn {
             return;
         }
@@ -135,10 +133,7 @@ pub fn init(logs_dir: &Path) -> PathBuf {
     }
     log::set_max_level(log::LevelFilter::Info);
 
-    write_line(
-        &path,
-        &format_line(log::Level::Info, "—— 应用启动 ——"),
-    );
+    write_line(&path, &format_line(log::Level::Info, "—— 应用启动 ——"));
     path
 }
 

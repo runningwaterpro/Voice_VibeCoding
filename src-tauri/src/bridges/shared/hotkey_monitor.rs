@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyEventKind { Press, Release }
+pub enum KeyEventKind {
+    Press,
+    Release,
+}
 
 #[derive(Debug, Clone)]
 pub struct PhysicalKeyEvent {
@@ -25,13 +28,19 @@ pub struct PhysicalHotkeyMonitor {
 
 impl PhysicalHotkeyMonitor {
     pub fn new() -> Self {
-        Self { running: Arc::new(AtomicBool::new(false)), thread_handle: None }
+        Self {
+            running: Arc::new(AtomicBool::new(false)),
+            thread_handle: None,
+        }
     }
 
     pub fn start<F>(&mut self, callback: F)
-    where F: FnMut(PhysicalKeyEvent) + Send + 'static
+    where
+        F: FnMut(PhysicalKeyEvent) + Send + 'static,
     {
-        if self.running.load(Ordering::SeqCst) { return; }
+        if self.running.load(Ordering::SeqCst) {
+            return;
+        }
         self.running.store(true, Ordering::SeqCst);
         let running = Arc::clone(&self.running);
         let cb: HookCallback = Arc::new(Mutex::new(callback));
@@ -39,29 +48,46 @@ impl PhysicalHotkeyMonitor {
             #[cfg(target_os = "windows")]
             hook_thread_impl(running, cb);
             #[cfg(not(target_os = "windows"))]
-            { log::warn!("HotkeyMonitor only on Windows"); let _ = (running, cb); }
+            {
+                log::warn!("HotkeyMonitor only on Windows");
+                let _ = (running, cb);
+            }
         }));
         log::info!("PhysicalHotkeyMonitor started");
     }
 
     pub fn stop(&mut self) {
-        if !self.running.load(Ordering::SeqCst) { return; }
+        if !self.running.load(Ordering::SeqCst) {
+            return;
+        }
         self.running.store(false, Ordering::SeqCst);
         #[cfg(target_os = "windows")]
-        unsafe { win32::PostThreadMessageW(0, win32::WM_QUIT, 0, 0); }
-        if let Some(h) = self.thread_handle.take() { let _ = h.join(); }
+        unsafe {
+            win32::PostThreadMessageW(0, win32::WM_QUIT, 0, 0);
+        }
+        if let Some(h) = self.thread_handle.take() {
+            let _ = h.join();
+        }
         log::info!("PhysicalHotkeyMonitor stopped");
     }
 
-    pub fn is_running(&self) -> bool { self.running.load(Ordering::SeqCst) }
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
 }
 
 impl Default for PhysicalHotkeyMonitor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Drop for PhysicalHotkeyMonitor {
-    fn drop(&mut self) { if self.is_running() { self.stop(); } }
+    fn drop(&mut self) {
+        if self.is_running() {
+            self.stop();
+        }
+    }
 }
 
 // ============================================================
@@ -110,20 +136,35 @@ mod win32 {
     }
 
     #[repr(C)]
-    pub struct POINT { pub x: i32, pub y: i32 }
+    pub struct POINT {
+        pub x: i32,
+        pub y: i32,
+    }
 
     extern "system" {
         pub fn GetModuleHandleW(lpModuleName: *const u16) -> HMODULE;
         pub fn SetWindowsHookExW(
-            idHook: i32, lpfn: Option<unsafe extern "system" fn(i32, WPARAM, LPARAM) -> LRESULT>,
-            hmod: HINSTANCE, dwThreadId: DWORD,
+            idHook: i32,
+            lpfn: Option<unsafe extern "system" fn(i32, WPARAM, LPARAM) -> LRESULT>,
+            hmod: HINSTANCE,
+            dwThreadId: DWORD,
         ) -> HHOOK;
         pub fn UnhookWindowsHookEx(hhk: HHOOK) -> i32;
         pub fn CallNextHookEx(hhk: HHOOK, nCode: i32, wParam: WPARAM, lParam: LPARAM) -> LRESULT;
-        pub fn GetMessageW(lpMsg: *mut MSG, hWnd: *mut c_void, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> i32;
+        pub fn GetMessageW(
+            lpMsg: *mut MSG,
+            hWnd: *mut c_void,
+            wMsgFilterMin: UINT,
+            wMsgFilterMax: UINT,
+        ) -> i32;
         pub fn TranslateMessage(lpMsg: *const MSG) -> i32;
         pub fn DispatchMessageW(lpMsg: *const MSG) -> LRESULT;
-        pub fn PostThreadMessageW(idThread: DWORD, Msg: UINT, wParam: WPARAM, lParam: LPARAM) -> i32;
+        pub fn PostThreadMessageW(
+            idThread: DWORD,
+            Msg: UINT,
+            wParam: WPARAM,
+            lParam: LPARAM,
+        ) -> i32;
     }
 }
 
@@ -131,24 +172,28 @@ mod win32 {
 static mut HOOK_CALLBACK: *const HookCallback = std::ptr::null();
 
 #[cfg(target_os = "windows")]
-fn set_hook_callback(ptr: *const HookCallback) { unsafe { HOOK_CALLBACK = ptr; } }
+fn set_hook_callback(ptr: *const HookCallback) {
+    unsafe {
+        HOOK_CALLBACK = ptr;
+    }
+}
 
 #[cfg(target_os = "windows")]
-fn get_hook_callback() -> *const HookCallback { unsafe { HOOK_CALLBACK } }
+fn get_hook_callback() -> *const HookCallback {
+    unsafe { HOOK_CALLBACK }
+}
 
 #[cfg(target_os = "windows")]
 fn hook_thread_impl(running: Arc<AtomicBool>, callback: HookCallback) {
-    use win32::*;
     use std::mem;
     use std::ptr;
+    use win32::*;
 
     let hinstance = unsafe { GetModuleHandleW(ptr::null()) };
     let cb_raw = Arc::into_raw(Arc::new(callback));
     set_hook_callback(cb_raw);
 
-    let hook = unsafe {
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_proc), hinstance, 0)
-    };
+    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_proc), hinstance, 0) };
 
     if hook.is_null() {
         log::error!("SetWindowsHookExW failed");
@@ -159,25 +204,37 @@ fn hook_thread_impl(running: Arc<AtomicBool>, callback: HookCallback) {
 
     let mut msg: MSG = unsafe { mem::zeroed() };
     loop {
-        if !running.load(Ordering::SeqCst) { break; }
+        if !running.load(Ordering::SeqCst) {
+            break;
+        }
         let ret = unsafe { GetMessageW(&mut msg, ptr::null_mut(), 0, 0) };
-        if ret <= 0 { break; }
+        if ret <= 0 {
+            break;
+        }
         unsafe {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
 
-    unsafe { UnhookWindowsHookEx(hook); }
+    unsafe {
+        UnhookWindowsHookEx(hook);
+    }
     log::debug!("WH_KEYBOARD_LL hook uninstalled");
 
     let old = get_hook_callback();
     if !old.is_null() {
-        unsafe { let _ = Arc::from_raw(old as *const HookCallback); }
+        unsafe {
+            let _ = Arc::from_raw(old as *const HookCallback);
+        }
         set_hook_callback(ptr::null());
     }
 
-    unsafe extern "system" fn low_level_proc(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+    unsafe extern "system" fn low_level_proc(
+        n_code: i32,
+        w_param: WPARAM,
+        l_param: LPARAM,
+    ) -> LRESULT {
         if n_code >= 0 {
             let kb = &*(l_param as *const KBDLLHOOKSTRUCT);
             let is_injected = (kb.flags & LLKHF_INJECTED) != 0;
@@ -189,9 +246,17 @@ fn hook_thread_impl(running: Arc<AtomicBool>, callback: HookCallback) {
                         let kind = match w_param as u32 {
                             WM_KEYDOWN | WM_SYSKEYDOWN => KeyEventKind::Press,
                             WM_KEYUP | WM_SYSKEYUP => KeyEventKind::Release,
-                            _ => return unsafe { CallNextHookEx(ptr::null_mut(), n_code, w_param, l_param) },
+                            _ => {
+                                return unsafe {
+                                    CallNextHookEx(ptr::null_mut(), n_code, w_param, l_param)
+                                }
+                            }
                         };
-                        cb(PhysicalKeyEvent { vk_code: kb.vkCode, scan_code: kb.scanCode, kind });
+                        cb(PhysicalKeyEvent {
+                            vk_code: kb.vkCode,
+                            scan_code: kb.scanCode,
+                            kind,
+                        });
                     }
                 }
             }
@@ -204,7 +269,9 @@ fn hook_thread_impl(running: Arc<AtomicBool>, callback: HookCallback) {
 mod tests {
     use super::*;
     #[test]
-    fn test_create_monitor() { assert!(!PhysicalHotkeyMonitor::new().is_running()); }
+    fn test_create_monitor() {
+        assert!(!PhysicalHotkeyMonitor::new().is_running());
+    }
     #[test]
     #[ignore] // Requires Windows message pump; test in integration environment
     fn test_start_stop() {

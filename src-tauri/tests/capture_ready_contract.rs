@@ -44,10 +44,7 @@ fn hook_loop_exit_must_not_steal_new_thread_handle() {
         .split("hook loop exit")
         .nth(0)
         .and_then(|s| s.rsplit("while RUNNING").next())
-        .or_else(|| {
-            src.rfind("let mine = load_hook()")
-                .map(|i| &src[i..])
-        })
+        .or_else(|| src.rfind("let mine = load_hook()").map(|i| &src[i..]))
         .expect("exit path");
     assert!(
         exit.contains("compare_exchange") || exit.contains("mine"),
@@ -139,10 +136,7 @@ fn ensure_hook_must_not_force_bump_every_capture() {
 #[test]
 fn frontend_ignores_probe_vk_f24() {
     // 探针 F24 在钩子失效时会漏到 WebView；前端必须忽略，禁止录成绑定。
-    for rel in [
-        "src/components/KeyMappingStage.vue",
-        "src/components/KeyBindingEditor.vue",
-    ] {
+    for rel in ["src/components/KeyMappingStage.vue"] {
         let src = std::fs::read_to_string(format!("../{rel}")).expect(rel);
         assert!(
             src.contains("0x87"),
@@ -175,10 +169,7 @@ fn stop_only_at_app_lifecycle_not_reconnect() {
 #[test]
 fn frontend_records_chord_from_webview_keydown() {
     // 第一性：钩子可能收不到键，但 WebView 能收到 keydown —— 必须能从前端录。
-    for rel in [
-        "src/components/KeyMappingStage.vue",
-        "src/components/KeyBindingEditor.vue",
-    ] {
+    for rel in ["src/components/KeyMappingStage.vue"] {
         let src = std::fs::read_to_string(format!("../{rel}")).expect(rel);
         assert!(
             src.contains("chordFromEvent"),

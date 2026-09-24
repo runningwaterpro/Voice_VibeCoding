@@ -110,8 +110,8 @@ pub fn gadget_archive_available() -> bool {
 
 pub fn secure_runtime_directory() -> PathBuf {
     let program_data = std::env::var("PROGRAMDATA").unwrap_or_else(|_| r"C:\ProgramData".into());
-    let runtime_id =
-        std::env::var("REMOTE_BRIDGE_XIAOMI_RUNTIME_ID").unwrap_or_else(|_| "RemoteBridgeHub".into());
+    let runtime_id = std::env::var("REMOTE_BRIDGE_XIAOMI_RUNTIME_ID")
+        .unwrap_or_else(|_| "RemoteBridgeHub".into());
     PathBuf::from(program_data)
         .join(runtime_id)
         .join("hid-tap")
@@ -171,7 +171,10 @@ fn lock_runtime_acl(path: &Path) -> Result<(), String> {
         };
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(format!("failed to secure Gadget runtime ACL: {}", stdout.trim()));
+            return Err(format!(
+                "failed to secure Gadget runtime ACL: {}",
+                stdout.trim()
+            ));
         }
         Ok(())
     }
@@ -248,8 +251,7 @@ pub fn prepare_secure_runtime() -> Result<(PathBuf, bool), String> {
     if need_extract {
         let temporary = dll_path.with_extension(format!("dll.{}.tmp", std::process::id()));
         {
-            let archive_file =
-                File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
+            let archive_file = File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
             let mut decoder = xz2::read::XzDecoder::new(BufReader::new(archive_file));
             let mut out = File::create(&temporary)
                 .map_err(|e| format!("create {}: {e}", temporary.display()))?;
@@ -377,7 +379,8 @@ fn windows_find_host_pid() -> Option<u32> {
             if !folded.starts_with(&HID_SERVICE_PREFIX.to_ascii_lowercase()) {
                 continue;
             }
-            if !(folded.contains(RC003_HARDWARE_TOKEN) || folded.contains(RC003_HARDWARE_TOKEN_SHORT))
+            if !(folded.contains(RC003_HARDWARE_TOKEN)
+                || folded.contains(RC003_HARDWARE_TOKEN_SHORT))
             {
                 continue;
             }
@@ -502,8 +505,9 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn find_rc003_host_pid_smoke() {
-        let pid = super::find_rc003_hidogatt_host_pid()
-            .expect("RC003 HostPid must be found when remote is paired (check BTHLEDevice registry)");
+        let pid = super::find_rc003_hidogatt_host_pid().expect(
+            "RC003 HostPid must be found when remote is paired (check BTHLEDevice registry)",
+        );
         assert!(pid > 0);
         let name = super::process_name_toolhelp(pid).unwrap_or_default();
         assert!(

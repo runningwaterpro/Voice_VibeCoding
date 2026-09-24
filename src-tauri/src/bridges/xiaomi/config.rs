@@ -114,9 +114,6 @@ pub fn vk_code_to_name(vk: u16) -> String {
 
 /// 蓝牙地址规范化：去除分隔符，转大写
 pub fn normalize_bluetooth_address(addr: &str) -> String {
-    let cleaned: String = addr
-        .chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .collect();
+    let cleaned: String = addr.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     cleaned.to_uppercase()
 }

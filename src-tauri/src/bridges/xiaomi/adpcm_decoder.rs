@@ -5,14 +5,11 @@
 
 /// IMA ADPCM 步长索引表
 const STEP_TABLE: [i32; 89] = [
-    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31,
-    34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130,
-    143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449,
-    494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411,
-    1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026,
-    4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487,
-    12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-    32767,
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66,
+    73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449,
+    494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272,
+    2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493,
+    10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
 ];
 
 /// IMA ADPCM 索引调整表
@@ -38,27 +35,49 @@ pub struct AdpcmDecoder {
 impl AdpcmDecoder {
     /// 创建 IMA ADPCM 解码器
     pub fn new_ima() -> Self {
-        Self { predictor: 0, step_index: 0, use_dvi: false }
+        Self {
+            predictor: 0,
+            step_index: 0,
+            use_dvi: false,
+        }
     }
 
     /// 创建 DVI ADPCM 解码器
     pub fn new_dvi() -> Self {
-        Self { predictor: 0, step_index: 0, use_dvi: true }
+        Self {
+            predictor: 0,
+            step_index: 0,
+            use_dvi: true,
+        }
     }
 
     /// 解码单个 4-bit 采样值
     fn decode_nibble(&mut self, nibble: u8) -> i16 {
-        let step = if self.use_dvi { DVI_STEP_TABLE } else { STEP_TABLE };
-        let idx_adj = if self.use_dvi { DVI_INDEX_TABLE } else { INDEX_TABLE };
+        let step = if self.use_dvi {
+            DVI_STEP_TABLE
+        } else {
+            STEP_TABLE
+        };
+        let idx_adj = if self.use_dvi {
+            DVI_INDEX_TABLE
+        } else {
+            INDEX_TABLE
+        };
 
         // 确保步长索引不越界
         let step_val = step[self.step_index.clamp(0, 88) as usize];
 
         // 计算差值
         let mut diff = step_val >> 3;
-        if nibble & 4 != 0 { diff += step_val; }
-        if nibble & 2 != 0 { diff += step_val >> 1; }
-        if nibble & 1 != 0 { diff += step_val >> 2; }
+        if nibble & 4 != 0 {
+            diff += step_val;
+        }
+        if nibble & 2 != 0 {
+            diff += step_val >> 1;
+        }
+        if nibble & 1 != 0 {
+            diff += step_val >> 2;
+        }
 
         // 根据符号位调整预测值
         if nibble & 8 != 0 {

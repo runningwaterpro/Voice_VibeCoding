@@ -5,30 +5,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useBridgeStore } from "../stores/bridge";
 import { useConfigStore } from "../stores/config";
+import { useVoiceStatusStore } from "../stores/voiceStatus";
 import type { DeviceConfig } from "../types";
 import DeviceStatus from "../components/DeviceStatus.vue";
 import BatteryLevelIcon from "../components/BatteryLevelIcon.vue";
 import CableVolRuler from "../components/CableVolRuler.vue";
 import KeyMappingStage from "../components/KeyMappingStage.vue";
 import { cableZoneForLevel } from "../utils/cableVolMeter";
-import wechatImeHotkeysImg from "../assets/guides/wechat-ime-hotkeysV3.png";
-import doubaoImeHotkeysImg from "../assets/guides/doubao.png";
 import { vkDisplayName } from "../utils/vkDisplay";
-import {
-  applyImePresetConfig,
-  getPresetsForTab,
-  IME_FAQ,
-  IME_PRESETS,
-  QIANWEN_GUIDE,
-  QIANWEN_PRESET_IDS,
-  listImeTabs,
-  type ImePresetDefinition,
-  type ImePresetId,
-  type ImeTabId,
-} from "../utils/imePreset";
 
 const bridge = useBridgeStore();
 const configStore = useConfigStore();
+const voiceStatus = useVoiceStatusStore();
 const type = "xiaomi" as const;
 
 const device = computed(() => bridge.devices[type]);
@@ -86,18 +74,6 @@ const cableDownloadMessage = ref("");
 const cableZipDefaultName = ref("VBCABLE_Driver_Pack45.zip");
 const showVoiceReboot = ref(false);
 const voiceRebootMsg = ref("");
-const showSetupTips = ref(false);
-const setupApplyHint = ref("");
-const setupImeTab = ref<ImeTabId>("wechat");
-const imeTabs = listImeTabs();
-const imeFaq = IME_FAQ;
-const qianwenGuide = QIANWEN_GUIDE;
-const qianwenPresets = QIANWEN_PRESET_IDS.map((id) => IME_PRESETS[id]);
-
-/** 设为 true 可恢复「触发模式」下拉（后端当前固定为按住语义，PR #8） */
-const SHOW_VOICE_TRIGGER_MODE = false;
-
-const activeImePresets = computed(() => getPresetsForTab(setupImeTab.value));
 
 type BleMeterState = "idle" | "session" | "receiving";
 interface VoiceMeterSnapshot {
@@ -208,15 +184,13 @@ const connectingNow = computed(
 const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
 
 const railStateRaw = computed<RailState>(() => {
-  const h = host.value;
+  const snapshot = voiceStatus.snapshot;
   if (connectingNow.value) return "connecting";
-  if (!h?.bridge_alive) return "err_bridge";
-  if (!h?.winuhid_ready) return "err_hid";
-  if (!h?.atvv_ok) return "error";
-  if (!h?.cable_ready) return "err_cable";
-  if (!h?.audio_alive) return "err_route";
-  if (receivingNow.value) return "voice";
-  return "ready";
+  if (!snapshot || !snapshot.worker_alive || !snapshot.device_connected) return "err_bridge";
+  if (snapshot.status_code === "winuhid_missing") return "err_hid";
+  if (snapshot.status_code === "audio_missing") return "err_route";
+  if (receivingNow.value || snapshot.first_audio_packet) return "voice";
+  return snapshot.voice_ready ? "ready" : "error";
 });
 
 const railState = computed<RailState>(() => {
@@ -280,10 +254,8 @@ function describeStepError(raw: string): string {
 }
 
 const showRepairModal = computed(() => {
-  const h = host.value;
-  const allReady =
-    h?.bridge_alive && h?.winuhid_ready && h?.atvv_ok && h?.cable_ready && h?.audio_alive;
-  // v5.2: 修复中卡常驻；仅全就绪收卡（不被 restarting/dismiss 藏）
+  const snapshot = voiceStatus.snapshot;
+  const allReady = Boolean(snapshot?.voice_ready);
   if (autoRepairing.value) return !allReady;
   if (repairDismissed.value) return false;
   const connecting = connBusy.value || restarting.value;
@@ -291,30 +263,20 @@ const showRepairModal = computed(() => {
 });
 const bootingPhase = computed(() => inBootGrace.value);
 const bootStepText = computed(() => {
-  const h = host.value;
-  if (!h?.bridge_alive) return "正在启动桥接…";
-  if (!h?.winuhid_ready) return "正在初始化虚拟键盘…";
-  if (!h?.cable_ready) return "正在检测虚拟声卡…";
-  if (!h?.audio_alive) return "正在建立语音路由…";
-  if (!h?.atvv_ok) return "正在连接 ATVV…";
+  const snapshot = voiceStatus.snapshot;
+  if (!snapshot?.worker_alive || !snapshot.device_connected) return "正在启动桥接…";
+  if (snapshot.status_code === "winuhid_missing") return "正在初始化虚拟键盘…";
+  if (snapshot.status_code === "audio_missing") return "正在建立语音路由…";
   return "即将就绪…";
 });
 const errorTitle = computed(() => {
-  const h = host.value;
-  if (!h) return "状态异常";
-  const missing: string[] = [];
-  if (!h.bridge_alive) missing.push("桥接");
-  if (!h.winuhid_ready) missing.push("虚拟键盘");
-  if (!h.cable_ready) missing.push("虚拟声卡");
-  if (!h.audio_alive) missing.push("语音路由");
-  if (!h.atvv_ok) missing.push("语音通道");
-  if (missing.length === 0) return "状态异常";
-  if (missing.length === 1) return `${missing[0]}未就绪`;
-  return `未就绪：${missing.join("、")}`;
+  const snapshot = voiceStatus.snapshot;
+  if (!snapshot || snapshot.voice_ready) return "状态正常";
+  return snapshot.detail || "语音环境未就绪";
 });
 const canDismiss = computed(() => {
-  const h = host.value;
-  return h?.bridge_alive && !inBootGrace.value;
+  const snapshot = voiceStatus.snapshot;
+  return Boolean(snapshot?.device_connected) && !inBootGrace.value;
 });
 
 const repairResultTitle = computed(() => {
@@ -376,7 +338,8 @@ async function autoRepairAll() {
   let cableRebootAsked = false;
   let atvvAttempts = 0;
   try {
-    for (let round = 0; round < 10; round++) {
+    // One explicit user-triggered pass. Never auto-retry in a loop.
+    for (let round = 0; round < 1; round++) {
       await refreshHost();
       const h = host.value;
       if (
@@ -1133,47 +1096,6 @@ watch(
   { immediate: true },
 );
 
-/** 输入法一键预设（微信 / 豆包 / 千问等） */
-function isWechatPreset(id: ImePresetId): boolean {
-  return id.startsWith("wechat-");
-}
-
-function isDoubaoHoldPreset(id: ImePresetId): boolean {
-  return id === "doubao-hold";
-}
-
-function presetShortcutLabel(preset: ImePresetDefinition): string {
-  return preset.shortcutVks.map((vk) => vkDisplayName(vk)).join(" + ");
-}
-
-async function applyImePreset(presetId: ImePresetId) {
-  if (!config.value) return;
-  const definition = IME_PRESETS[presetId];
-  if (!definition) return;
-  const next = applyImePresetConfig(config.value, presetId);
-  config.value.button_bindings = next.button_bindings;
-  config.value.voice_hotkey = next.voice_hotkey;
-  config.value.voice_shortcut_enabled = true;
-  config.value.trigger_mode = next.trigger_mode;
-  config.value.voice_release_behavior = next.voice_release_behavior;
-  const ok = await saveXiaomiConfig(next);
-  if (!ok) {
-    prependLog("预设应用失败，请重试");
-    await configStore.loadConfig(type);
-    return;
-  }
-  setupApplyHint.value = definition.applyHint;
-  prependLog(definition.logMessage);
-  window.setTimeout(() => {
-    if (setupApplyHint.value.startsWith("已应用")) setupApplyHint.value = "";
-  }, 4000);
-}
-
-async function onKeyMappingSave(cfg: DeviceConfig) {
-  const ok = await saveXiaomiConfig(cfg);
-  if (!ok) prependLog("按键映射保存失败，请重试");
-}
-
 let hostPollTimer: ReturnType<typeof setInterval> | null = null;
 let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -1345,6 +1267,7 @@ function showKeyPressPulse(
 async function refreshHost() {
   try {
     host.value = await invoke<HostStatus>("get_xiaomi_host_status");
+    await voiceStatus.refresh();
   } catch (e) {
     host.value = {
       bridge_alive: false,
@@ -1842,6 +1765,11 @@ function openWinuhidRepairChoice() {
 
 onMounted(async () => {
   prependLog("日志区准备就绪");
+  try {
+    await voiceStatus.init();
+  } catch (error) {
+    console.warn("voice status init failed", error);
+  }
   await Promise.all([
     bridge.refreshStatus(type),
     configStore.loadConfig(type),
@@ -2250,123 +2178,6 @@ async function retryLoadConfig() {
 
 <div class="page-body stage-stack">
       <!-- 小米专用运行状态弹层等 -->
-      <div v-if="showSetupTips" class="voice-modal-backdrop" @click.self="showSetupTips = false">
-        <div class="voice-modal setup-tips-modal" role="dialog" aria-modal="true" aria-labelledby="setup-tips-title">
-          <div class="setup-tips-head">
-            <h3 id="setup-tips-title">输入法设置</h3>
-            <button class="btn btn-secondary" type="button" @click="showSetupTips = false">关闭</button>
-          </div>
-          <div class="setup-ime-tabs" role="tablist" aria-label="输入法分类">
-            <button
-              v-for="tab in imeTabs"
-              :key="tab.id"
-              type="button"
-              class="setup-ime-tab"
-              :class="{ active: setupImeTab === tab.id }"
-              role="tab"
-              :aria-selected="setupImeTab === tab.id"
-              @click="setupImeTab = tab.id"
-            >
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="setup-tips-body">
-          <p v-if="setupApplyHint" class="setup-apply-hint setup-apply-hint-global">
-            {{ setupApplyHint }}
-          </p>
-
-          <div v-if="setupImeTab === 'faq'" class="setup-ime-panel" role="tabpanel">
-            <div class="setup-ime-warn setup-ime-faq-warn" role="note">
-              <p class="setup-ime-warn-title">{{ imeFaq.warnTitle }}</p>
-            </div>
-            <section
-              v-for="(section, sIdx) in imeFaq.sections"
-              :key="sIdx"
-              class="setup-faq-section"
-            >
-              <h4 class="setup-faq-section-title">{{ section.title }}</h4>
-              <ol class="setup-ime-steps setup-faq-list">
-                <li v-for="(item, idx) in section.items" :key="idx">{{ item }}</li>
-              </ol>
-            </section>
-          </div>
-
-          <div v-else-if="setupImeTab === 'qianwen'" class="setup-ime-panel" role="tabpanel">
-            <article class="setup-ime-card">
-              <header class="setup-ime-head">
-                <h4>{{ qianwenGuide.title }}</h4>
-                <span class="setup-ime-tag">{{ qianwenGuide.tag }}</span>
-              </header>
-              <ol class="setup-ime-steps">
-                <li v-for="(step, idx) in qianwenGuide.steps" :key="idx">
-                  <span class="setup-ime-step-text">{{ step.text }}</span>
-                  <span v-if="step.aside" class="setup-ime-step-aside">{{ step.aside }}</span>
-                </li>
-              </ol>
-              <div class="setup-ime-apply setup-ime-apply-row">
-                <button
-                  v-for="preset in qianwenPresets"
-                  :key="preset.id"
-                  class="btn btn-ime-apply"
-                  type="button"
-                  :disabled="!config"
-                  @click="applyImePreset(preset.id)"
-                >
-                  快速应用：{{ presetShortcutLabel(preset) }}
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div v-else class="setup-ime-panel" role="tabpanel">
-            <article
-              v-for="preset in activeImePresets"
-              :key="preset.id"
-              class="setup-ime-card"
-            >
-              <header class="setup-ime-head">
-                <h4>{{ preset.title }}</h4>
-                <span class="setup-ime-tag">{{ preset.tag }}</span>
-              </header>
-              <ol class="setup-ime-steps">
-                <li v-for="(step, idx) in preset.steps" :key="idx">
-                  <span class="setup-ime-step-text">{{ step.text }}</span>
-                  <span v-if="step.aside" class="setup-ime-step-aside">{{ step.aside }}</span>
-                </li>
-              </ol>
-              <p v-if="preset.quickTip" class="setup-ime-quick-tip">{{ preset.quickTip }}</p>
-              <div class="setup-ime-apply">
-                <button
-                  class="btn btn-ime-apply"
-                  type="button"
-                  :disabled="!config"
-                  @click="applyImePreset(preset.id)"
-                >
-                  快速应用：{{ presetShortcutLabel(preset) }}
-                </button>
-              </div>
-              <figure v-if="isWechatPreset(preset.id)" class="setup-ime-figure">
-                <figcaption>微信 · 「按住说话」须设为「F5 + 本软件快捷键」（例：F5 + 左 Ctrl + 左 Win）</figcaption>
-                <img
-                  :src="wechatImeHotkeysImg"
-                  alt="微信输入法按住说话：F5 加本软件设置的快捷键"
-                  class="setup-ime-img"
-                />
-              </figure>
-              <figure v-if="isDoubaoHoldPreset(preset.id)" class="setup-ime-figure">
-                <figcaption>豆包 · 「长按模式」快捷键</figcaption>
-                <img
-                  :src="doubaoImeHotkeysImg"
-                  alt="豆包输入法长按模式快捷键设置"
-                  class="setup-ime-img"
-                />
-              </figure>
-            </article>
-          </div>
-          </div>
-        </div>
-      </div>
-
       <div
         v-if="showVoiceChoice"
         class="voice-modal-backdrop"
@@ -2382,7 +2193,7 @@ async function retryLoadConfig() {
             <ol>
               <li>重新打开本软件</li>
               <li>再点「虚拟声卡修复」→「自动修复」一次</li>
-              <li>若弹出 UAC，点允许；成功后默认麦克风会设为 CABLE Output</li>
+              <li>若弹出 UAC，点允许；完成后程序只验证端点，不修改系统默认麦克风</li>
             </ol>
             <p>
               强制重装后同样需要重启，重启后也请再点一次「自动修复」。仅装驱动、不点自动修复，语音通路可能仍未就绪。
@@ -2492,7 +2303,7 @@ async function retryLoadConfig() {
             </button>
           </div>
           <p class="voice-modal-note">
-            「自动修复」：已就绪则只校正默认麦克风；未安装则回到本窗让你选安装方式。「内嵌安装」在已检测到 CABLE 时不会重装驱动；异常时用「强制重装」。
+            「自动修复」：已就绪时只检测 CABLE Input/Output；未安装则启动官方安装器。程序不会修改 Windows 默认麦克风，请在外部输入法中选择 CABLE Output。
           </p>
         </div>
       </div>
@@ -2516,7 +2327,7 @@ async function retryLoadConfig() {
             <ol>
               <li>重新打开本软件</li>
               <li>再点「虚拟声卡修复」→「自动修复」一次</li>
-              <li>若弹出 UAC，点允许；成功后默认麦克风会设为 CABLE Output</li>
+              <li>若弹出 UAC，点允许；完成后程序只验证端点，不修改系统默认麦克风</li>
             </ol>
             <p>不要只重启、不点「自动修复」，否则端点可能仍未校正。</p>
           </div>
@@ -2664,8 +2475,8 @@ async function retryLoadConfig() {
       <section v-else-if="config" class="card mapping-layout">
         <KeyMappingStage
           :config="config"
+          :persist-config="saveXiaomiConfig"
           :press-pulse="keyPressPulse"
-          @save="onKeyMappingSave"
         />
       </section>
     </div>

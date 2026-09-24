@@ -61,9 +61,7 @@ fn parse_pid(args: &[String]) -> Result<u32, String> {
             let value = iter
                 .next()
                 .ok_or_else(|| "missing --pid value".to_string())?;
-            return value
-                .parse()
-                .map_err(|_| format!("invalid --pid: {value}"));
+            return value.parse().map_err(|_| format!("invalid --pid: {value}"));
         }
     }
     Err("required --pid".into())
@@ -90,14 +88,13 @@ fn perform_injection(pid: u32) -> Result<(), String> {
     let (dll_path, script_changed) = prepare_secure_runtime()?;
     let dll_hash = sha256_file(&dll_path)?;
     if !dll_hash.eq_ignore_ascii_case(GADGET_DLL_SHA256) {
-        return Err(format!("verified Gadget changed before injection: {dll_hash}"));
+        return Err(format!(
+            "verified Gadget changed before injection: {dll_hash}"
+        ));
     }
     enable_debug_privilege()?;
     inject_library(pid, &dll_path)?;
-    injector_log(&format!(
-        "injected pid={pid} dll={}",
-        dll_path.display()
-    ));
+    injector_log(&format!("injected pid={pid} dll={}", dll_path.display()));
     // 注入成功后才允许重启宿主：脚本更新需要宿主重新挂载才能加载新脚本。
     // 顺序绝不能反 —— 先杀宿主再注入会注入到已死进程（v1.3.13 修复）。
     if script_changed {
@@ -112,9 +109,7 @@ fn restart_rc003_host_after_inject(pid: u32) {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-        };
+        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
         if pid == 0 {
             return;
         }
@@ -214,7 +209,9 @@ fn process_image_name(pid: u32) -> Result<String, String> {
 #[cfg(target_os = "windows")]
 fn enable_debug_privilege() -> Result<(), String> {
     use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID};
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID,
+    };
     use windows::Win32::Security::{
         AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
         TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
@@ -281,8 +278,8 @@ fn inject_library(pid: u32, dll_path: &Path) -> Result<(), String> {
         | PROCESS_VM_READ;
 
     unsafe {
-        let process = OpenProcess(rights, false, pid)
-            .map_err(|e| format!("OpenProcess inject: {e}"))?;
+        let process =
+            OpenProcess(rights, false, pid).map_err(|e| format!("OpenProcess inject: {e}"))?;
 
         let path_str = dll_path
             .canonicalize()

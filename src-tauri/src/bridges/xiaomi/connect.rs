@@ -5,21 +5,35 @@
 //! 2. 按 VID/PID token / 设备名筛选小米 2 Pro
 //! 3. `BluetoothLEDevice::FromBluetoothAddressAsync` 打开设备并校验 ATVV 服务
 
+use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 static ATVV_SUBSCRIBED: AtomicBool = AtomicBool::new(false);
+static ATVV_AUDIO_SUBSCRIBED: AtomicBool = AtomicBool::new(false);
 
 pub fn reset_atvv_subscribed() {
     ATVV_SUBSCRIBED.store(false, Ordering::SeqCst);
+    ATVV_AUDIO_SUBSCRIBED.store(false, Ordering::SeqCst);
 }
 
 pub fn mark_atvv_subscribed(ok: bool) {
     ATVV_SUBSCRIBED.store(ok, Ordering::SeqCst);
+    if !ok {
+        ATVV_AUDIO_SUBSCRIBED.store(false, Ordering::SeqCst);
+    }
     crate::bridges::xiaomi::voice_meter::force_emit_atvv_change();
+}
+
+pub fn mark_atvv_audio_subscribed(ok: bool) {
+    ATVV_AUDIO_SUBSCRIBED.store(ok, Ordering::SeqCst);
+}
+
+pub fn atvv_audio_subscribed() -> bool {
+    ATVV_AUDIO_SUBSCRIBED.load(Ordering::SeqCst)
 }
 
 pub fn wait_atvv_subscribed(timeout: Duration) -> bool {
@@ -48,7 +62,7 @@ pub struct VoiceDiag {
 }
 
 pub fn diagnose_voice(bridge_alive: bool) -> VoiceDiag {
-    if atvv_subscribed() {
+    if atvv_subscribed() && atvv_audio_subscribed() {
         return VoiceDiag {
             code: "ok",
             layer: "atvv",
@@ -109,6 +123,16 @@ const XIAOMI_2_PRO_NAMES: &[&str] = &["mi rc", "xiaomi bluetooth remote 2 pro"];
 pub struct XiaomiRuntime {
     pub stop: AtomicBool,
     pub running: AtomicBool,
+    /// Monotonic generation for GATT callbacks. A callback from an older
+    /// generation must not mutate the current session.
+    pub generation: AtomicU64,
+    /// Set by the current GATT session when the device disconnects. This is
+    /// separate from `running` so cleanup can finish before a new start.
+    pub session_cancelled: AtomicBool,
+    /// True only while the current GATT input session is being torn down.
+    pub session_active: AtomicBool,
+    /// Serializes start/stop transitions; repeated start is idempotent.
+    pub lifecycle: Mutex<()>,
     /// 蓝牙异常断开标志（非用户主动断开时置位，用于托盘图标区分）
     pub abnormal_disconnect: AtomicBool,
 }
@@ -120,10 +144,25 @@ impl XiaomiRuntime {
 
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.session_cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn cancel_session(&self) {
+        self.session_cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn session_is_cancelled(&self) -> bool {
+        self.session_cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn session_is_active(&self) -> bool {
+        self.session_active.load(Ordering::SeqCst)
     }
 
     pub fn clear_stop(&self) {
         self.stop.store(false, Ordering::SeqCst);
+        self.session_cancelled.store(false, Ordering::SeqCst);
+        self.session_active.store(false, Ordering::SeqCst);
         self.abnormal_disconnect.store(false, Ordering::SeqCst);
     }
 
@@ -133,6 +172,18 @@ impl XiaomiRuntime {
 
     pub fn is_abnormal_disconnect(&self) -> bool {
         self.abnormal_disconnect.load(Ordering::SeqCst)
+    }
+
+    pub fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    pub fn is_current_generation(&self, generation: u64) -> bool {
+        self.current_generation() == generation
     }
 }
 
@@ -175,7 +226,9 @@ pub fn normalize_bluetooth_address(value: &str) -> Result<String, String> {
 }
 
 pub fn device_token_from_address(value: &str) -> Result<String, String> {
-    Ok(normalize_bluetooth_address(value)?.replace(':', "").to_lowercase())
+    Ok(normalize_bluetooth_address(value)?
+        .replace(':', "")
+        .to_lowercase())
 }
 
 pub fn address_to_u64(address: &str) -> Result<u64, String> {
@@ -282,9 +335,7 @@ pub fn choose_xiaomi_2_pro_candidate(
 }
 
 /// 发现 + 连接（阻塞，应在专用线程中调用）
-pub fn discover_and_connect(
-    configured_address: Option<&str>,
-) -> Result<XiaomiConnection, String> {
+pub fn discover_and_connect(configured_address: Option<&str>) -> Result<XiaomiConnection, String> {
     #[cfg(target_os = "windows")]
     {
         return windows_discover_and_connect(configured_address);
@@ -368,7 +419,9 @@ fn windows_discover_and_connect(
                 candidates.len()
             ));
         }
-        return Err("未找到已配对的小米遥控器 2 Pro。请先在 Windows 蓝牙设置中配对「MI RC」".into());
+        return Err(
+            "未找到已配对的小米遥控器 2 Pro。请先在 Windows 蓝牙设置中配对「MI RC」".into(),
+        );
     };
 
     windows_open_and_verify(&candidate)
@@ -379,9 +432,7 @@ fn map_winrt_null(context: &str, err: windows::core::Error) -> String {
     // WinRT 异步成功但返回 null 时，windows-rs 常报 0x00000000「操作成功完成」
     let code = err.code().0 as u32;
     if code == 0 {
-        format!(
-            "{context}：设备对象为空。请确认遥控器已开机、已在 Windows 配对，并靠近电脑后重试"
-        )
+        format!("{context}：设备对象为空。请确认遥控器已开机、已在 Windows 配对，并靠近电脑后重试")
     } else {
         format!("{context}: {err}")
     }
@@ -409,10 +460,7 @@ fn windows_discover_candidates() -> Result<Vec<XiaomiCandidate>, String> {
         let info = collection
             .GetAt(i)
             .map_err(|e| format!("GetAt({i}) 失败: {e}"))?;
-        let name = info
-            .Name()
-            .map(|n| n.to_string())
-            .unwrap_or_default();
+        let name = info.Name().map(|n| n.to_string()).unwrap_or_default();
         let id = info.Id().map(|n| n.to_string()).unwrap_or_default();
         if let Some(candidate) = xiaomi_candidate_from_interface(&name, &id) {
             let replace = match by_token.get(&candidate.device_token) {
@@ -473,7 +521,9 @@ fn windows_open_via_gatt_interface(
     // 新版 WinRT 需要显式 Open
     match service.OpenAsync(GattSharingMode::SharedReadOnly) {
         Ok(op) => match op.get() {
-            Ok(status) if status == GattOpenStatus::Success || status == GattOpenStatus::AlreadyOpened => {}
+            Ok(status)
+                if status == GattOpenStatus::Success || status == GattOpenStatus::AlreadyOpened => {
+            }
             Ok(status) => {
                 return Err(format!("打开 ATVV 服务状态异常: {status:?}"));
             }
@@ -498,11 +548,12 @@ fn windows_open_via_gatt_interface(
         .Name()
         .map(|n| n.to_string())
         .unwrap_or_else(|_| candidate.name.clone());
-    let addr = device
-        .BluetoothAddress()
-        .unwrap_or(candidate.address_u64);
+    let addr = device.BluetoothAddress().unwrap_or(candidate.address_u64);
 
-    log::info!("CONNECTED via GATT interface remote={name} address={}", format_address(addr));
+    log::info!(
+        "CONNECTED via GATT interface remote={name} address={}",
+        format_address(addr)
+    );
 
     let atvv_iface = service
         .DeviceId()
@@ -527,8 +578,8 @@ fn windows_open_via_gatt_interface(
 
 #[cfg(target_os = "windows")]
 fn windows_open_via_address(candidate: &XiaomiCandidate) -> Result<XiaomiConnection, String> {
-    use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
     use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+    use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
 
     let device = BluetoothLEDevice::FromBluetoothAddressAsync(candidate.address_u64)
         .map_err(|e| format!("FromBluetoothAddressAsync 失败: {e}"))?
@@ -564,13 +615,17 @@ fn windows_open_via_address(candidate: &XiaomiCandidate) -> Result<XiaomiConnect
     let services = services_result
         .Services()
         .map_err(|e| format!("读取 Services 失败: {e}"))?;
-    let count = services.Size().map_err(|e| format!("Services.Size 失败: {e}"))?;
+    let count = services
+        .Size()
+        .map_err(|e| format!("Services.Size 失败: {e}"))?;
 
     let target_guid = windows::core::GUID::from_u128(0xab5e0001_5a21_4f05_bc7d_af01f617b664);
     let mut found_atvv = false;
     let mut atvv_interface_id = String::new();
     for i in 0..count {
-        let svc = services.GetAt(i).map_err(|e| format!("Service.GetAt 失败: {e}"))?;
+        let svc = services
+            .GetAt(i)
+            .map_err(|e| format!("Service.GetAt 失败: {e}"))?;
         let uuid = svc.Uuid().map_err(|e| format!("Service.Uuid 失败: {e}"))?;
         if uuid == target_guid {
             found_atvv = true;

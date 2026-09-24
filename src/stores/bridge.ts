@@ -12,26 +12,10 @@ export const useBridgeStore = defineStore("bridge", () => {
       device_address: null,
       battery_level: null,
     },
-    t1: {
-      bridge_type: "t1",
-      status: "Disconnected",
-      device_name: null,
-      device_address: null,
-      battery_level: null,
-    },
-    hanvon: {
-      bridge_type: "hanvon",
-      status: "Disconnected",
-      device_name: null,
-      device_address: null,
-      battery_level: null,
-    },
   });
 
   const loading = ref<Record<BridgeType, boolean>>({
     xiaomi: false,
-    t1: false,
-    hanvon: false,
   });
 
   async function refreshStatus(type: BridgeType) {
@@ -47,11 +31,7 @@ export const useBridgeStore = defineStore("bridge", () => {
   }
 
   async function refreshAll() {
-    await Promise.all([
-      refreshStatus("xiaomi"),
-      refreshStatus("t1"),
-      refreshStatus("hanvon"),
-    ]);
+    await refreshStatus("xiaomi");
   }
 
   async function startBridge(type: BridgeType) {

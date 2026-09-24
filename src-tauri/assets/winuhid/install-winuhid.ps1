@@ -185,6 +185,7 @@ function Invoke-PnputilPhase {
 }
 
 function Register-RootDeviceNode([string] $InfPath, [string] $PnputilPath) {
+  Repair-WinUHidHardwareId | Out-Null
   if (Test-RootDeviceNodeListed $PnputilPath) {
     Write-Phase "RegisterRoot" "node already listed ($HardwareId)"
     return
@@ -329,9 +330,8 @@ try {
           Write-Phase "Verify" "not reachable; reboot flag set (exit 3010)"
           exit 3010
         }
-        Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII
-        Write-Phase "Verify" "not reachable after bind+scan; reboot may be required (exit 3010)"
-        exit 3010
+        Write-Phase "Error" "not reachable after bind+scan; no explicit reboot result"
+        exit 1
       }
 
       Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue

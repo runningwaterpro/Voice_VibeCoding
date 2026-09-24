@@ -2,18 +2,12 @@
 //!
 //! 端口分配:
 //! - 31681  Xiaomi 音频控制
-//! - 30682  T1 控制（中心模式）
-//! - 31682  T1 控制（独立模式）
-//! - 30683  V60 控制
 //! - 28690  中心 SHOW 命令
 
 use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 
 pub const XIAOMI_AUDIO_PORT: u16 = 31681;
-pub const T1_CONTROL_PORT: u16 = 30682;
-pub const T1_STANDALONE_PORT: u16 = 31682;
-pub const V60_CONTROL_PORT: u16 = 30683;
 pub const HUB_SHOW_PORT: u16 = 28690;
 pub const LOCALHOST: &str = "127.0.0.1";
 
@@ -37,10 +31,18 @@ pub struct UdpResponse {
 
 impl UdpMessage {
     pub fn new(command: impl Into<String>) -> Self {
-        Self { command: command.into(), params: serde_json::Value::Null, request_id: None }
+        Self {
+            command: command.into(),
+            params: serde_json::Value::Null,
+            request_id: None,
+        }
     }
     pub fn with_id(command: impl Into<String>, request_id: u64) -> Self {
-        Self { command: command.into(), params: serde_json::Value::Null, request_id: Some(request_id) }
+        Self {
+            command: command.into(),
+            params: serde_json::Value::Null,
+            request_id: Some(request_id),
+        }
     }
     pub fn with_params(mut self, params: serde_json::Value) -> Self {
         self.params = params;
@@ -49,12 +51,22 @@ impl UdpMessage {
 }
 
 impl UdpResponse {
-    pub fn is_ok(&self) -> bool { self.status == "ok" }
+    pub fn is_ok(&self) -> bool {
+        self.status == "ok"
+    }
     pub fn ok(data: serde_json::Value, request_id: Option<u64>) -> Self {
-        Self { status: "ok".into(), data, request_id }
+        Self {
+            status: "ok".into(),
+            data,
+            request_id,
+        }
     }
     pub fn error(msg: impl Into<String>, request_id: Option<u64>) -> Self {
-        Self { status: "error".into(), data: serde_json::Value::String(msg.into()), request_id }
+        Self {
+            status: "error".into(),
+            data: serde_json::Value::String(msg.into()),
+            request_id,
+        }
     }
 }
 
@@ -64,19 +76,22 @@ pub async fn send_udp_command(port: u16, msg: &UdpMessage) -> Result<UdpResponse
     let socket = UdpSocket::bind(format!("{}:0", LOCALHOST))
         .await
         .map_err(|e| format!("绑定失败: {}", e))?;
-    socket.connect(&addr).await.map_err(|e| format!("连接失败: {}", e))?;
+    socket
+        .connect(&addr)
+        .await
+        .map_err(|e| format!("连接失败: {}", e))?;
 
     let payload = serde_json::to_vec(msg).map_err(|e| format!("序列化: {}", e))?;
-    socket.send(&payload).await.map_err(|e| format!("发送失败: {}", e))?;
+    socket
+        .send(&payload)
+        .await
+        .map_err(|e| format!("发送失败: {}", e))?;
 
     let mut buf = [0u8; 4096];
-    let n = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        socket.recv(&mut buf),
-    )
-    .await
-    .map_err(|_| "UDP 响应超时".to_string())?
-    .map_err(|e| format!("接收失败: {}", e))?;
+    let n = tokio::time::timeout(std::time::Duration::from_secs(2), socket.recv(&mut buf))
+        .await
+        .map_err(|_| "UDP 响应超时".to_string())?
+        .map_err(|e| format!("接收失败: {}", e))?;
 
     serde_json::from_slice(&buf[..n]).map_err(|e| format!("解析响应: {}", e))
 }
@@ -95,7 +110,10 @@ where
     let mut buf = [0u8; 4096];
 
     loop {
-        let (n, peer) = socket.recv_from(&mut buf).await.map_err(|e| format!("接收失败: {}", e))?;
+        let (n, peer) = socket
+            .recv_from(&mut buf)
+            .await
+            .map_err(|e| format!("接收失败: {}", e))?;
         let msg: UdpMessage = match serde_json::from_slice(&buf[..n]) {
             Ok(m) => m,
             Err(_) => continue,
@@ -105,7 +123,9 @@ where
         let h = handler.clone();
         if let Some(response) = h(msg) {
             let mut resp = response;
-            if resp.request_id.is_none() { resp.request_id = request_id; }
+            if resp.request_id.is_none() {
+                resp.request_id = request_id;
+            }
             if let Ok(json) = serde_json::to_vec(&resp) {
                 let _ = socket.send_to(&json, peer).await;
             }
@@ -115,7 +135,10 @@ where
 
 /// SHOW 命令处理器
 pub fn handle_show(msg: &UdpMessage) -> Option<UdpResponse> {
-    Some(UdpResponse::ok(serde_json::Value::String("shown".into()), msg.request_id))
+    Some(UdpResponse::ok(
+        serde_json::Value::String("shown".into()),
+        msg.request_id,
+    ))
 }
 
 #[cfg(test)]
@@ -124,7 +147,11 @@ mod tests {
 
     #[test]
     fn test_message_roundtrip() {
-        let msg = UdpMessage { command: "open".into(), params: serde_json::json!({"d":"x"}), request_id: Some(42) };
+        let msg = UdpMessage {
+            command: "open".into(),
+            params: serde_json::json!({"d":"x"}),
+            request_id: Some(42),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         let decoded: UdpMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.command, "open");

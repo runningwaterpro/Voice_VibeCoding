@@ -5,10 +5,10 @@
 use crate::bridges::xiaomi::connect;
 use crate::bridges::xiaomi::key_log::{button_label, emit_key_phase};
 use crate::bridges::xiaomi::tv_gate;
-use crate::bridges::xiaomi::voice_chord_state::VoiceChordState;
 use crate::bridges::xiaomi::voice_chord_sanitizer::{
     recover_chord_modifiers, recover_foreign_modifiers,
 };
+use crate::bridges::xiaomi::voice_chord_state::VoiceChordState;
 use crate::bridges::xiaomi::voice_inject::scan_code_for_vk;
 use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction};
 use parking_lot::Mutex;
@@ -129,7 +129,10 @@ fn repeats() -> parking_lot::MutexGuard<'static, Option<HashMap<String, u64>>> {
 
 /// HID DIRECT 刚触发某键：供 special hook 抑制 Windows 原键
 pub fn mark_direct_signal(name: &str) {
-    marks().as_mut().unwrap().insert(name.to_string(), Instant::now());
+    marks()
+        .as_mut()
+        .unwrap()
+        .insert(name.to_string(), Instant::now());
     // 别名同步标记，便于 LL hook 用 Python 键名匹配
     for alt in binding_aliases(name) {
         if *alt != name {
@@ -402,36 +405,75 @@ fn perform_button_action(config: &DeviceConfig, button_id: &str) -> bool {
     }
 }
 
+pub fn press_voice_hotkey(chord: &[u16]) -> Result<(), String> {
+    if chord.is_empty() {
+        return Err("voice shortcut is empty".into());
+    }
+    // 语音唤起前把本进程 LL 钩子顶到链头，避免遥控器原生 F5 重复触发。
+    let _ = crate::bridges::xiaomi::special_keys::bump_hook_to_front();
+    arm_voice_native_suppress();
+    let pressed_ok = {
+        let mut state = VOICE_CHORD.lock();
+        state.press_with(chord, inject_voice_chord)
+    };
+    if pressed_ok {
+        log::info!("XIAOMI VOICE SHORTCUT DOWN vks={chord:?}");
+        Ok(())
+    } else {
+        disarm_voice_native_suppress();
+        let error = "voice shortcut injection failed".to_string();
+        log::warn!("XIAOMI VOICE SHORTCUT DOWN failed vks={chord:?}");
+        Err(error)
+    }
+}
+
+pub fn release_voice_hotkey() -> Result<(), String> {
+    let result = {
+        let mut state = VOICE_CHORD.lock();
+        state.release_with(inject_voice_chord)
+    };
+    disarm_voice_native_suppress();
+    match result {
+        None => Ok(()),
+        Some((keys, true)) => {
+            log::info!("XIAOMI VOICE SHORTCUT UP vks={keys:?}");
+            Ok(())
+        }
+        Some((keys, false)) => {
+            let retried = inject_voice_chord(&keys, true);
+            if retried {
+                Ok(())
+            } else {
+                Err(format!("failed to release voice chord {keys:?}"))
+            }
+        }
+    }
+}
+
 fn handle_voice(app: &AppHandle, pressed: bool) {
     let Some(config) = load_xiaomi_config(app) else {
         return;
     };
-    // v4.1：取消「是否发送映射」开关——语音键始终注热键（若有映射）
+    // Release must still run when a user clears the mapping mid-hold.
+    if !pressed {
+        let _ = release_voice_hotkey();
+        return;
+    }
     let vks = resolve_voice_hotkey(&config);
     if vks.is_empty() {
         log::warn!("XIAOMI VOICE shortcut empty");
         return;
     }
-    // 纯 hold：按下 → 映射键 DOWN，抬起 → UP（单击=热键按一次，按住=热键持续按住）
-    if pressed {
-        // 语音唤起前把本进程 LL 钩子顶到链头（装到微信钩子之前），
-        // 才能替微信吞掉遥控器原生 F5，避免 Ctrl+Win+F5 使微信「按住说话」不识别
-        let _ = crate::bridges::xiaomi::special_keys::bump_hook_to_front();
-        // 注入语音和弦期间吞掉遥控器原生 F5
-        arm_voice_native_suppress();
-        let pressed_ok = {
-            let mut state = VOICE_CHORD.lock();
-            state.press_with(&vks, inject_voice_chord)
-        };
-        if pressed_ok {
-            log::info!("XIAOMI VOICE SHORTCUT DOWN vks={vks:?}");
-        } else {
-            log::warn!("XIAOMI VOICE SHORTCUT DOWN failed vks={vks:?}");
-        }
-    } else {
-        force_release_voice_shortcut("remote_up");
-        disarm_voice_native_suppress();
-    }
+    let _ = press_voice_hotkey(&vks);
+}
+
+/// Release every voice resource owned by the process. Safe to call more than
+/// once during disconnect, restart, and shutdown.
+pub fn release_voice_resources() {
+    let _ = force_release_voice_shortcut("process_cleanup");
+    let _ = crate::bridges::xiaomi::hid_injector::release_all();
+    crate::bridges::xiaomi::voice_pcm::stop();
+    disarm_voice_native_suppress();
 }
 
 fn force_release_voice_shortcut(reason: &str) -> bool {
@@ -456,17 +498,14 @@ pub fn voice_from_atvv(app: &AppHandle, opcode: u8) {
     }
 }
 
-fn resolve_voice_hotkey(config: &DeviceConfig) -> Vec<u16> {
-    // 对齐 Python voice_hotkey_from_configs：界面上的 mic 按键映射优先于 voice_hotkey 字段
+pub fn resolve_voice_hotkey(config: &DeviceConfig) -> Vec<u16> {
+    // An explicit binding, including None, is authoritative. This prevents a
+    // cleared voice button from silently becoming a hard-coded right Alt.
     if let Some(action) = config.button_bindings.get("mic") {
-        if let Some(vks) = action_to_vks(action) {
-            return vks;
-        }
+        return action_to_vks(action).unwrap_or_default();
     }
     if let Some(action) = config.button_bindings.get("voice") {
-        if let Some(vks) = action_to_vks(action) {
-            return vks;
-        }
+        return action_to_vks(action).unwrap_or_default();
     }
     if let Some(keys) = &config.voice_hotkey {
         let mut out = Vec::new();
@@ -475,11 +514,9 @@ fn resolve_voice_hotkey(config: &DeviceConfig) -> Vec<u16> {
                 out.push(vk);
             }
         }
-        if !out.is_empty() {
-            return out;
-        }
+        return out;
     }
-    vec![0xA5] // 默认右 Alt
+    Vec::new()
 }
 
 fn action_to_vks(action: &KeyAction) -> Option<Vec<u16>> {
@@ -531,6 +568,11 @@ pub fn sync_voice_from_mic_binding(config: &mut DeviceConfig) {
         return;
     };
     let Some(vks) = action_to_vks(&action) else {
+        config.voice_hotkey = Some(Vec::new());
+        config.button_bindings.insert("mic".into(), KeyAction::None);
+        config
+            .button_bindings
+            .insert("voice".into(), KeyAction::None);
         return;
     };
     config.voice_hotkey = Some(vks_to_hotkey_names(&vks));
@@ -582,8 +624,28 @@ fn name_to_vk(name: &str) -> Option<u16> {
 fn is_extended(vk: u16) -> bool {
     matches!(
         vk,
-        0x21 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x28 | 0x2C | 0x2D | 0x2E | 0x5B
-            | 0x5C | 0x5D | 0xA3 | 0xA5 | 0xAD | 0xAE | 0xAF | 0xB0 | 0xB1 | 0xB2 | 0xB3
+        0x21 | 0x22
+            | 0x23
+            | 0x24
+            | 0x25
+            | 0x26
+            | 0x27
+            | 0x28
+            | 0x2C
+            | 0x2D
+            | 0x2E
+            | 0x5B
+            | 0x5C
+            | 0x5D
+            | 0xA3
+            | 0xA5
+            | 0xAD
+            | 0xAE
+            | 0xAF
+            | 0xB0
+            | 0xB1
+            | 0xB2
+            | 0xB3
             | 0xB7
     )
 }
@@ -625,10 +687,10 @@ pub fn tap_vks(vks: &[u16], hold_ms: u64) {
 /// Alt+S 不会触发全局热键。
 #[cfg(target_os = "windows")]
 fn inject_alt_chord_via_message(vks: &[u16], hold_ms: u64) {
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, SendMessageTimeoutW, SMTO_NORMAL, WM_KEYDOWN, WM_KEYUP,
     };
-    use windows::Win32::Foundation::HWND;
 
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd == HWND(std::ptr::null_mut()) {
@@ -680,9 +742,7 @@ fn inject_alt_chord_via_message(vks: &[u16], hold_ms: u64) {
     }
 
     crate::bridges::xiaomi::special_keys::disarm_alt_chord();
-    log::debug!(
-        "XIAOMI MAPPING inject alt_chord via SendMessage vks={vks:?} hold_ms={hold_ms}"
-    );
+    log::debug!("XIAOMI MAPPING inject alt_chord via SendMessage vks={vks:?} hold_ms={hold_ms}");
 }
 
 /// 构造 WM_KEYDOWN/WM_KEYUP 的 lParam
@@ -904,4 +964,34 @@ fn key_chord_send_input_with_extra(vks: &[u16], key_up: bool, extra_info: usize)
         );
     }
     ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_voice_hotkey;
+    use crate::config::manager::{DeviceConfig, KeyAction};
+
+    #[test]
+    fn arbitrary_configured_voice_chord_is_used() {
+        let mut config = DeviceConfig::new();
+        config
+            .button_bindings
+            .insert("mic".into(), KeyAction::ComboKey(vec![0xA2, 0xA4, 0x44]));
+        assert_eq!(resolve_voice_hotkey(&config), vec![0xA2, 0xA4, 0x44]);
+    }
+
+    #[test]
+    fn explicit_none_does_not_fall_back_to_a_hardcoded_key() {
+        let mut config = DeviceConfig::new();
+        config.button_bindings.insert("mic".into(), KeyAction::None);
+        config.voice_hotkey = Some(vec!["rightalt".into()]);
+        assert!(resolve_voice_hotkey(&config).is_empty());
+    }
+
+    #[test]
+    fn legacy_voice_hotkey_is_used_only_when_no_binding_exists() {
+        let mut config = DeviceConfig::new();
+        config.voice_hotkey = Some(vec!["leftctrl".into(), "f8".into()]);
+        assert_eq!(resolve_voice_hotkey(&config), vec![0xA2, 0x77]);
+    }
 }

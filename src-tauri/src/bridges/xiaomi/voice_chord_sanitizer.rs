@@ -35,7 +35,9 @@ pub fn foreign_modifiers_for_chord(chord: &[u16]) -> Vec<u16> {
 
 fn chord_contains_modifier(chord: &[u16], vk: u16) -> bool {
     chord.iter().any(|&c| {
-        c == vk || (c == 0x12 && matches!(vk, 0xA4 | 0xA5)) || (c == 0x11 && matches!(vk, 0xA2 | 0xA3))
+        c == vk
+            || (c == 0x12 && matches!(vk, 0xA4 | 0xA5))
+            || (c == 0x11 && matches!(vk, 0xA2 | 0xA3))
     })
 }
 

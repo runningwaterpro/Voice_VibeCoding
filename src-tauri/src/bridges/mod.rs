@@ -1,7 +1,5 @@
-pub mod xiaomi;
-pub mod t1;
-pub mod hanvon;
 pub mod shared;
+pub mod xiaomi;
 
 use parking_lot::RwLock;
 
@@ -10,16 +8,12 @@ use parking_lot::RwLock;
 #[serde(rename_all = "lowercase")]
 pub enum BridgeType {
     Xiaomi,
-    T1,
-    Hanvon,
 }
 
 impl std::fmt::Display for BridgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BridgeType::Xiaomi => write!(f, "小米遥控器"),
-            BridgeType::T1 => write!(f, "T1 遥控器"),
-            BridgeType::Hanvon => write!(f, "汉王 V60 语音笔"),
         }
     }
 }
@@ -84,8 +78,6 @@ pub struct DeviceInfo {
 /// Global bridge state shared across the application
 pub struct BridgeState {
     pub xiaomi: RwLock<DeviceInfo>,
-    pub t1: RwLock<DeviceInfo>,
-    pub hanvon: RwLock<DeviceInfo>,
 }
 
 impl BridgeState {
@@ -98,28 +90,12 @@ impl BridgeState {
                 device_address: None,
                 battery_level: None,
             }),
-            t1: RwLock::new(DeviceInfo {
-                bridge_type: BridgeType::T1,
-                status: BridgeStatus::Disconnected,
-                device_name: None,
-                device_address: None,
-                battery_level: None,
-            }),
-            hanvon: RwLock::new(DeviceInfo {
-                bridge_type: BridgeType::Hanvon,
-                status: BridgeStatus::Disconnected,
-                device_name: None,
-                device_address: None,
-                battery_level: None,
-            }),
         }
     }
 
     pub fn update_status(&self, bridge_type: BridgeType, status: BridgeStatus) {
         let info = match bridge_type {
             BridgeType::Xiaomi => &self.xiaomi,
-            BridgeType::T1 => &self.t1,
-            BridgeType::Hanvon => &self.hanvon,
         };
         let mut guard = info.write();
         let is_disconnected = status == BridgeStatus::Disconnected;
@@ -131,8 +107,8 @@ impl BridgeState {
         }
     }
 
-    /// Update full device info (name, address, battery) after successful connection.
-    /// Also sets the status to Connected.
+    /// Update device details without changing connection status. This keeps a
+    /// late battery callback from resurrecting a disconnected device.
     pub fn update_device_info(
         &self,
         bridge_type: BridgeType,
@@ -142,21 +118,22 @@ impl BridgeState {
     ) {
         let info = match bridge_type {
             BridgeType::Xiaomi => &self.xiaomi,
-            BridgeType::T1 => &self.t1,
-            BridgeType::Hanvon => &self.hanvon,
         };
         let mut guard = info.write();
-        guard.status = BridgeStatus::Connected;
-        if let Some(n) = name { guard.device_name = Some(n); }
-        if let Some(a) = address { guard.device_address = Some(a); }
-        if let Some(b) = battery { guard.battery_level = Some(b); }
+        if let Some(n) = name {
+            guard.device_name = Some(n);
+        }
+        if let Some(a) = address {
+            guard.device_address = Some(a);
+        }
+        if let Some(b) = battery {
+            guard.battery_level = Some(b);
+        }
     }
 
     pub fn get_info(&self, bridge_type: BridgeType) -> DeviceInfo {
         match bridge_type {
             BridgeType::Xiaomi => self.xiaomi.read().clone(),
-            BridgeType::T1 => self.t1.read().clone(),
-            BridgeType::Hanvon => self.hanvon.read().clone(),
         }
     }
 }

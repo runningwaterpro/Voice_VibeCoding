@@ -296,6 +296,9 @@ mod tests {
         let now = start + STALE_AFTER + Duration::from_secs(1);
         assert_eq!(h.check(now, true), HealthAction::None);
         h.on_pong();
-        assert_eq!(h.check(now + Duration::from_secs(2), true), HealthAction::None);
+        assert_eq!(
+            h.check(now + Duration::from_secs(2), true),
+            HealthAction::None
+        );
     }
 }

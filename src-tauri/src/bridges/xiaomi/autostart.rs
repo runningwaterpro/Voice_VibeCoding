@@ -71,10 +71,8 @@ fn set_run_key(enable: bool) -> Result<(), String> {
         .map_err(|e| format!("RegOpenKeyExW: {e}"))?;
 
         let result = if enable {
-            let bytes = std::slice::from_raw_parts(
-                value_wide.as_ptr() as *const u8,
-                value_wide.len() * 2,
-            );
+            let bytes =
+                std::slice::from_raw_parts(value_wide.as_ptr() as *const u8, value_wide.len() * 2);
             RegSetValueExW(key, name, 0, REG_SZ, Some(bytes))
         } else {
             // 删除；不存在也算成功

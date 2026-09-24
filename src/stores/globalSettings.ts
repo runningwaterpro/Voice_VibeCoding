@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { GlobalSettings } from "../types";
 
@@ -8,15 +8,12 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   language: "zh-CN",
   minimize_to_tray: true,
   start_minimized_to_tray: false,
-  hide_dev_menus: true,
 };
 
 export const useGlobalSettingsStore = defineStore("globalSettings", () => {
   const settings = ref<GlobalSettings>({ ...DEFAULT_SETTINGS });
   const loaded = ref(false);
   const saving = ref(false);
-
-  const hideDevMenus = computed(() => settings.value.hide_dev_menus ?? true);
 
   async function load() {
     try {
@@ -59,7 +56,6 @@ export const useGlobalSettingsStore = defineStore("globalSettings", () => {
     settings,
     loaded,
     saving,
-    hideDevMenus,
     load,
     save,
     patch,

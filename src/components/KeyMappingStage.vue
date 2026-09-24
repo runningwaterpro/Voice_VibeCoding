@@ -17,12 +17,9 @@ import { MEDIA_PICK_KEYS, vkDisplayName } from "../utils/vkDisplay";
 
 const props = defineProps<{
   config: DeviceConfig;
+  persistConfig: (config: DeviceConfig) => Promise<boolean>;
   /** 实体键：与遥控同步——按下亮、按住保持、抬起灭 */
   pressPulse?: { id: string; seq: number; phase: "down" | "up" } | null;
-}>();
-
-const emit = defineEmits<{
-  save: [config: DeviceConfig];
 }>();
 
 const LEFT_IDS = [
@@ -93,8 +90,7 @@ function applyManualShortcut(keys: number[]) {
   const editor = manualEditor.value;
   if (!editor) return;
   manualEditor.value = null;
-  applyCapturedKeys(editor.buttonId, keys);
-  void nextTick().then(scheduleUpdateLine);
+  void applyCapturedKeys(editor.buttonId, keys).then(() => nextTick().then(scheduleUpdateLine));
 }
 
 const stageRef = ref<HTMLElement | null>(null);
@@ -453,6 +449,10 @@ function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
+  if (e.key === "Escape" || vkFromEvent(e) === 0x1b) {
+    void cancelCapture();
+    return;
+  }
   if (applied) return;
   const chord = chordFromEvent(e);
   if (chord.length > 0) {
@@ -495,7 +495,7 @@ async function onCaptured(keys: number[], labels: string[]) {
 
   const buttonId = selectedId.value;
   if (buttonId && keys?.length) {
-    applyCapturedKeys(buttonId, keys);
+    await applyCapturedKeys(buttonId, keys);
   }
   try {
     await invoke("capture_shortcut_stop");
@@ -540,7 +540,21 @@ async function cancelCapture() {
   }
 }
 
-function applyCapturedKeys(buttonId: string, vks: number[]) {
+async function persistDraft(next: DeviceConfig): Promise<boolean> {
+  try {
+    const ok = await props.persistConfig(next);
+    if (!ok) {
+      captureError.value = "快捷键保存失败，已恢复原映射";
+      await invoke("capture_shortcut_stop").catch(() => {});
+    }
+    return ok;
+  } catch (error) {
+    captureError.value = `快捷键保存失败：${String(error)}`;
+    return false;
+  }
+}
+
+async function applyCapturedKeys(buttonId: string, vks: number[]): Promise<boolean> {
   let action: KeyAction;
   if (!vks.length) {
     action = { type: "None", value: null };
@@ -549,34 +563,34 @@ function applyCapturedKeys(buttonId: string, vks: number[]) {
   } else {
     action = { type: "ComboKey", value: [...vks] };
   }
-  if (!props.config.button_bindings) {
-    (props.config as DeviceConfig).button_bindings = {};
-  }
-  props.config.button_bindings[buttonId] = action;
+  const buttonBindings = { ...(props.config.button_bindings || {}) };
+  buttonBindings[buttonId] = action;
   const next: DeviceConfig = {
     ...props.config,
-    button_bindings: { ...props.config.button_bindings },
+    button_bindings: buttonBindings,
   };
   if (buttonId === "mic" || buttonId === "voice") {
     next.button_bindings.mic = action;
     next.button_bindings.voice = action;
     next.voice_hotkey = vksToHotkeyNames(vks);
   }
-  emit("save", next);
+  return persistDraft(next);
 }
 
-function clearBinding(buttonId: string) {
-  props.config.button_bindings[buttonId] = { type: "None", value: null };
+async function clearBinding(buttonId: string): Promise<boolean> {
+  const none: KeyAction = { type: "None", value: null };
+  const buttonBindings = { ...(props.config.button_bindings || {}) };
+  buttonBindings[buttonId] = none;
   const next: DeviceConfig = {
     ...props.config,
-    button_bindings: { ...props.config.button_bindings },
+    button_bindings: buttonBindings,
   };
   if (buttonId === "mic" || buttonId === "voice") {
-    next.button_bindings.mic = { type: "None", value: null };
-    next.button_bindings.voice = { type: "None", value: null };
+    next.button_bindings.mic = none;
+    next.button_bindings.voice = none;
     next.voice_hotkey = [];
   }
-  emit("save", next);
+  return persistDraft(next);
 }
 
 watch([selectedId, hoverId, manualEditor], () => {

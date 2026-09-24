@@ -4,9 +4,9 @@
 //! 输入：物理麦克风 (int16, 48kHz, 单声道)
 //! 输出：VB-CABLE "CABLE Input" playback endpoint
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub struct AudioMixer {
     running: Arc<AtomicBool>,
@@ -16,7 +16,11 @@ pub struct AudioMixer {
 
 impl AudioMixer {
     pub fn new() -> Self {
-        Self { running: Arc::new(AtomicBool::new(false)), input_stream: None, output_stream: None }
+        Self {
+            running: Arc::new(AtomicBool::new(false)),
+            input_stream: None,
+            output_stream: None,
+        }
     }
 
     /// 打开混音器：从指定麦克风读取音频，写入 VB-CABLE
@@ -31,8 +35,7 @@ impl AudioMixer {
         let input_device = if let Some(name) = mic_name {
             find_device(&host, name, true)?
         } else {
-            host.default_input_device()
-                .ok_or("未找到默认麦克风设备")?
+            host.default_input_device().ok_or("未找到默认麦克风设备")?
         };
 
         // 查找输出设备（VB-CABLE CABLE Input）
@@ -40,13 +43,15 @@ impl AudioMixer {
             find_device(&host, name, false)?
         } else {
             find_device(&host, "CABLE Input", false)
-                .or_else(|_| host.default_output_device()
-                    .ok_or("未找到输出设备"))
+                .or_else(|_| host.default_output_device().ok_or("未找到输出设备"))
                 .map_err(|e| format!("未找到 VB-CABLE 设备: {}", e))?
         };
 
         log::info!("Input device: {}", input_device.name().unwrap_or_default());
-        log::info!("Output device: {}", output_device.name().unwrap_or_default());
+        log::info!(
+            "Output device: {}",
+            output_device.name().unwrap_or_default()
+        );
 
         // 获取输入设备支持的配置
         let input_config = input_device
@@ -72,7 +77,9 @@ impl AudioMixer {
             .build_input_stream(
                 &input_config.config(),
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    if !running_in.load(Ordering::SeqCst) { return; }
+                    if !running_in.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if let Ok(mut buf) = buffer.lock() {
                         buf.extend_from_slice(data);
                         // 限制缓冲区大小（约 200ms）
@@ -92,7 +99,9 @@ impl AudioMixer {
             .build_output_stream(
                 &output_config.config(),
                 move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                    if !running_out.load(Ordering::SeqCst) { return; }
+                    if !running_out.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if let Ok(mut buf) = buffer_clone.lock() {
                         let available = buf.len().min(data.len());
                         if available > 0 {
@@ -110,8 +119,12 @@ impl AudioMixer {
             .map_err(|e| format!("创建输出流失败: {}", e))?;
 
         // 启动流
-        input_stream.play().map_err(|e| format!("启动输入流失败: {}", e))?;
-        output_stream.play().map_err(|e| format!("启动输出流失败: {}", e))?;
+        input_stream
+            .play()
+            .map_err(|e| format!("启动输入流失败: {}", e))?;
+        output_stream
+            .play()
+            .map_err(|e| format!("启动输出流失败: {}", e))?;
 
         self.input_stream = Some(input_stream);
         self.output_stream = Some(output_stream);
@@ -135,11 +148,7 @@ impl AudioMixer {
     pub fn list_input_devices() -> Vec<String> {
         let host = cpal::default_host();
         host.input_devices()
-            .map(|devices| {
-                devices
-                    .filter_map(|d| d.name().ok())
-                    .collect()
-            })
+            .map(|devices| devices.filter_map(|d| d.name().ok()).collect())
             .unwrap_or_default()
     }
 
@@ -147,29 +156,31 @@ impl AudioMixer {
     pub fn list_output_devices() -> Vec<String> {
         let host = cpal::default_host();
         host.output_devices()
-            .map(|devices| {
-                devices
-                    .filter_map(|d| d.name().ok())
-                    .collect()
-            })
+            .map(|devices| devices.filter_map(|d| d.name().ok()).collect())
             .unwrap_or_default()
     }
 }
 
 impl Default for AudioMixer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Drop for AudioMixer {
-    fn drop(&mut self) { self.close(); }
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 /// 通过名称查找音频设备
 fn find_device(host: &cpal::Host, name: &str, is_input: bool) -> Result<cpal::Device, String> {
     let devices = if is_input {
-        host.input_devices().map_err(|e| format!("枚举输入设备失败: {}", e))?
+        host.input_devices()
+            .map_err(|e| format!("枚举输入设备失败: {}", e))?
     } else {
-        host.output_devices().map_err(|e| format!("枚举输出设备失败: {}", e))?
+        host.output_devices()
+            .map_err(|e| format!("枚举输出设备失败: {}", e))?
     };
 
     for device in devices {

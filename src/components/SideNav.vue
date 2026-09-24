@@ -1,20 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { invoke } from "@tauri-apps/api/core";
 import { storeToRefs } from "pinia";
 import { useBridgeStore } from "../stores/bridge";
+import { useVoiceStatusStore } from "../stores/voiceStatus";
 import { useAppUpdateStore } from "../stores/appUpdate";
-import { useGlobalSettingsStore } from "../stores/globalSettings";
 import SettingsSheet from "./SettingsSheet.vue";
-import type { BridgeStatus } from "../types";
 
-const route = useRoute();
-const router = useRouter();
 const bridge = useBridgeStore();
+const voiceStatus = useVoiceStatusStore();
 const appUpdate = useAppUpdateStore();
-const globalSettings = useGlobalSettingsStore();
-const { hideDevMenus } = storeToRefs(globalSettings);
 const { updateInfo, shouldShowPassivePrompt } = storeToRefs(appUpdate);
 
 const showSettingsSheet = ref(false);
@@ -26,25 +20,6 @@ const session = ref({
   sub: "",
 });
 let hostTimer: ReturnType<typeof setInterval> | null = null;
-
-function statusClass(status: BridgeStatus): string {
-  if (status === "Connected") return "connected";
-  if (status === "Connecting") return "connecting";
-  if (status.startsWith("Error")) return "error";
-  return "disconnected";
-}
-
-const allDeviceItems = [
-  { path: "/xiaomi", label: "小米遥控器", type: "xiaomi" as const },
-  { path: "/t1", label: "T1 [开发中]", type: "t1" as const, dev: true },
-  { path: "/v60", label: "V60 [开发中]", type: "hanvon" as const, dev: true },
-];
-
-const deviceItems = computed(() =>
-  hideDevMenus.value
-    ? allDeviceItems.filter((item) => !item.dev)
-    : allDeviceItems
-);
 
 const xiaomiStatusText = computed(() => bridge.statusLabel(bridge.devices.xiaomi.status));
 
@@ -61,31 +36,20 @@ const batteryTone = computed(() => {
 });
 
 async function refreshSession() {
-  try {
-    const h = await invoke<{
-      bridge_alive: boolean;
-      atvv_ok: boolean;
-      cable_ready: boolean;
-      winuhid_ready: boolean;
-      status_text: string;
-      tone: string;
-    }>("get_xiaomi_host_status");
-    if (!h.bridge_alive) {
-      session.value = { tone: "idle", title: "未连接遥控器", sub: "" };
-      return;
-    }
-    const voiceOk = h.atvv_ok && h.cable_ready && h.winuhid_ready;
-    if (voiceOk) {
-      session.value = { tone: "ok", title: "语音可用", sub: "" };
-    } else {
-      session.value = {
-        tone: h.tone === "error" ? "fail" : "warn",
-        title: h.status_text || "语音未就绪",
-        sub: "",
-      };
-    }
-  } catch {
+  await voiceStatus.refresh();
+  const snapshot = voiceStatus.snapshot;
+  if (!snapshot) {
     session.value = { tone: "idle", title: xiaomiStatusText.value, sub: "" };
+    return;
+  }
+  if (snapshot.voice_ready) {
+    session.value = { tone: "ok", title: "语音可用", sub: "" };
+  } else {
+    session.value = {
+      tone: snapshot.phase === "disconnected" ? "idle" : "warn",
+      title: snapshot.detail || "语音未就绪",
+      sub: snapshot.first_audio_packet ? "首个音频包已验证" : "",
+    };
   }
 }
 
@@ -113,8 +77,10 @@ function onVisibility() {
 }
 
 onMounted(async () => {
-  if (!globalSettings.loaded) {
-    await globalSettings.load();
+  try {
+    await voiceStatus.init();
+  } catch (error) {
+    console.warn("voice status init failed", error);
   }
   document.addEventListener("visibilitychange", onVisibility);
   onVisibility();
@@ -124,14 +90,6 @@ onUnmounted(() => {
   document.removeEventListener("visibilitychange", onVisibility);
   stopHostPoll();
 });
-
-function navigate(path: string) {
-  router.push(path);
-}
-
-function isActive(path: string) {
-  return route.path === path || route.path.startsWith(path + "/");
-}
 
 </script>
 
@@ -163,22 +121,6 @@ function isActive(path: string) {
       </svg>
       <span>{{ batteryText }}</span>
     </div>
-
-    <nav class="nav-row" v-if="deviceItems.length > 1">
-      <button
-        v-for="item in deviceItems"
-        :key="item.path"
-        type="button"
-        :class="['nav-item', { active: isActive(item.path) }]"
-        @click="navigate(item.path)"
-      >
-        <span
-          :class="['dot', statusClass(bridge.devices[item.type].status)]"
-          :title="bridge.statusLabel(bridge.devices[item.type].status)"
-        />
-        <span class="nav-label">{{ item.label }}</span>
-      </button>
-    </nav>
 
     <div class="nav-actions">
       <button

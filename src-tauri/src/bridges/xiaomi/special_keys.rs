@@ -63,13 +63,21 @@ fn wait_and_consume_vk(vk: u32, scan: u32) -> Option<&'static str> {
     let (names, window, label): (&'static [&'static str], Duration, &'static str) = match vk {
         0xAF => (&["volume_up"], Duration::from_millis(200), "volume_up"),
         0xAE => (&["volume_down"], Duration::from_millis(200), "volume_down"),
-        0xAD => (&["volume_mute", "mute"], Duration::from_millis(200), "volume_mute"),
+        0xAD => (
+            &["volume_mute", "mute"],
+            Duration::from_millis(200),
+            "volume_mute",
+        ),
         0xA6 => (&["back"], Duration::from_millis(250), "back"),
         0x24 | 0xAC => (&["home"], Duration::from_millis(250), "home"),
         0x5D => (&["menu"], Duration::from_millis(250), "menu"),
         0x0D => (&["ok"], Duration::from_millis(200), "ok"),
         0x25 => (&["left", "dpad_left"], Duration::from_millis(300), "left"),
-        0x27 => (&["right", "dpad_right"], Duration::from_millis(300), "right"),
+        0x27 => (
+            &["right", "dpad_right"],
+            Duration::from_millis(300),
+            "right",
+        ),
         0x26 => (&["up", "dpad_up"], Duration::from_millis(300), "up"),
         0x28 => (&["down", "dpad_down"], Duration::from_millis(300), "down"),
         0xC0 if scan == 0x29 => (&["tv"], Duration::from_millis(250), "tv"),
@@ -114,7 +122,10 @@ pub fn bump_hook_to_front() -> u64 {
         use windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
         HOOK_ENABLED.store(true, Ordering::Release);
         let tid = HOOK_THREAD_ID.load(Ordering::Acquire);
-        log::info!("[DEBUG-cap] bump_hook_to_front tid={tid} armed={} gen={gen}", is_hook_armed());
+        log::info!(
+            "[DEBUG-cap] bump_hook_to_front tid={tid} armed={} gen={gen}",
+            is_hook_armed()
+        );
         if tid == 0 {
             start_special_key_hook();
             return gen;
@@ -131,14 +142,17 @@ pub fn bump_hook_to_front() -> u64 {
 }
 
 /// 请求置顶并等待真正落地。禁止在 LL 回调线程调用。
-pub fn bump_hook_to_front_and_settle(settle_ms: u64) -> crate::bridges::xiaomi::hook_bump::BumpOutcome {
+pub fn bump_hook_to_front_and_settle(
+    settle_ms: u64,
+) -> crate::bridges::xiaomi::hook_bump::BumpOutcome {
     let gen = bump_hook_to_front();
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::System::Threading::GetCurrentThreadId;
         let current_tid = unsafe { GetCurrentThreadId() };
         let hook_tid = HOOK_THREAD_ID.load(Ordering::Acquire);
-        let out = crate::bridges::xiaomi::hook_bump::wait_for(gen, current_tid, hook_tid, settle_ms);
+        let out =
+            crate::bridges::xiaomi::hook_bump::wait_for(gen, current_tid, hook_tid, settle_ms);
         log::info!("[DEBUG-cap] bump settle gen={gen} out={out:?}");
         return out;
     }
@@ -324,10 +338,7 @@ fn hook_loop() {
             // 也不能直接放行 Alt/Space 等系统键 —— 否则会触发系统菜单。
             // 这里走抑制路径，让调用方（key_mapping）通过 WM_KEYDOWN 路径
             // 单独投递按键，避免 WM_SYSKEYDOWN。
-            if alt_chord_active()
-                && injected
-                && is_alt_system_key(vk)
-            {
+            if alt_chord_active() && injected && is_alt_system_key(vk) {
                 log::info!("XIAOMI SPECIAL KEY alt_chord suppressed vk=0x{vk:02X}");
                 return LRESULT(1);
             }
@@ -401,9 +412,7 @@ fn hook_loop() {
                         log::info!("[DEBUG-cap] bump overlap ok");
                     }
                     Err(e) => {
-                        log::error!(
-                            "[DEBUG-cap] bump SetWindowsHookEx failed: {e}; keep old hook"
-                        );
+                        log::error!("[DEBUG-cap] bump SetWindowsHookEx failed: {e}; keep old hook");
                         if old.is_invalid() {
                             store_hook(HHOOK(std::ptr::null_mut()));
                         }
@@ -449,7 +458,7 @@ fn hook_loop() {
 /// 注意：非音量键（方向/OK/返回等）不受此判定影响。
 pub fn should_suppress_volume_native(vk: u16, _tap_ready: bool, recent_signal: bool) -> bool {
     let is_volume = matches!(vk, 0xAF | 0xAE | 0xAD); // VK_VOLUME_UP / VK_VOLUME_DOWN / VK_VOLUME_MUTE
-    // 仅 recent：tap_ready 会误伤实体音量键（与固件 VK_VOLUME_* 无法在 LL 区分）
+                                                      // 仅 recent：tap_ready 会误伤实体音量键（与固件 VK_VOLUME_* 无法在 LL 区分）
     is_volume && recent_signal
 }
 
@@ -461,7 +470,7 @@ pub fn should_suppress_volume_native(vk: u16, _tap_ready: bool, recent_signal: b
 /// - `recent_signal`：250ms 内遥控器刚按下 → 吞固件残留（与 back/tv/power 一致）。
 pub fn should_suppress_native_menu_home(vk: u16, _tap_ready: bool, recent_signal: bool) -> bool {
     let is_menu_or_home = matches!(vk, 0x5D | 0x24 | 0xAC); // VK_APPS / VK_HOME / 0xAC
-    // 仅 recent：tap_ready 会误伤实体 Home（与固件 VK_HOME 无法在 LL 区分）
+                                                            // 仅 recent：tap_ready 会误伤实体 Home（与固件 VK_HOME 无法在 LL 区分）
     is_menu_or_home && recent_signal
 }
 

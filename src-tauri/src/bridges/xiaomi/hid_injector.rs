@@ -7,16 +7,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const KEYBOARD_REPORT_DESCRIPTOR: &[u8] = &[
-    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25,
-    0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05,
-    0x75, 0x01, 0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91,
-    0x01, 0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x73, 0x05, 0x07, 0x19, 0x00, 0x29, 0x73,
-    0x81, 0x00, 0xC0,
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
+    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05, 0x75, 0x01,
+    0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
+    0x75, 0x08, 0x15, 0x00, 0x25, 0x73, 0x05, 0x07, 0x19, 0x00, 0x29, 0x73, 0x81, 0x00, 0xC0,
 ];
 
 const CONSUMER_REPORT_DESCRIPTOR: &[u8] = &[
-    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00, 0x2A, 0xFF,
-    0x03, 0x75, 0x10, 0x95, 0x01, 0x81, 0x00, 0xC0,
+    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00, 0x2A, 0xFF, 0x03,
+    0x75, 0x10, 0x95, 0x01, 0x81, 0x00, 0xC0,
 ];
 
 #[repr(C, packed)]
@@ -35,8 +34,7 @@ struct WinUHidDeviceConfig {
 
 type FnGetVersion = unsafe extern "system" fn() -> u32;
 type FnCreateDevice = unsafe extern "system" fn(*const WinUHidDeviceConfig) -> *mut c_void;
-type FnStartDevice =
-    unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) -> i32;
+type FnStartDevice = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) -> i32;
 type FnSubmitReport = unsafe extern "system" fn(*mut c_void, *const u8, u32) -> i32;
 type FnDestroyDevice = unsafe extern "system" fn(*mut c_void);
 
@@ -258,6 +256,20 @@ pub fn is_available() -> bool {
     DEVICES.lock().is_some() || ensure_init()
 }
 
+/// Check the current driver device before trusting the cached injector.
+/// Used by status/repair paths; ordinary key injection keeps the cached path
+/// for latency.
+pub fn is_available_current() -> bool {
+    if !crate::bridges::xiaomi::winuhid_env::driver_device_present() {
+        *DEVICES.lock() = None;
+        INIT_TRIED.store(false, Ordering::SeqCst);
+        return false;
+    }
+    // Status polling must not create a device or run the injector on the UI
+    // thread. Explicit startup/repair paths use ensure_init/reset_and_retry.
+    DEVICES.lock().is_some()
+}
+
 /// 仅读缓存，不触发 LoadLibrary / CreateDevice（供 UI 轮询，避免卡 UI/IPC）
 pub fn is_ready_cached() -> bool {
     DEVICES.lock().is_some()
@@ -291,12 +303,7 @@ fn press_keyboard(dev: &Devices, vks: &[u16]) -> Result<(), String> {
     }
     // 多修饰键：逐步叠加，模拟真实按键时序（千问 Win+Alt / Ctrl+Win 依赖此路径）
     for step in 1..=mods.len() {
-        let partial: Vec<u16> = mods
-            .iter()
-            .take(step)
-            .chain(keys.iter())
-            .copied()
-            .collect();
+        let partial: Vec<u16> = mods.iter().take(step).chain(keys.iter()).copied().collect();
         let report = build_keyboard_report(&partial)?;
         submit(dev, dev.keyboard, &report)?;
         if step < mods.len() {
@@ -319,12 +326,7 @@ fn release_keyboard(dev: &Devices, vks: &[u16]) -> Result<(), String> {
         if held == 0 {
             submit(dev, dev.keyboard, &[0u8; 8])?;
         } else {
-            let partial: Vec<u16> = mods
-                .iter()
-                .take(held)
-                .chain(keys.iter())
-                .copied()
-                .collect();
+            let partial: Vec<u16> = mods.iter().take(held).chain(keys.iter()).copied().collect();
             let report = build_keyboard_report(&partial)?;
             submit(dev, dev.keyboard, &report)?;
         }
@@ -427,7 +429,10 @@ fn windows_init() -> Result<Devices, String> {
     let module = unsafe { LoadLibraryW(PCWSTR(wide.as_ptr())) }
         .map_err(|e| format!("LoadLibraryW WinUHid.dll: {e}"))?;
 
-    unsafe fn proc<T>(module: windows::Win32::Foundation::HMODULE, name: &[u8]) -> Result<T, String> {
+    unsafe fn proc<T>(
+        module: windows::Win32::Foundation::HMODULE,
+        name: &[u8],
+    ) -> Result<T, String> {
         let p = GetProcAddress(module, PCSTR(name.as_ptr()))
             .ok_or_else(|| format!("GetProcAddress missing {}", String::from_utf8_lossy(name)))?;
         Ok(std::mem::transmute_copy(&p))
@@ -455,9 +460,18 @@ fn windows_init() -> Result<Devices, String> {
         destroy,
     };
 
-    let keyboard = create_device(&api, KEYBOARD_REPORT_DESCRIPTOR, 1, "XiaomiRemoteBridgeKeyboard")?;
-    let consumer = match create_device(&api, CONSUMER_REPORT_DESCRIPTOR, 2, "XiaomiRemoteBridgeConsumer")
-    {
+    let keyboard = create_device(
+        &api,
+        KEYBOARD_REPORT_DESCRIPTOR,
+        1,
+        "XiaomiRemoteBridgeKeyboard",
+    )?;
+    let consumer = match create_device(
+        &api,
+        CONSUMER_REPORT_DESCRIPTOR,
+        2,
+        "XiaomiRemoteBridgeConsumer",
+    ) {
         Ok(h) => h,
         Err(e) => {
             unsafe { (api.destroy)(keyboard) };
@@ -488,7 +502,10 @@ fn create_device(
     product_id: u16,
     instance_id: &str,
 ) -> Result<*mut c_void, String> {
-    let mut wide: Vec<u16> = instance_id.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut wide: Vec<u16> = instance_id
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let config = WinUHidDeviceConfig {
         supported_events: 0,
         vendor_id: 0,

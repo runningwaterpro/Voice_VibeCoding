@@ -1,23 +1,30 @@
+pub mod app_update;
+pub mod audio;
 pub mod bridges;
 pub mod config;
+pub mod file_download;
 pub mod ipc;
-pub mod audio;
 pub mod logging;
-pub mod app_update;
 pub mod webview_guard;
 pub mod webview_recovery;
-pub mod file_download;
 
 use tauri::{Manager, RunEvent};
 
 /// 退出前统一清理：停桥接 + HID Tap + 卸键盘钩子，避免进程残留。
 /// 钩子 stop 单一入口之一（另两处：托盘退出、托盘重启）。
 fn cleanup_on_exit(app: &tauri::AppHandle) {
+    if let Some(capture) =
+        app.try_state::<bridges::shared::shortcut_capture::ShortcutCaptureSession>()
+    {
+        let _ = capture.cancel();
+    }
     if let Some(runtime) =
         app.try_state::<std::sync::Arc<bridges::xiaomi::connect::XiaomiRuntime>>()
     {
         runtime.request_stop();
     }
+    bridges::xiaomi::winuhid_env::cancel_runtime_reprobe();
+    bridges::xiaomi::key_mapping::release_voice_resources();
     bridges::xiaomi::hid_report_tap::stop_and_join();
     bridges::xiaomi::special_keys::stop_special_key_hook();
 }
@@ -214,8 +221,7 @@ pub fn run() {
                             .get_webview_window("main")
                             .and_then(|w| w.is_visible().ok())
                             .unwrap_or(false);
-                        let action =
-                            webview_guard::check(std::time::Instant::now(), visible);
+                        let action = webview_guard::check(std::time::Instant::now(), visible);
                         webview_recovery::apply_health_action(&guard_app, action);
                     })?;
             }
@@ -241,6 +247,7 @@ pub fn run() {
             ipc::commands::get_global_settings,
             ipc::commands::save_global_settings,
             ipc::commands::get_xiaomi_host_status,
+            ipc::commands::get_voice_snapshot,
             ipc::commands::get_xiaomi_voice_meter,
             ipc::commands::restart_xiaomi_bridge,
             ipc::commands::check_xiaomi_voice_env,
@@ -270,13 +277,11 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            match event {
-                RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                    cleanup_on_exit(app_handle);
-                }
-                _ => {}
+        .run(|app_handle, event| match event {
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+                cleanup_on_exit(app_handle);
             }
+            _ => {}
         });
 }
 
@@ -286,7 +291,10 @@ mod tests {
 
     #[test]
     fn minimized_flag_detected() {
-        assert!(should_start_minimized(&["app.exe".into(), "--minimized".into()]));
+        assert!(should_start_minimized(&[
+            "app.exe".into(),
+            "--minimized".into()
+        ]));
         assert!(should_start_minimized(&["--minimized".into()]));
     }
 
@@ -294,13 +302,25 @@ mod tests {
     fn no_flag_when_absent() {
         assert!(!should_start_minimized(&["app.exe".into()]));
         assert!(!should_start_minimized(&[]));
-        assert!(!should_start_minimized(&["app.exe".into(), "--other".into()]));
-        assert!(!should_start_minimized(&["app.exe".into(), "-minimized".into()]));
-        assert!(!should_start_minimized(&["app.exe".into(), "xiaomi-hid-injector".into()]));
+        assert!(!should_start_minimized(&[
+            "app.exe".into(),
+            "--other".into()
+        ]));
+        assert!(!should_start_minimized(&[
+            "app.exe".into(),
+            "-minimized".into()
+        ]));
+        assert!(!should_start_minimized(&[
+            "app.exe".into(),
+            "xiaomi-hid-injector".into()
+        ]));
     }
 
     #[test]
     fn whitespace_tolerated() {
-        assert!(should_start_minimized(&["app.exe".into(), " --minimized ".into()]));
+        assert!(should_start_minimized(&[
+            "app.exe".into(),
+            " --minimized ".into()
+        ]));
     }
 }

@@ -106,8 +106,8 @@ pub fn download_http_to_file(
     }
 
     let mut reader = resp.into_reader();
-    let mut file = std::fs::File::create(dest)
-        .map_err(|e| format!("无法写入 {}: {e}", dest.display()))?;
+    let mut file =
+        std::fs::File::create(dest).map_err(|e| format!("无法写入 {}: {e}", dest.display()))?;
 
     let mut downloaded = 0u64;
     let mut buf = [0u8; 64 * 1024];
@@ -236,7 +236,11 @@ pub fn request_cancel_vbcable_zip_download() {
     }
 }
 
-pub fn spawn_winuhid_zip_download(app: AppHandle, url: String, dest: PathBuf) -> Result<(), String> {
+pub fn spawn_winuhid_zip_download(
+    app: AppHandle,
+    url: String,
+    dest: PathBuf,
+) -> Result<(), String> {
     spawn_tracked_zip_download(
         app,
         url,
@@ -252,7 +256,11 @@ pub fn spawn_winuhid_zip_download(app: AppHandle, url: String, dest: PathBuf) ->
     )
 }
 
-pub fn spawn_vbcable_zip_download(app: AppHandle, url: String, dest: PathBuf) -> Result<(), String> {
+pub fn spawn_vbcable_zip_download(
+    app: AppHandle,
+    url: String,
+    dest: PathBuf,
+) -> Result<(), String> {
     spawn_tracked_zip_download(
         app,
         url,

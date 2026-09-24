@@ -8,20 +8,14 @@ type ConfigLoadState = "pending" | "loading" | "ready" | "error";
 export const useConfigStore = defineStore("config", () => {
   const configs = ref<Record<BridgeType, DeviceConfig | null>>({
     xiaomi: null,
-    t1: null,
-    hanvon: null,
   });
 
   const loadStates = ref<Record<BridgeType, ConfigLoadState>>({
     xiaomi: "pending",
-    t1: "pending",
-    hanvon: "pending",
   });
 
   const loadErrors = ref<Record<BridgeType, string | null>>({
     xiaomi: null,
-    t1: null,
-    hanvon: null,
   });
 
   const saving = ref(false);

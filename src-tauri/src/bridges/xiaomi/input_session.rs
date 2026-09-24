@@ -5,16 +5,22 @@
 //! - 语音键：ATVV Control opcode `0x08`/`0x04`/`0x00`
 
 use crate::bridges::xiaomi::ble_bridge::XiaomiButton;
-use crate::bridges::xiaomi::connect::{mark_atvv_subscribed, reset_atvv_subscribed, XiaomiRuntime};
+use crate::bridges::xiaomi::connect::{
+    atvv_audio_subscribed, mark_atvv_audio_subscribed, mark_atvv_subscribed, reset_atvv_subscribed,
+    XiaomiRuntime,
+};
 use crate::bridges::xiaomi::key_log::{
     button_label, emit_key_and_map, emit_key_phase, emit_message, KeyEmitGate,
 };
 use crate::bridges::xiaomi::key_mapping;
+use crate::bridges::xiaomi::voice_session::{
+    VoiceEvent, VoiceSession, VoiceSessionAdapters, VoiceSnapshot,
+};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 /// 轻量修复：强制会话立刻重试 ATVV 订阅（不整桥重启）
 static FORCE_ATVV_RETRY: AtomicBool = AtomicBool::new(false);
@@ -94,6 +100,21 @@ pub fn run_input_session(
 }
 
 #[cfg(target_os = "windows")]
+struct InputSessionExitGuard {
+    runtime: Arc<XiaomiRuntime>,
+    generation: u64,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for InputSessionExitGuard {
+    fn drop(&mut self) {
+        if self.runtime.is_current_generation(self.generation) {
+            self.runtime.session_active.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn windows_run_input_session(
     app: AppHandle,
     address_u64: u64,
@@ -101,16 +122,28 @@ fn windows_run_input_session(
     runtime: Arc<XiaomiRuntime>,
     gate: Arc<KeyEmitGate>,
 ) -> Result<(), String> {
-    use windows::core::GUID;
-    use windows::Devices::Bluetooth::GenericAttributeProfile::{
-        GattCharacteristic, GattCommunicationStatus, GattDeviceService,
-    };
-    use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothConnectionStatus, BluetoothLEDevice};
-    use windows::Foundation::TypedEventHandler;
     use crate::bridges::xiaomi::tv_gate;
     use crate::bridges::xiaomi::voice_pcm;
     use crate::config::manager::ConfigManager;
     use tauri::Manager;
+    use windows::core::GUID;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::{
+        GattCharacteristic, GattCommunicationStatus, GattDeviceService,
+    };
+    use windows::Devices::Bluetooth::{
+        BluetoothCacheMode, BluetoothConnectionStatus, BluetoothLEDevice,
+    };
+    use windows::Foundation::TypedEventHandler;
+
+    let session_generation = runtime.next_generation();
+    runtime.session_cancelled.store(false, Ordering::SeqCst);
+    runtime.session_active.store(true, Ordering::SeqCst);
+    let _exit_guard = InputSessionExitGuard {
+        runtime: Arc::clone(&runtime),
+        generation: session_generation,
+    };
+    crate::bridges::xiaomi::voice_session::clear_latest_snapshot();
+    log::info!("XIAOMI input session generation={session_generation}");
 
     tv_gate::mark_connecting();
     reset_atvv_subscribed();
@@ -127,10 +160,7 @@ fn windows_run_input_session(
         .try_state::<ConfigManager>()
         .and_then(|m| m.get_device_config("xiaomi").ok());
     let gain_db = cfg.as_ref().map(|c| c.gain_db).unwrap_or(10.0);
-    let tv_delay = cfg
-        .as_ref()
-        .map(|c| c.tv_action_ready_delay)
-        .unwrap_or(2.0);
+    let tv_delay = cfg.as_ref().map(|c| c.tv_action_ready_delay).unwrap_or(2.0);
 
     let device = BluetoothLEDevice::FromBluetoothAddressAsync(address_u64)
         .map_err(|e| format!("input session open: {e}"))?
@@ -151,7 +181,9 @@ fn windows_run_input_session(
             move |sender: &Option<BluetoothLEDevice>, _args| {
                 if let Some(dev) = sender {
                     if let Ok(status) = dev.ConnectionStatus() {
-                        if status == BluetoothConnectionStatus::Disconnected {
+                        if status == BluetoothConnectionStatus::Disconnected
+                            && runtime_conn.is_current_generation(session_generation)
+                        {
                             log::warn!("Xiaomi remote disconnected (input session)");
                             // 非用户主动断开 → 标记异常，用于托盘图标区分
                             if !runtime_conn.should_stop() {
@@ -159,7 +191,12 @@ fn windows_run_input_session(
                                     .abnormal_disconnect
                                     .store(true, Ordering::SeqCst);
                             }
-                            runtime_conn.running.store(false, Ordering::SeqCst);
+                            runtime_conn.cancel_session();
+                            crate::bridges::xiaomi::key_mapping::release_voice_resources();
+                        } else if status == BluetoothConnectionStatus::Disconnected {
+                            log::debug!(
+                                "Ignoring stale Xiaomi disconnect generation={session_generation}"
+                            );
                         }
                     }
                 }
@@ -266,6 +303,7 @@ fn windows_run_input_session(
                 &gate,
                 &mut tokens,
                 gain_db,
+                session_generation,
             ) {
                 Ok(true) => {
                     atvv_ok = true;
@@ -293,7 +331,14 @@ fn windows_run_input_session(
         // 2) 回退：设备枚举到的 ATVV 服务（地址路径）
         if !atvv_ok {
             if let Some(atvv) = atvv_service.as_ref() {
-                match subscribe_atvv_service(&app, atvv, &gate, &mut tokens, gain_db) {
+                match subscribe_atvv_service(
+                    &app,
+                    atvv,
+                    &gate,
+                    &mut tokens,
+                    gain_db,
+                    session_generation,
+                ) {
                     Ok(true) => {
                         atvv_ok = true;
                         emit_message(&app, "ATVV 语音键/音频已订阅");
@@ -346,9 +391,7 @@ fn windows_run_input_session(
     if !atvv_ok {
         if battery_ch.is_none() {
             tv_gate::reset();
-            return Err(
-                "无法订阅 ATVV 通知（语音键依赖 ATVV；返回/音量依赖 HID Tap）".into(),
-            );
+            return Err("无法订阅 ATVV 通知（语音键依赖 ATVV；返回/音量依赖 HID Tap）".into());
         }
         log::warn!("ATVV subscribe failed; continuing for battery monitor");
         let reason = last_atvv_fail.unwrap_or_else(AtvvFailReason::unknown);
@@ -423,7 +466,10 @@ fn windows_run_input_session(
     let mut atvv_periodic_failures: u32 = 0;
     const ATVV_PERIODIC_MAX_FAILURES: u32 = 10;
     const ATVV_PERIODIC_RETRY_SECS: u64 = 30;
-    while !runtime.should_stop() {
+    while !runtime.should_stop() && !runtime.session_is_cancelled() {
+        if !runtime.is_current_generation(session_generation) {
+            break;
+        }
         // ponytail: 固定 2s 足够覆盖 2s PCM 预热 / 30s ATVV / 60s 电量；更细 deadline 不必
         std::thread::sleep(Duration::from_millis(2000));
         let force_retry = take_force_atvv_retry();
@@ -434,8 +480,7 @@ fn windows_run_input_session(
         if !atvv_ok
             && (force_retry
                 || (atvv_periodic_failures < ATVV_PERIODIC_MAX_FAILURES
-                    && since_atvv_retry.elapsed()
-                        >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)))
+                    && since_atvv_retry.elapsed() >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)))
         {
             atvv_periodic_failures += 1;
             since_atvv_retry = Instant::now();
@@ -443,7 +488,14 @@ fn windows_run_input_session(
                 "ATVV periodic retry attempt={atvv_periodic_failures}/{ATVV_PERIODIC_MAX_FAILURES} force={force_retry}"
             );
             if let Some(atvv) = atvv_service.as_ref() {
-                match subscribe_atvv_service(&app, atvv, &gate, &mut tokens, gain_db) {
+                match subscribe_atvv_service(
+                    &app,
+                    atvv,
+                    &gate,
+                    &mut tokens,
+                    gain_db,
+                    session_generation,
+                ) {
                     Ok(true) => {
                         atvv_ok = true;
                         atvv_periodic_failures = 0;
@@ -476,15 +528,14 @@ fn windows_run_input_session(
                 }
             }
             if atvv_periodic_failures >= ATVV_PERIODIC_MAX_FAILURES && !atvv_ok {
-                log::warn!("ATVV periodic retry exhausted after {ATVV_PERIODIC_MAX_FAILURES} attempts");
+                log::warn!(
+                    "ATVV periodic retry exhausted after {ATVV_PERIODIC_MAX_FAILURES} attempts"
+                );
                 emit_message(&app, "ATVV 后台重试已停止，请点击「修复 ATVV 连接」重试");
             }
         }
         // 会话中保持 PCM 通路预热（路由重启后自动恢复）
-        if atvv_ok
-            && !voice_pcm::is_ready()
-            && since_pcm_warm.elapsed() >= Duration::from_secs(2)
-        {
+        if atvv_ok && !voice_pcm::is_ready() && since_pcm_warm.elapsed() >= Duration::from_secs(2) {
             since_pcm_warm = Instant::now();
             voice_pcm::warmup_async();
         }
@@ -501,18 +552,23 @@ fn windows_run_input_session(
         }
     }
 
-    voice_pcm::stop();
-    crate::bridges::xiaomi::key_mapping::set_input_session_active(false);
-    // 区分异常断开（红色）和正常断开（回到呼吸灯等待重连）
-    if runtime.is_abnormal_disconnect() {
-        crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Error);
+    let owns_current_session = runtime.is_current_generation(session_generation);
+    if owns_current_session {
+        crate::bridges::xiaomi::key_mapping::release_voice_resources();
+        crate::bridges::xiaomi::key_mapping::set_input_session_active(false);
+        // 区分异常断开（红色）和正常断开（回到呼吸灯等待重连）
+        if runtime.is_abnormal_disconnect() {
+            crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Error);
+        } else {
+            crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Init);
+        }
+        tv_gate::reset();
+        mark_atvv_subscribed(false);
+        runtime.session_active.store(false, Ordering::SeqCst);
     } else {
-        crate::ipc::tray::sync_runtime_icons(&app, crate::ipc::tray::TrayIconKind::Init);
+        log::debug!("Skipping stale input-session cleanup generation={session_generation}");
     }
-    tv_gate::reset();
-    mark_atvv_subscribed(false);
     let _ = device.RemoveConnectionStatusChanged(conn_token);
-    runtime.running.store(false, Ordering::SeqCst);
     for (ch, token) in tokens {
         let _ = ch.RemoveValueChanged(token);
     }
@@ -543,10 +599,8 @@ fn setup_battery_monitor(
         windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
         windows::Foundation::EventRegistrationToken,
     )>,
-) -> Result<
-    windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
-    String,
-> {
+) -> Result<windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic, String> {
+    use tauri::Manager;
     use windows::core::GUID;
     use windows::Devices::Bluetooth::BluetoothCacheMode;
     use windows::Devices::Bluetooth::GenericAttributeProfile::{
@@ -555,13 +609,12 @@ fn setup_battery_monitor(
     };
     use windows::Foundation::TypedEventHandler;
     use windows::Storage::Streams::DataReader;
-    use tauri::Manager;
 
     match service.OpenAsync(GattSharingMode::SharedReadOnly) {
         Ok(op) => match op.get() {
             Ok(status)
-                if status == GattOpenStatus::Success
-                    || status == GattOpenStatus::AlreadyOpened => {}
+                if status == GattOpenStatus::Success || status == GattOpenStatus::AlreadyOpened => {
+            }
             Ok(status) => log::warn!("XIAOMI BATTERY OpenAsync status={status:?}"),
             Err(e) => log::warn!("XIAOMI BATTERY OpenAsync: {e}"),
         },
@@ -575,7 +628,10 @@ fn setup_battery_monitor(
         .get()
         .map_err(|e| format!("Battery GetCharacteristics get: {e}"))?;
     if result.Status().ok() != Some(GattCommunicationStatus::Success) {
-        return Err(format!("Battery characteristics status={:?}", result.Status()));
+        return Err(format!(
+            "Battery characteristics status={:?}",
+            result.Status()
+        ));
     }
     let chars = result
         .Characteristics()
@@ -583,9 +639,7 @@ fn setup_battery_monitor(
     if chars.Size().unwrap_or(0) == 0 {
         return Err("Battery Level characteristic missing".into());
     }
-    let ch = chars
-        .GetAt(0)
-        .map_err(|e| format!("Battery GetAt: {e}"))?;
+    let ch = chars.GetAt(0).map_err(|e| format!("Battery GetAt: {e}"))?;
 
     // 通知：电量变化时刷新 UI（可选，失败仍可轮询读）
     let app2 = app.clone();
@@ -685,12 +739,12 @@ fn try_subscribe_gatt_hid(
     report_guid: windows::core::GUID,
     report_ref_guid: windows::core::GUID,
 ) {
+    use windows::Devices::Bluetooth::BluetoothCacheMode;
     use windows::Devices::Bluetooth::GenericAttributeProfile::{
         GattCharacteristic, GattCharacteristicProperties,
         GattClientCharacteristicConfigurationDescriptorValue, GattCommunicationStatus,
         GattSharingMode,
     };
-    use windows::Devices::Bluetooth::BluetoothCacheMode;
     use windows::Foundation::TypedEventHandler;
     use windows::Storage::Streams::DataReader;
 
@@ -720,18 +774,16 @@ fn try_subscribe_gatt_hid(
 
                         if uuid == protocol_guid
                             && (props.contains(GattCharacteristicProperties::Write)
-                                || props.contains(
-                                    GattCharacteristicProperties::WriteWithoutResponse,
-                                ))
+                                || props
+                                    .contains(GattCharacteristicProperties::WriteWithoutResponse))
                         {
                             write_gatt_byte(&ch, 1, "protocol_report_mode");
                             continue;
                         }
                         if uuid == control_point_guid
                             && (props.contains(GattCharacteristicProperties::Write)
-                                || props.contains(
-                                    GattCharacteristicProperties::WriteWithoutResponse,
-                                ))
+                                || props
+                                    .contains(GattCharacteristicProperties::WriteWithoutResponse))
                         {
                             write_gatt_byte(&ch, 1, "exit_suspend");
                             continue;
@@ -746,8 +798,7 @@ fn try_subscribe_gatt_hid(
                             continue;
                         }
 
-                        let (report_id, report_type) =
-                            read_report_reference(&ch, report_ref_guid);
+                        let (report_id, report_type) = read_report_reference(&ch, report_ref_guid);
                         if report_type != 0 && report_type != 1 {
                             continue;
                         }
@@ -897,7 +948,10 @@ impl AtvvFailReason {
                 recoverable: true,
             };
         }
-        if lower.contains("fromid") && (err.contains("0x00000000") || lower.contains("null") || err.contains("操作成功完成"))
+        if lower.contains("fromid")
+            && (err.contains("0x00000000")
+                || lower.contains("null")
+                || err.contains("操作成功完成"))
         {
             return Self {
                 code: "fromid_null",
@@ -966,6 +1020,7 @@ fn subscribe_atvv_from_interface(
         windows::Foundation::EventRegistrationToken,
     )>,
     gain_db: f32,
+    generation: u64,
 ) -> Result<bool, String> {
     use windows::core::HSTRING;
     use windows::Devices::Bluetooth::GenericAttributeProfile::{
@@ -988,7 +1043,47 @@ fn subscribe_atvv_from_interface(
                 .and_then(|op| op.get())
         });
 
-    subscribe_atvv_service(app, &service, gate, tokens, gain_db)
+    subscribe_atvv_service(app, &service, gate, tokens, gain_db, generation)
+}
+
+struct AtvvVoiceAdapters;
+
+impl VoiceSessionAdapters for AtvvVoiceAdapters {
+    fn prepare_audio(&mut self) -> Result<(), String> {
+        crate::bridges::xiaomi::voice_pcm::ensure_pcm_ready_on_press()
+    }
+
+    fn clear_audio(&mut self) -> Result<(), String> {
+        crate::bridges::xiaomi::voice_pcm::clear()
+    }
+
+    fn end_audio(&mut self) -> Result<(), String> {
+        crate::bridges::xiaomi::voice_pcm::end_session()
+    }
+
+    fn press_hotkey(&mut self, chord: &[u16]) -> Result<(), String> {
+        key_mapping::press_voice_hotkey(chord)
+    }
+
+    fn release_hotkey(&mut self, _chord: &[u16]) -> Result<(), String> {
+        key_mapping::release_voice_hotkey()
+    }
+
+    fn push_audio(&mut self, frame: &[u8]) -> Result<(), String> {
+        if frame.len() % 2 != 0 {
+            return Err("odd PCM frame length".into());
+        }
+        let samples: Vec<i16> = frame
+            .chunks_exact(2)
+            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        crate::bridges::xiaomi::voice_pcm::push_16k(&samples)
+    }
+
+    fn release_all(&mut self) -> Result<(), String> {
+        key_mapping::release_voice_hotkey()?;
+        crate::bridges::xiaomi::hid_injector::release_all()
+    }
 }
 
 /// ATVV 语音会话共享状态
@@ -998,11 +1093,11 @@ struct AtvvVoiceState {
     pending: Vec<u8>,
     frame_size: usize,
     pending_sync: Option<(i32, i32)>,
-    last_mic_off: Option<Instant>,
     gain_db: f32,
     frames: u64,
     /// 遥控语音键当前是否按下
     remote_pressed: bool,
+    voice: VoiceSession<AtvvVoiceAdapters>,
 }
 
 #[cfg(target_os = "windows")]
@@ -1023,6 +1118,11 @@ fn atvv_write_tx(
     }
 }
 
+fn emit_voice_snapshot(app: &AppHandle, snapshot: &VoiceSnapshot) {
+    crate::bridges::xiaomi::voice_session::publish_snapshot(snapshot);
+    let _ = app.emit("voice-snapshot", snapshot.clone());
+}
+
 fn notify_voice_phase(app: &AppHandle, gate: &KeyEmitGate, pressed: bool) {
     if pressed {
         let _ = gate.try_emit("mic");
@@ -1030,81 +1130,92 @@ fn notify_voice_phase(app: &AppHandle, gate: &KeyEmitGate, pressed: bool) {
     emit_key_phase(app, "mic", button_label("mic"), pressed);
 }
 
-fn arm_atvv_voice_session(state: &Arc<Mutex<AtvvVoiceState>>, clear_frames: bool) {
-    if let Ok(mut st) = state.lock() {
-        st.streaming = true;
-        st.pending.clear();
-        st.decoder.reset_with(0, 0);
-        st.pending_sync = None;
-        st.last_mic_off = None;
-        if clear_frames {
-            st.frames = 0;
-        }
+fn arm_atvv_voice_state(st: &mut AtvvVoiceState, clear_frames: bool) {
+    st.streaming = true;
+    st.pending.clear();
+    st.decoder.reset_with(0, 0);
+    st.pending_sync = None;
+    if clear_frames {
+        st.frames = 0;
     }
 }
 
-/// 按 `voice_press::voice_remote_press_steps` 顺序执行遥控语音键按下。
-/// 纯 hold 语义：按下 → 映射键 DOWN，抬起 → UP（单击=热键按一次，按住=热键持续按住）。
+/// Press the RC003 voice button through the production VoiceSession seam.
 fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<AtvvVoiceState>>) {
-    use crate::bridges::xiaomi::voice_pcm;
+    let chord = app
+        .try_state::<crate::config::manager::ConfigManager>()
+        .and_then(|manager| manager.get_device_config("xiaomi").ok())
+        .map(|config| key_mapping::resolve_voice_hotkey(&config))
+        .unwrap_or_default();
 
-    {
+    let snapshot = {
         let Ok(mut st) = state.lock() else {
             return;
         };
         if st.remote_pressed {
             return;
         }
+        arm_atvv_voice_state(&mut st, true);
         st.remote_pressed = true;
+        st.voice.handle(VoiceEvent::ObserveReadiness {
+            worker_alive: true,
+            device_connected: true,
+            voice_channel: crate::bridges::xiaomi::connect::atvv_subscribed()
+                && atvv_audio_subscribed(),
+            audio_ready: crate::audio::vb_cable::voice_env_status().ready
+                && crate::audio::pcm_router::audio_router_ready(),
+            winuhid_ready: crate::bridges::xiaomi::hid_injector::is_available_current(),
+        });
+        let snapshot = st.voice.handle(VoiceEvent::Press { chord });
+        st.remote_pressed = snapshot.pressed;
+        if !snapshot.pressed {
+            st.streaming = false;
+        }
+        snapshot
+    };
+
+    emit_voice_snapshot(app, &snapshot);
+    if snapshot.pressed {
+        notify_voice_phase(app, gate, true);
+        crate::bridges::xiaomi::voice_meter::set_session(true);
+    } else {
+        log::warn!(
+            "XIAOMI ATVV voice press rejected code={} detail={}",
+            snapshot.status_code,
+            snapshot.detail
+        );
     }
-
-    // ArmSessionState
-    arm_atvv_voice_session(state, true);
-
-    // EnsurePcmReady — 同步优先，避免首包才 PING
-    voice_pcm::ensure_pcm_ready_on_press();
-
-    // ShortcutDown — 输入法先于 VB-CABLE CLEAR
-    key_mapping::on_remote_button(app, "mic", true);
-    log::info!("XIAOMI ATVV AUDIO_START → shortcut DOWN");
-
-    // PcmClear
-    voice_pcm::clear();
-
-    // NotifyUi + MeterOn
-    notify_voice_phase(app, gate, true);
-    crate::bridges::xiaomi::voice_meter::set_session(true);
 }
 
-/// 遥控语音键抬起：结束传声 + 映射键 UP
-fn on_voice_remote_release(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<AtvvVoiceState>>) {
-    use crate::bridges::xiaomi::voice_pcm;
-    let was_pressed = {
+/// Release the RC003 voice button through the same session seam.
+fn on_voice_remote_release(
+    app: &AppHandle,
+    gate: &KeyEmitGate,
+    state: &Arc<Mutex<AtvvVoiceState>>,
+) {
+    let snapshot = {
         let Ok(mut st) = state.lock() else {
             return;
         };
         if !st.remote_pressed {
             return;
         }
-        st.remote_pressed = false;
         st.streaming = false;
-        st.last_mic_off = Some(Instant::now());
         st.pending.clear();
-        true
+        let snapshot = st.voice.handle(VoiceEvent::Release);
+        st.remote_pressed = snapshot.pressed;
+        snapshot
     };
-    if !was_pressed {
-        return;
-    }
 
+    emit_voice_snapshot(app, &snapshot);
     notify_voice_phase(app, gate, false);
-
-    // 先释放快捷键，避免 40ms 内组合键仍按住导致连点竞态 / Win 残留
-    key_mapping::on_remote_button(app, "mic", false);
-    log::info!("XIAOMI ATVV AUDIO_STOP → shortcut UP");
-
-    std::thread::sleep(Duration::from_millis(40));
-    voice_pcm::end_session();
-
+    if !snapshot.resources_clean {
+        log::warn!(
+            "XIAOMI ATVV voice release incomplete code={} detail={}",
+            snapshot.status_code,
+            snapshot.detail
+        );
+    }
     crate::bridges::xiaomi::voice_meter::set_session(false);
 }
 
@@ -1118,13 +1229,15 @@ fn subscribe_atvv_service(
         windows::Foundation::EventRegistrationToken,
     )>,
     gain_db: f32,
+    generation: u64,
 ) -> Result<bool, String> {
+    use tauri::Manager;
     use windows::core::GUID;
+    use windows::Devices::Bluetooth::BluetoothCacheMode;
     use windows::Devices::Bluetooth::GenericAttributeProfile::{
         GattCharacteristic, GattClientCharacteristicConfigurationDescriptorValue,
         GattCommunicationStatus, GattSharingMode, GattWriteOption,
     };
-    use windows::Devices::Bluetooth::BluetoothCacheMode;
     use windows::Foundation::TypedEventHandler;
     use windows::Storage::Streams::{DataReader, DataWriter};
 
@@ -1157,8 +1270,7 @@ fn subscribe_atvv_service(
             "ATVV GetCharacteristics uncached status={}, retry cached",
             describe_gatt_comm_status(chars_result.Status().ok())
         );
-        atvv
-            .GetCharacteristicsWithCacheModeAsync(BluetoothCacheMode::Cached)
+        atvv.GetCharacteristicsWithCacheModeAsync(BluetoothCacheMode::Cached)
             .map_err(|e| e.to_string())?
             .get()
             .map_err(|e| e.to_string())?
@@ -1190,16 +1302,27 @@ fn subscribe_atvv_service(
         return Ok(false);
     };
 
+    let voice_adapters = AtvvVoiceAdapters;
+    let mut voice = VoiceSession::new(generation, voice_adapters);
+    voice.handle(VoiceEvent::ObserveReadiness {
+        worker_alive: true,
+        device_connected: true,
+        voice_channel: crate::bridges::xiaomi::connect::atvv_subscribed()
+            && atvv_audio_subscribed(),
+        audio_ready: crate::bridges::xiaomi::voice_pcm::is_ready()
+            || crate::audio::pcm_router::audio_router_ready(),
+        winuhid_ready: crate::bridges::xiaomi::hid_injector::is_available_current(),
+    });
     let voice_state = Arc::new(Mutex::new(AtvvVoiceState {
         decoder: crate::bridges::xiaomi::adpcm_decoder::AdpcmDecoder::new_ima(),
         streaming: false,
         pending: Vec::new(),
         frame_size: 120,
         pending_sync: None,
-        last_mic_off: None,
         gain_db,
         frames: 0,
         remote_pressed: false,
+        voice,
     }));
 
     let app2 = app.clone();
@@ -1211,19 +1334,20 @@ fn subscribe_atvv_service(
               args: &Option<
             windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs,
         >| {
+            if app2
+                .try_state::<Arc<XiaomiRuntime>>()
+                .map(|runtime| !runtime.is_current_generation(generation))
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
             if let Some(args) = args {
                 if let Ok(buf) = args.CharacteristicValue() {
                     if let Ok(reader) = DataReader::FromBuffer(&buf) {
                         let len = reader.UnconsumedBufferLength().unwrap_or(0) as usize;
                         let mut data = vec![0u8; len];
                         let _ = reader.ReadBytes(&mut data);
-                        handle_atvv_control(
-                            &app2,
-                            &gate2,
-                            &voice_ctrl,
-                            tx_for_mic.as_ref(),
-                            &data,
-                        );
+                        handle_atvv_control(&app2, &gate2, &voice_ctrl, tx_for_mic.as_ref(), &data);
                     }
                 }
             }
@@ -1251,20 +1375,29 @@ fn subscribe_atvv_service(
     log::info!("Subscribed ATVV control characteristic");
 
     // 订阅 AUDIO 特征 → ADPCM → VB-CABLE
+    mark_atvv_audio_subscribed(false);
     if let Some(audio_ch) = audio {
+        let app_audio = app.clone();
         let voice_audio = Arc::clone(&voice_state);
         let audio_handler = TypedEventHandler::new(
             move |_sender: &Option<GattCharacteristic>,
                   args: &Option<
                 windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs,
             >| {
+                if app_audio
+                    .try_state::<Arc<XiaomiRuntime>>()
+                    .map(|runtime| !runtime.is_current_generation(generation))
+                    .unwrap_or(false)
+                {
+                    return Ok(());
+                }
                 if let Some(args) = args {
                     if let Ok(buf) = args.CharacteristicValue() {
                         if let Ok(reader) = DataReader::FromBuffer(&buf) {
                             let len = reader.UnconsumedBufferLength().unwrap_or(0) as usize;
                             let mut data = vec![0u8; len];
                             let _ = reader.ReadBytes(&mut data);
-                            handle_atvv_audio(&voice_audio, &data);
+                            handle_atvv_audio(&app_audio, &voice_audio, &data);
                         }
                     }
                 }
@@ -1280,6 +1413,7 @@ fn subscribe_atvv_service(
                 .map(|s| s == GattCommunicationStatus::Success)
                 .unwrap_or(false);
             if audio_cccd {
+                mark_atvv_audio_subscribed(true);
                 tokens.push((audio_ch.clone(), audio_token));
                 log::info!("Subscribed ATVV audio characteristic");
                 emit_message(app, "ATVV 麦克风音频已订阅 → VB-CABLE");
@@ -1307,7 +1441,7 @@ fn subscribe_atvv_service(
     Ok(true)
 }
 
-fn handle_atvv_audio(state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
+fn handle_atvv_audio(app: &AppHandle, state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
     use crate::bridges::xiaomi::adpcm_decoder::postprocess;
     use crate::bridges::xiaomi::voice_pcm;
 
@@ -1315,24 +1449,12 @@ fn handle_atvv_audio(state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
         return;
     };
     if !st.streaming {
-        // 按键已按下但 streaming 尚未置位时，音频首帧可直接入流
-        if st.remote_pressed {
-            st.streaming = true;
-            st.pending.clear();
-        } else if let Some(t) = st.last_mic_off {
-            if t.elapsed() < Duration::from_millis(300) {
-                return;
-            }
-            st.streaming = true;
-            st.pending.clear();
-            voice_pcm::clear();
-            log::info!("XIAOMI ATVV MIC ON session=implicit_audio_race");
-        } else {
-            st.streaming = true;
-            st.pending.clear();
-            voice_pcm::clear();
-            log::info!("XIAOMI ATVV MIC ON session=implicit_audio_race");
+        // Audio without a current press is not a valid hold-to-talk session.
+        if !st.remote_pressed {
+            return;
         }
+        st.streaming = true;
+        st.pending.clear();
     }
     st.pending.extend_from_slice(payload);
     while st.pending.len() >= st.frame_size {
@@ -1352,7 +1474,16 @@ fn handle_atvv_audio(state: &Arc<Mutex<AtvvVoiceState>>, payload: &[u8]) {
         let live_gain = crate::bridges::xiaomi::voice_gain::gain_db();
         st.gain_db = live_gain;
         let samples = postprocess(&raw, live_gain);
-        voice_pcm::push_16k(&samples);
+        let frame_bytes: Vec<u8> = samples
+            .iter()
+            .flat_map(|sample| sample.to_le_bytes())
+            .collect();
+        let had_first_packet = st.voice.snapshot().first_audio_packet;
+        let voice_snapshot = st.voice.handle(VoiceEvent::AudioFrame(frame_bytes));
+        if voice_snapshot.first_audio_packet && !had_first_packet {
+            emit_voice_snapshot(app, &voice_snapshot);
+            log::info!("XIAOMI ATVV first audio packet delivered");
+        }
         st.frames += 1;
         if st.frames == 1 || st.frames == 10 || st.frames % 200 == 0 {
             let (sent, drop) = voice_pcm::stats();
@@ -1463,7 +1594,9 @@ fn read_report_reference(
     };
     let n = descriptors.Size().unwrap_or(0);
     for i in 0..n {
-        let Ok(desc) = descriptors.GetAt(i) else { continue };
+        let Ok(desc) = descriptors.GetAt(i) else {
+            continue;
+        };
         let Ok(uuid) = desc.Uuid() else { continue };
         if uuid != report_ref_guid {
             continue;
@@ -1471,12 +1604,18 @@ fn read_report_reference(
         let Ok(read_op) = desc.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached) else {
             continue;
         };
-        let Ok(value_result) = read_op.get() else { continue };
+        let Ok(value_result) = read_op.get() else {
+            continue;
+        };
         if value_result.Status().ok() != Some(GattCommunicationStatus::Success) {
             continue;
         }
-        let Ok(buf) = value_result.Value() else { continue };
-        let Ok(reader) = DataReader::FromBuffer(&buf) else { continue };
+        let Ok(buf) = value_result.Value() else {
+            continue;
+        };
+        let Ok(reader) = DataReader::FromBuffer(&buf) else {
+            continue;
+        };
         let len = reader.UnconsumedBufferLength().unwrap_or(0) as usize;
         let mut data = vec![0u8; len];
         let _ = reader.ReadBytes(&mut data);

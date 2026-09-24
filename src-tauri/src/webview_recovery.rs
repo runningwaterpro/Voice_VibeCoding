@@ -85,8 +85,17 @@ pub fn attach_main_window_close_handler(app: &AppHandle, window: &WebviewWindow)
     });
 }
 
+fn cancel_shortcut_capture(app: &AppHandle) {
+    if let Some(session) =
+        app.try_state::<crate::bridges::shared::shortcut_capture::ShortcutCaptureSession>()
+    {
+        let _ = session.cancel();
+    }
+}
+
 /// 尝试 reload 主窗口
 pub fn try_reload_main(app: &AppHandle) -> Result<(), String> {
+    cancel_shortcut_capture(app);
     let window = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
@@ -110,6 +119,7 @@ fn build_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 /// 销毁并重建主窗口（reload 无法复活僵尸 WebView2 时的唯一手段）
 pub fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
+    cancel_shortcut_capture(app);
     if let Some(old) = app.get_webview_window(MAIN_LABEL) {
         log::warn!("WEBVIEW RECOVERY: destroying zombie main window");
         old.destroy()
@@ -175,11 +185,14 @@ pub fn manual_refresh_ui(app: &AppHandle) {
 /// 钩子 stop 单一入口之一（另两处：进程退出 cleanup、托盘退出 quit_app）。
 pub fn restart_application(app: &AppHandle) {
     log::info!("TRAY: restarting application");
+    cancel_shortcut_capture(app);
     if let Some(runtime) =
         app.try_state::<std::sync::Arc<crate::bridges::xiaomi::connect::XiaomiRuntime>>()
     {
         runtime.request_stop();
     }
+    crate::bridges::xiaomi::winuhid_env::cancel_runtime_reprobe();
+    crate::bridges::xiaomi::key_mapping::release_voice_resources();
     crate::bridges::xiaomi::hid_report_tap::stop_and_join();
     crate::bridges::xiaomi::special_keys::stop_special_key_hook();
     crate::audio::pcm_router::stop_audio_router_process();

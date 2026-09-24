@@ -2,14 +2,16 @@ name: build-nsis
 
 on:
   push:
-    branches: [main, "fix/*", "debug/*"]
+    branches: [main, "fix/*", "debug/*", "refactor/*"]
     tags: ["v*"]
+  pull_request:
+    branches: [main, "fix/*", "debug/*", "refactor/*"]
   release:
     types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # Serialize builds for the same ref so concurrent tag/release runs
 # do not interleave asset delete/upload on the same Release.
@@ -18,7 +20,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install frontend deps
+        run: npm ci
+      - name: Run quality gates
+        run: npm run check:ci
+
   build:
+    needs: quality
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +69,7 @@ jobs:
         run: npm ci
 
       - name: Build NSIS installer (no MSI)
-        run: npx tauri build
+        run: npx tauri build --bundles nsis
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4

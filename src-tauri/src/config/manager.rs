@@ -1,17 +1,15 @@
 //! 配置管理器 — 管理所有设备配置
 //!
 //! 配置文件存放于 %APPDATA%\RemoteBridgeHub\
-//! - xiaomi.json   — 小米遥控器配置
-//! - t1.json       — T1 遥控器配置
-//! - hanvon.json   — 汉王 V60 配置
+//! - xiaomi.json   — RC003 配置
 //! - settings.json — 全局设置
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 
 // ============================================================
@@ -153,13 +151,6 @@ pub struct GlobalSettings {
     /// 用户忽略的更新版本（直到更高版本再提示）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ignored_update_version: Option<String>,
-    /// 隐藏开发者菜单（默认隐藏，对齐上游 v1.6.7）
-    #[serde(default = "default_hide_dev_menus")]
-    pub hide_dev_menus: bool,
-}
-
-fn default_hide_dev_menus() -> bool {
-    true
 }
 
 impl Default for GlobalSettings {
@@ -170,7 +161,6 @@ impl Default for GlobalSettings {
             minimize_to_tray: true,
             start_minimized_to_tray: false,
             ignored_update_version: None,
-            hide_dev_menus: true,
         }
     }
 }
@@ -281,9 +271,18 @@ impl ConfigManager {
         for (k, v) in defaults.button_bindings {
             config.button_bindings.entry(k).or_insert(v);
         }
-        if config.voice_hotkey.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+        if config
+            .voice_hotkey
+            .as_ref()
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+        {
             config.voice_hotkey = defaults.voice_hotkey;
         }
+        // Legacy Toggle/TapSameChord values remain parseable, but the active
+        // RC003 product is hold-only.
+        config.trigger_mode = TriggerMode::Hold;
+        config.voice_release_behavior = VoiceReleaseBehavior::None;
     }
 
     /// 保存设备配置（写临时文件 → sync → rename；并更新缓存）
@@ -291,16 +290,20 @@ impl ConfigManager {
         let mut config = config.clone();
         if device == "xiaomi" {
             crate::bridges::xiaomi::key_mapping::sync_voice_from_mic_binding(&mut config);
+            // Normalize legacy values at the persistence boundary too, not only
+            // when loading an old file.
+            config.trigger_mode = TriggerMode::Hold;
+            config.voice_release_behavior = VoiceReleaseBehavior::None;
         }
         let path = self.device_config_path(device);
         let tmp_path = path.with_extension("json.tmp");
 
-        let content = serde_json::to_string_pretty(&config)
-            .map_err(|e| format!("序列化配置失败: {}", e))?;
+        let content =
+            serde_json::to_string_pretty(&config).map_err(|e| format!("序列化配置失败: {}", e))?;
 
         {
-            let mut file = fs::File::create(&tmp_path)
-                .map_err(|e| format!("写入临时文件失败: {}", e))?;
+            let mut file =
+                fs::File::create(&tmp_path).map_err(|e| format!("写入临时文件失败: {}", e))?;
             file.write_all(content.as_bytes())
                 .map_err(|e| format!("写入临时文件失败: {}", e))?;
             file.sync_all()
@@ -317,9 +320,7 @@ impl ConfigManager {
             crate::bridges::xiaomi::voice_gain::set_auto_enabled(config.gain_auto);
         }
 
-        self.device_cache
-            .lock()
-            .insert(device.to_string(), config);
+        self.device_cache.lock().insert(device.to_string(), config);
         Ok(())
     }
 
@@ -328,10 +329,8 @@ impl ConfigManager {
     pub fn get_global_settings(&self) -> Result<GlobalSettings, String> {
         let path = self.settings_path();
         if path.exists() {
-            let content = fs::read_to_string(&path)
-                .map_err(|e| format!("读取设置失败: {}", e))?;
-            serde_json::from_str(&content)
-                .map_err(|e| format!("解析设置失败: {}", e))
+            let content = fs::read_to_string(&path).map_err(|e| format!("读取设置失败: {}", e))?;
+            serde_json::from_str(&content).map_err(|e| format!("解析设置失败: {}", e))
         } else {
             Ok(GlobalSettings::default())
         }
@@ -341,14 +340,12 @@ impl ConfigManager {
         let path = self.settings_path();
         let tmp_path = path.with_extension("json.tmp");
 
-        let content = serde_json::to_string_pretty(settings)
-            .map_err(|e| format!("序列化设置失败: {}", e))?;
+        let content =
+            serde_json::to_string_pretty(settings).map_err(|e| format!("序列化设置失败: {}", e))?;
 
-        fs::write(&tmp_path, &content)
-            .map_err(|e| format!("写入临时文件失败: {}", e))?;
+        fs::write(&tmp_path, &content).map_err(|e| format!("写入临时文件失败: {}", e))?;
 
-        fs::rename(&tmp_path, &path)
-            .map_err(|e| format!("替换设置文件失败: {}", e))?;
+        fs::rename(&tmp_path, &path).map_err(|e| format!("替换设置文件失败: {}", e))?;
 
         Ok(())
     }
@@ -361,9 +358,10 @@ impl ConfigManager {
             "xiaomi" => DeviceConfig {
                 button_aliases: Self::xiaomi_button_aliases(),
                 button_bindings: Self::xiaomi_default_bindings(),
-                // 对齐用户调优配置：语音键 = Ctrl+左Win（微信输入法），点击模式
+                // RC003 voice input is hold-only; the user configures the external
+                // input method separately.
                 voice_hotkey: Some(vec!["leftctrl".into(), "leftwin".into()]),
-                trigger_mode: TriggerMode::Toggle,
+                trigger_mode: TriggerMode::Hold,
                 bluetooth_address: None,
                 gain_db: 10.0,
                 retry_delay: 3.0,
@@ -371,22 +369,6 @@ impl ConfigManager {
                 tv_action_ready_delay: 2.0,
                 special_key_hook_enabled: true,
                 hid_report_tap_enabled: true,
-                ..DeviceConfig::new()
-            },
-            "t1" => DeviceConfig {
-                button_aliases: Self::t1_button_aliases(),
-                button_bindings: Self::t1_default_bindings(),
-                voice_hotkey: Some(vec!["rightalt".into()]),
-                trigger_mode: TriggerMode::Hold,
-                bluetooth_address: None,
-                ..DeviceConfig::new()
-            },
-            "hanvon" => DeviceConfig {
-                button_aliases: Self::hanvon_button_aliases(),
-                button_bindings: Self::hanvon_default_bindings(),
-                voice_hotkey: Some(vec!["rightalt".into()]),
-                trigger_mode: TriggerMode::Hold,
-                bluetooth_address: None,
                 ..DeviceConfig::new()
             },
             _ => DeviceConfig::new(),
@@ -458,61 +440,6 @@ impl ConfigManager {
         m.insert("mute".into(), KeyAction::SingleKey(0xAD));
         m
     }
-
-    // ---- T1 遥控器默认按键 ----
-    fn t1_button_aliases() -> HashMap<String, String> {
-        let mut m = HashMap::new();
-        m.insert("power".into(), "电源".into());
-        m.insert("up".into(), "上".into());
-        m.insert("down".into(), "下".into());
-        m.insert("left".into(), "左".into());
-        m.insert("right".into(), "右".into());
-        m.insert("ok".into(), "确定".into());
-        m.insert("delete".into(), "删除".into());
-        m.insert("voice".into(), "语音".into());
-        m.insert("mute".into(), "静音".into());
-        m.insert("home".into(), "主页".into());
-        m.insert("mouse".into(), "鼠标".into());
-        m.insert("menu".into(), "菜单".into());
-        m.insert("vol_plus".into(), "音量+".into());
-        m.insert("vol_minus".into(), "音量-".into());
-        m
-    }
-
-    fn t1_default_bindings() -> HashMap<String, KeyAction> {
-        let mut m = HashMap::new();
-        m.insert("up".into(), KeyAction::SingleKey(0x26));
-        m.insert("down".into(), KeyAction::SingleKey(0x28));
-        m.insert("left".into(), KeyAction::SingleKey(0x25));
-        m.insert("right".into(), KeyAction::SingleKey(0x27));
-        m.insert("ok".into(), KeyAction::SingleKey(0x0D));
-        m.insert("delete".into(), KeyAction::SingleKey(0x08));
-        m.insert("home".into(), KeyAction::ComboKey(vec![0x5B]));
-        m.insert("vol_plus".into(), KeyAction::SingleKey(0xAF));
-        m.insert("vol_minus".into(), KeyAction::SingleKey(0xAE));
-        m.insert("mute".into(), KeyAction::SingleKey(0xAD));
-        m
-    }
-
-    // ---- 汉王 V60 默认按键 ----
-    fn hanvon_button_aliases() -> HashMap<String, String> {
-        let mut m = HashMap::new();
-        m.insert("mic".into(), "麦克风".into());
-        m.insert("page_up".into(), "上翻页".into());
-        m.insert("page_down".into(), "下翻页".into());
-        m
-    }
-
-    fn hanvon_default_bindings() -> HashMap<String, KeyAction> {
-        let mut m = HashMap::new();
-        // 麦克风键 → 右Alt（切换语音输入）
-        m.insert("mic".into(), KeyAction::ComboKey(vec![0xA5])); // VK_RMENU
-        // 上翻页 → 光标移到末尾+退格
-        m.insert("page_up".into(), KeyAction::ComboKey(vec![0x23, 0x08])); // End+Backspace
-        // 下翻页 → 点击回车
-        m.insert("page_down".into(), KeyAction::SingleKey(0x0D));
-        m
-    }
 }
 
 // ============================================================
@@ -537,12 +464,12 @@ mod tests {
         let config = ConfigManager::default_config_for("xiaomi");
         assert_eq!(config.button_aliases.len(), 13);
         assert!(config.button_bindings.contains_key("volume_up"));
-        // v1.3.14 默认对齐用户调优配置：语音 = Ctrl+左Win，点击模式
+        // RC003 voice input is hold-only.
         assert_eq!(
             config.voice_hotkey,
             Some(vec!["leftctrl".to_string(), "leftwin".to_string()])
         );
-        assert_eq!(config.trigger_mode, TriggerMode::Toggle);
+        assert_eq!(config.trigger_mode, TriggerMode::Hold);
     }
 
     #[test]
@@ -601,21 +528,7 @@ mod tests {
             Some(&KeyAction::SingleKey(0x08)),
             "缺失的 back 由 merge 补齐为默认 Backspace"
         );
-        assert_eq!(config.trigger_mode, TriggerMode::Toggle);
-    }
-
-    #[test]
-    fn test_default_t1_config() {
-        let config = ConfigManager::default_config_for("t1");
-        assert_eq!(config.button_aliases.len(), 14);
-        assert!(config.button_bindings.contains_key("ok"));
-    }
-
-    #[test]
-    fn test_default_hanvon_config() {
-        let config = ConfigManager::default_config_for("hanvon");
-        assert_eq!(config.button_aliases.len(), 3);
-        assert!(config.button_bindings.contains_key("mic"));
+        assert_eq!(config.trigger_mode, TriggerMode::Hold);
     }
 
     #[test]

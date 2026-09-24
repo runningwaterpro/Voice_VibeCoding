@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { useAppUpdateStore } from "../stores/appUpdate";
 import { useGlobalSettingsStore } from "../stores/globalSettings";
@@ -10,7 +10,6 @@ import sanodiaLogo from "../assets/mwlt_sanodia_logo.png";
 const appUpdate = useAppUpdateStore();
 const globalSettings = useGlobalSettingsStore();
 const { settings } = storeToRefs(globalSettings);
-const route = useRoute();
 const router = useRouter();
 
 const updateChecking = ref(false);
@@ -37,12 +36,6 @@ async function onSettingChange() {
   const ok = await globalSettings.save();
   if (ok) {
     showSavedToast();
-    if (
-      settings.value.hide_dev_menus &&
-      (route.path === "/t1" || route.path === "/v60")
-    ) {
-      router.push("/xiaomi");
-    }
   } else {
     updateHint.value = "设置保存失败，请重试";
   }
@@ -165,22 +158,6 @@ async function checkUpdate() {
           </label>
         </div>
 
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">隐藏开发中项目菜单</span>
-            <span class="setting-desc"
-              >开启后隐藏顶部 T1、V60 菜单；关闭则显示</span
-            >
-          </div>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              v-model="settings.hide_dev_menus"
-              @change="onSettingChange"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
       </section>
 
       <section class="card credit-card">

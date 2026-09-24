@@ -2,7 +2,7 @@
 //!
 //! **安装**：解压内嵌 `VBCABLE_Driver_Pack45.zip`，启动官方 `VBCABLE_Setup_x64.exe`（有界面）。
 //! 不再使用 SetupAPI 静默注册根设备（易双实例、Failed Start）——对齐上游 mwlt。
-//! 官方安装完成后若已检测到 CABLE，再跑 EnsureMic 校正默认麦。
+//! 官方安装完成后只验证端点；不修改 Windows 默认麦克风或隐私设置。
 //!
 //! **探测策略（长期最优）**：
 //! - 优先读 MMDevices **注册表**（与 configure 脚本一致），避免 cpal/WASAPI 枚举打爆 audiodg
@@ -26,6 +26,21 @@ pub const CONFIGURE_SCRIPT_NAME: &str = "configure-xiaomi-audio.ps1";
 pub const DOWNLOAD_PAGE_URL: &str = "https://vb-audio.com/Cable/";
 pub const DOWNLOAD_ZIP_URL: &str =
     "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip";
+
+/// The product is ready only when both sides of the virtual cable are present.
+pub fn cable_endpoints_ready(cable_input: bool, cable_output: bool) -> bool {
+    cable_input && cable_output
+}
+
+/// An installer exit code never substitutes for observing both endpoints.
+pub fn installer_observed_ready(
+    exit_code: Option<i32>,
+    cable_input: bool,
+    cable_output: bool,
+) -> bool {
+    let _ = exit_code;
+    cable_endpoints_ready(cable_input, cable_output)
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -242,8 +257,7 @@ pub fn stage_official_setup(zip: &Path) -> Result<PathBuf, String> {
         if stage.exists() {
             let _ = std::fs::remove_dir_all(&stage);
         }
-        std::fs::create_dir_all(&stage)
-            .map_err(|e| format!("创建解压目录失败: {e}"))?;
+        std::fs::create_dir_all(&stage).map_err(|e| format!("创建解压目录失败: {e}"))?;
         let status = Command::new("tar")
             .args([
                 "-xf",
@@ -279,9 +293,7 @@ pub fn stage_official_setup(zip: &Path) -> Result<PathBuf, String> {
 fn launch_gui_exe_and_wait(exe: &Path) -> Result<Option<i32>, String> {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Foundation::{CloseHandle, GetLastError, WAIT_OBJECT_0};
-    use windows::Win32::System::Threading::{
-        GetExitCodeProcess, WaitForSingleObject, INFINITE,
-    };
+    use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
     use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -348,23 +360,17 @@ pub fn run_official_setup_installer() -> Result<VoiceEnvActionResult, String> {
         std::thread::sleep(Duration::from_millis(500));
     }
     let (cable_input, cable_output) = probe_cable_endpoints(true);
-    let ready = cable_input && cable_output;
+    let ready = cable_endpoints_ready(cable_input, cable_output);
 
     let needs_reboot = !ready && (code == Some(3010) || code == Some(1641));
 
     let message = if ready {
-        match run_configure_script("EnsureMic", &zip) {
-            Ok(r) if r.ready => "官方 VB-CABLE 安装完成，默认麦克风已设为 CABLE Output。".into(),
-            Ok(r) => format!(
-                "官方安装完成且已检测到 CABLE，但设置默认麦克风未完成：{}",
-                r.message
-            ),
-            Err(e) => format!("官方安装完成且已检测到 CABLE，但设置默认麦克风失败：{e}"),
-        }
+        "官方 VB-CABLE 安装完成，CABLE Input 和 CABLE Output 均已检测到。请在外部输入法中选择 CABLE Output。".into()
     } else if needs_reboot {
-        "官方安装程序已结束。请按提示重启 Windows，再打开本软件点一次「虚拟声卡修复」。".into()
+        "官方安装程序已结束，但端点尚未出现。请按安装器提示重启 Windows，然后重新检测。".into()
     } else if code == Some(0) {
-        "官方安装程序已退出，但仍未检测到 CABLE Input/Output。若安装器要求重启请先重启；或到设备管理器检查 VB-Audio 是否 Error。".into()
+        "官方安装程序已退出，但仍未检测到 CABLE Input/Output。请检查设备管理器或使用官网安装包。"
+            .into()
     } else {
         format!(
             "官方安装程序退出码 {code:?}。若已取消 UAC/安装，可再试；仍失败请用官网包手动安装。"
@@ -372,7 +378,7 @@ pub fn run_official_setup_installer() -> Result<VoiceEnvActionResult, String> {
     };
 
     Ok(VoiceEnvActionResult {
-        ok: ready || needs_reboot || code == Some(0),
+        ok: installer_observed_ready(code, cable_input, cable_output),
         ready,
         needs_choice: false,
         needs_reboot: needs_reboot && !ready,
@@ -514,17 +520,17 @@ fn probe_cable_endpoints(force: bool) -> (bool, bool) {
     if !force {
         let g = CABLE_PROBE.lock();
         if let Some(c) = g.as_ref() {
-            let ready = c.cable_input && c.cable_output;
-            if ready {
-                // 已就绪：停探，直到 invalidate / fresh
-                return (c.cable_input, c.cable_output);
-            }
-            match not_ready_retry_interval() {
-                None => return (c.cable_input, c.cable_output),
-                Some(interval) if c.at.elapsed() < interval => {
-                    return (c.cable_input, c.cable_output);
+            let ready = cable_endpoints_ready(c.cable_input, c.cable_output);
+            let cache_ttl = if ready {
+                Duration::from_secs(2)
+            } else {
+                match not_ready_retry_interval() {
+                    Some(interval) => interval,
+                    None => return (c.cable_input, c.cable_output),
                 }
-                Some(_) => {}
+            };
+            if c.at.elapsed() < cache_ttl {
+                return (c.cable_input, c.cable_output);
             }
         }
     }
@@ -544,6 +550,8 @@ pub fn invalidate_cable_probe_cache() {
 }
 
 pub fn voice_env_status() -> VoiceEnvStatus {
+    // Polling uses a short observation cache; explicit status/repair commands
+    // use voice_env_status_fresh() and bypass it.
     voice_env_status_inner(false)
 }
 
@@ -554,13 +562,13 @@ pub fn voice_env_status_fresh() -> VoiceEnvStatus {
 
 fn voice_env_status_inner(force: bool) -> VoiceEnvStatus {
     let (cable_input, cable_output) = probe_cable_endpoints(force);
-    let ready = cable_input && cable_output;
+    let ready = cable_endpoints_ready(cable_input, cable_output);
     let zip = find_driver_zip();
-    let embedded_available = zip.is_some() && find_configure_script().is_some();
+    let embedded_available = zip.is_some();
     let message = if ready {
-        "VB-CABLE 已就绪。可点「虚拟声卡修复」将默认麦克风设为 CABLE Output。".into()
+        "VB-CABLE 已就绪。请在外部输入法中自行选择 CABLE Output。".into()
     } else if embedded_available {
-        "未检测到 VB-CABLE。可使用内嵌驱动安装，或打开官网下载最新版。".into()
+        "未检测到 VB-CABLE。可使用内嵌官方安装包，或打开官网下载最新版。".into()
     } else {
         "未检测到 VB-CABLE，且内嵌驱动包不可用。请从官网下载安装。".into()
     };
@@ -576,262 +584,31 @@ fn voice_env_status_inner(force: bool) -> VoiceEnvStatus {
     }
 }
 
-fn app_path_for_script() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn cable_reboot_flag_path() -> PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    Path::new(&local)
-        .join("2655AI")
-        .join("BridgeAudio")
-        .join("XiaomiRemoteBridge")
-        .join("reboot-required.flag")
-}
-
-/// flag 写入时间晚于本次开机 → 尚未真正重启；早于开机 → 已重启过
-fn cable_reboot_already_honored() -> bool {
-    let path = cable_reboot_flag_path();
-    let Ok(meta) = std::fs::metadata(&path) else {
-        return false;
-    };
-    let Ok(flag_time) = meta.modified() else {
-        return false;
-    };
-    let Ok(age) = flag_time.elapsed() else {
-        return false;
-    };
-    let Ok(up) = os_uptime() else {
-        return false;
-    };
-    age > up
-}
-
-#[cfg(target_os = "windows")]
-extern "system" {
-    fn GetTickCount64() -> u64;
-}
-
-#[cfg(target_os = "windows")]
-fn os_uptime() -> std::io::Result<Duration> {
-    Ok(Duration::from_millis(unsafe { GetTickCount64() }))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn os_uptime() -> std::io::Result<Duration> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "uptime",
-    ))
-}
-
-fn script_result_line(text: &str) -> Option<&str> {
-    text.lines()
-        .find_map(|l| l.trim().strip_prefix("Result: ").map(str::trim))
-}
-
-fn humanize_script_result(raw: &str, ready: bool, needs_reboot: bool) -> String {
-    let lower = raw.to_ascii_lowercase();
-    let script_says_reboot =
-        lower.contains("restart required") || raw.contains("需要重启");
-    // 仅当调用方仍承认 needs_reboot 时才展示重启文案（已重启降级则走失败路径）
-    if needs_reboot && script_says_reboot {
-        return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后打开应用会自动继续。"
-            .into();
-    }
-    if let Some(rest) = raw.strip_prefix("WARNING:") {
-        let detail = rest.trim();
-        let detail_cn = if detail.is_empty() {
-            "原因未知，请查看应用日志。".into()
-        } else if detail.to_ascii_lowercase().contains("uac")
-            || detail.to_ascii_lowercase().contains("cancelled")
-            || detail.contains("did not start")
-        {
-            "未获得管理员授权（UAC），安装已取消。".into()
-        } else if detail.to_ascii_lowercase().contains("hash mismatch") {
-            "内嵌驱动包校验失败，请改用官网驱动或重装本软件。".into()
-        } else if detail.to_ascii_lowercase().contains("endpoints not available")
-            || detail.to_ascii_lowercase().contains("not a reboot issue")
-            || detail.to_ascii_lowercase().contains("not available")
-        {
-            "安装后仍检测不到 CABLE 端点（不是重启问题）。请查看应用日志或用官网驱动重装。".into()
-        } else {
-            detail.to_string()
-        };
-        return format!("虚拟声卡修复未完成：{detail_cn}");
-    }
-    if script_says_reboot && !ready {
-        return "虚拟声卡安装未生效（已排除简单重启后仍失败的情况）。请查看日志或官网重装驱动。".into();
-    }
-    if raw.eq_ignore_ascii_case("OK") || raw.is_empty() {
-        if ready {
-            return "语音环境已就绪：VB-CABLE 可用，默认麦克风已设为 CABLE Output。".into();
-        }
-        if needs_reboot {
-            return "驱动已安装，必须重启 Windows 后虚拟声卡才会生效。重启后打开应用会自动继续。"
-                .into();
-        }
-        return "脚本已执行，但尚未检测到 CABLE Input/Output。请查看日志，不要反复重启。".into();
-    }
-    if ready {
-        format!("语音环境已就绪（{raw}）。")
-    } else {
-        format!("虚拟声卡处理结束：{raw}")
-    }
-}
-
-fn run_configure_script(mode: &str, zip: &Path) -> Result<VoiceEnvActionResult, String> {
-    run_configure_script_ex(mode, zip, false)
-}
-
-fn run_configure_script_ex(mode: &str, zip: &Path, force: bool) -> Result<VoiceEnvActionResult, String> {
-    let script = find_configure_script().ok_or_else(|| "未找到 configure-xiaomi-audio.ps1".to_string())?;
-    let app_path = app_path_for_script();
-    log::info!(
-        "XIAOMI VOICE ENV: run script mode={mode} force={force} zip={} app={}",
-        zip.display(),
-        app_path.display()
-    );
-
-    let mut cmd = Command::new("powershell.exe");
-    let mut args = vec![
-        "-NoProfile".into(),
-        "-WindowStyle".into(),
-        "Hidden".into(),
-        "-ExecutionPolicy".into(),
-        "Bypass".into(),
-        "-File".into(),
-        script.display().to_string(),
-        "-Mode".into(),
-        mode.to_string(),
-        "-AppPath".into(),
-        app_path.display().to_string(),
-        "-DriverZipPath".into(),
-        zip.display().to_string(),
-    ];
-    if force {
-        args.push("-Force".into());
-    }
-    cmd.args(&args);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("启动语音环境脚本失败: {e}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !stdout.is_empty() {
-        log::info!("XIAOMI VOICE ENV stdout:\n{stdout}");
-    }
-    if !stderr.is_empty() {
-        log::warn!("XIAOMI VOICE ENV stderr:\n{stderr}");
-    }
-
-    let result_raw = script_result_line(&stdout).unwrap_or("").to_string();
-    let mut needs_reboot = result_raw.to_ascii_lowercase().contains("restart required")
-        || result_raw.contains("需要重启")
-        || stdout.to_ascii_lowercase().contains("restart required")
-        || output.status.code() == Some(3010);
-
-    // 已重启过仍探测不到 → 降级为失败，禁止再弹「必须重启」
-    if needs_reboot && cable_reboot_already_honored() {
-        log::warn!("VB-CABLE claims reboot needed but system already rebooted — demoting to failure");
-        needs_reboot = false;
-        let _ = std::fs::remove_file(cable_reboot_flag_path());
-    }
-
-    // 稍等端点出现（强制重探，安装后缓存必须失效）
-    invalidate_cable_probe_cache();
-    for _ in 0..15 {
-        let (i, o) = probe_cable_endpoints(true);
-        if i && o {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-    let (cable_input, cable_output) = probe_cable_endpoints(true);
-    let ready = cable_input && cable_output;
-
-    let message = if !output.status.success() && !needs_reboot {
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else if !result_raw.is_empty() {
-            result_raw.clone()
-        } else {
-            stdout
-        };
-        format!(
-            "虚拟声卡脚本执行失败 (code={:?})。{}",
-            output.status.code(),
-            detail
-        )
-    } else {
-        humanize_script_result(&result_raw, ready, needs_reboot)
-    };
-
-    log::info!(
-        "XIAOMI VOICE ENV done ready={ready} needs_reboot={needs_reboot} result={result_raw} msg={message}"
-    );
-
-    Ok(VoiceEnvActionResult {
-        ok: ready || needs_reboot,
-        ready,
-        needs_choice: false,
-        needs_reboot,
-        message,
-        report_path: None,
-    })
-}
-
-/// 检测：未就绪 → 启动官方安装器；已就绪 → EnsureMic 设默认麦
+/// 检测当前端点；已就绪时不修改系统音频设置，未就绪时启动官方安装器。
 pub fn check_or_prompt() -> VoiceEnvActionResult {
     let status = voice_env_status_fresh();
     if status.ready {
-        match find_driver_zip() {
-            Some(zip) => match run_configure_script("EnsureMic", &zip) {
-                Ok(mut r) => {
-                    r.needs_choice = false;
-                    r
-                }
-                Err(e) => VoiceEnvActionResult {
-                    ok: false,
-                    ready: true,
-                    needs_choice: false,
-                    needs_reboot: false,
-                    message: format!("VB-CABLE 已在，但修复默认麦克风失败: {e}"),
-                    report_path: None,
-                },
-            },
-            None => VoiceEnvActionResult {
-                ok: true,
-                ready: true,
-                needs_choice: false,
-                needs_reboot: false,
-                message: "VB-CABLE 已就绪（无内嵌包，跳过默认麦克风修复脚本）。".into(),
-                report_path: None,
-            },
-        }
-    } else {
-        match run_official_setup_installer() {
-            Ok(r) => r,
-            Err(e) => VoiceEnvActionResult {
-                ok: false,
-                ready: false,
-                needs_choice: true,
-                needs_reboot: false,
-                message: e,
-                report_path: None,
-            },
-        }
+        return VoiceEnvActionResult {
+            ok: true,
+            ready: true,
+            needs_choice: false,
+            needs_reboot: false,
+            message: "CABLE Input 和 CABLE Output 已就绪。请在外部输入法中选择 CABLE Output。"
+                .into(),
+            report_path: None,
+        };
+    }
+
+    match run_official_setup_installer() {
+        Ok(r) => r,
+        Err(e) => VoiceEnvActionResult {
+            ok: false,
+            ready: false,
+            needs_choice: true,
+            needs_reboot: false,
+            message: e,
+            report_path: None,
+        },
     }
 }
 
@@ -886,4 +663,23 @@ pub fn open_download_zip() -> Result<VoiceEnvActionResult, String> {
         message: "已开始下载官方驱动包。安装完成后请再点「虚拟声卡修复」。".into(),
         report_path: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cable_endpoints_ready, installer_observed_ready};
+
+    #[test]
+    fn both_cable_endpoints_are_required() {
+        assert!(!cable_endpoints_ready(false, false));
+        assert!(!cable_endpoints_ready(true, false));
+        assert!(!cable_endpoints_ready(false, true));
+        assert!(cable_endpoints_ready(true, true));
+    }
+
+    #[test]
+    fn installer_exit_zero_without_endpoints_is_not_success() {
+        assert!(!installer_observed_ready(Some(0), false, false));
+        assert!(installer_observed_ready(Some(1), true, true));
+    }
 }

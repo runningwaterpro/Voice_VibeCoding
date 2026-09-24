@@ -1,38 +1,11 @@
-# 语音首包延迟优化 — TDD 实施计划
+# First audio packet
 
-> 目标：按住语音键 → **更快**唤起输入法 + **更早**向 VB-CABLE 送首帧 PCM。  
-> 方法：TDD 垂直切片；每步测试通过后再标 ✅。  
-> 不可压缩：BLE 传输、ADPCM 攒满 `frame_size`（固件/协议下限）。
+The production press path is owned by `VoiceSession`:
 
-## 当前瓶颈（按优先级）
+1. The session prepares the audio route.
+2. It injects the configured RC003 hotkey down.
+3. It clears the router session.
+4. Decoded audio frames enter the same session.
+5. The first successful frame is recorded separately from `voice_ready`.
 
-| # | 瓶颈 | 优化方向 |
-| --- | --- | --- |
-| B1 | 按下时 PCM 未就绪，仅 `warmup_async` | 按下路径 **同步** `ensure_started`，失败再 async |
-| B2 | PING 重试间隔 50ms | 改为 **15ms** |
-| B3 | 先 `CLEAR` 再快捷键 DOWN | **先 DOWN 再 CLEAR**（IME 先开，声卡后开流） |
-| B4 | `deferred` 生命周期冷启动 | 文档强调默认 `hold_device`（不改默认） |
-
-## TDD 测试缝
-
-| # | Seam | 测什么 | 位置 |
-| --- | --- | --- | --- |
-| L1 | `voice_press::shortcut_before_pcm_clear` | 编排顺序：快捷键在 CLEAR 之前 | `voice_press.rs` + test |
-| L2 | `voice_pcm::ping_retry_interval_ms` | PING 重试间隔 ≤20ms | `voice_pcm.rs` + test |
-| L3 | `voice_pcm::ensure_pcm_ready_on_press` | 未就绪时调用同步 ensure（行为由集成/log 验证） | `voice_pcm.rs` |
-
-## 步骤清单
-
-| 步骤 | 内容 | 状态 | 验证 |
-| --- | --- | --- | --- |
-| 0 | 本文档 | ✅ 完成 | 文档已写入 |
-| 1 | L1 `voice_press` 顺序 + 测试 | ✅ 完成 | `voice_first_packet` 3 passed |
-| 2 | `on_voice_remote_press` 按 L1 重排 | ✅ 完成 | ShortcutDown 先于 PcmClear |
-| 3 | L2/L3 `voice_pcm` PING 15ms + 按下同步 ensure | ✅ 完成 | 同上 |
-| 4 | 全量回归 + README | ✅ 完成 | `test:rust` 19 passed、`npm test` 4、`cargo check` ok |
-
-## 变更日志
-
-- Step 1：`voice_press.rs` + `voice_first_packet` 测例（快捷键先于 CLEAR）。
-- Step 2–3：`on_voice_remote_press` 重排；`ensure_pcm_ready_on_press()`；PING 间隔 50ms→15ms。
-- Step 4：2026-08-27 复跑 — `npm run test:rust` 19 passed、`npm test` 4 passed、`cargo check` ok。
+The old static step list is not a production mechanism. `voice_pcm` warmup is single-flight and generation-cancellable; a failed or stopped warmup cannot install a late client.

@@ -23,6 +23,10 @@ struct Client {
 static CLIENT: Mutex<Option<Client>> = Mutex::new(None);
 /// 热路径快速判断，避免每帧进 ensure_started / 抢锁探测
 static READY: AtomicBool = AtomicBool::new(false);
+static FIRST_PACKET: AtomicBool = AtomicBool::new(false);
+static WARMING: AtomicBool = AtomicBool::new(false);
+static WARMUP_GENERATION: AtomicU64 = AtomicU64::new(0);
+static START_LOCK: Mutex<()> = Mutex::new(());
 
 fn pcm_port() -> u16 {
     std::env::var("REMOTE_BRIDGE_PCM_PORT")
@@ -47,22 +51,28 @@ pub fn ping_deadline_secs() -> u64 {
     PING_DEADLINE_SECS
 }
 
-/// 语音键按下：未就绪时同步 ensure，避免首句才阻塞 PING。
-pub fn ensure_pcm_ready_on_press() {
+/// 语音键按下：只短暂等待现成的 warmup，避免按住物理键时阻塞四秒。
+pub fn ensure_pcm_ready_on_press() -> Result<(), String> {
     if READY.load(Ordering::Acquire) {
-        return;
+        return Ok(());
     }
-    match ensure_started() {
-        Ok(()) => log::info!("XIAOMI VOICE PCM ready on press (sync ensure)"),
-        Err(e) => {
-            log::warn!("XIAOMI VOICE PCM sync ensure on press failed: {e}; fallback warmup_async");
-            warmup_async();
+    warmup_async();
+    let deadline = Instant::now() + Duration::from_millis(250);
+    while Instant::now() < deadline {
+        if READY.load(Ordering::Acquire) {
+            return Ok(());
         }
+        std::thread::sleep(Duration::from_millis(5));
     }
+    Err("PCM route is still warming; press again after it is ready".into())
 }
 
 /// 等待 router PONG（对齐 Python 最多 ~4s）
 pub fn ensure_started() -> Result<(), String> {
+    ensure_started_for(WARMUP_GENERATION.load(Ordering::Acquire))
+}
+
+fn ensure_started_for(generation: u64) -> Result<(), String> {
     if READY.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -73,6 +83,20 @@ pub fn ensure_started() -> Result<(), String> {
             return Ok(());
         }
     }
+    if generation != WARMUP_GENERATION.load(Ordering::Acquire) {
+        return Err("PCM warmup cancelled".into());
+    }
+    let _start = START_LOCK.lock();
+    if READY.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if CLIENT.lock().is_some() {
+        READY.store(true, Ordering::Release);
+        return Ok(());
+    }
+    if generation != WARMUP_GENERATION.load(Ordering::Acquire) {
+        return Err("PCM warmup cancelled".into());
+    }
     let peer = peer_addr();
     let sock = UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     sock.set_read_timeout(Some(Duration::from_millis(150)))
@@ -80,6 +104,9 @@ pub fn ensure_started() -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(PING_DEADLINE_SECS);
     let mut ok = false;
     while Instant::now() < deadline {
+        if generation != WARMUP_GENERATION.load(Ordering::Acquire) {
+            return Err("PCM warmup cancelled".into());
+        }
         let _ = sock.send_to(b"PING", peer);
         let mut buf = [0u8; 64];
         if let Ok((n, _)) = sock.recv_from(&mut buf) {
@@ -92,6 +119,9 @@ pub fn ensure_started() -> Result<(), String> {
     }
     if !ok {
         return Err(format!("audio router not ready at {peer}"));
+    }
+    if generation != WARMUP_GENERATION.load(Ordering::Acquire) {
+        return Err("PCM warmup cancelled".into());
     }
     *CLIENT.lock() = Some(Client {
         sock,
@@ -108,25 +138,41 @@ pub fn ensure_started() -> Result<(), String> {
 
 /// 后台预热：应用启动 / 连上遥控后尽早 PING，避免首句说话才建连
 pub fn warmup_async() {
-    if READY.load(Ordering::Acquire) {
+    if READY.load(Ordering::Acquire) || WARMING.swap(true, Ordering::AcqRel) {
         return;
     }
+    let generation = WARMUP_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
     std::thread::Builder::new()
         .name("xiaomi-pcm-warmup".into())
-        .spawn(|| {
+        .spawn(move || {
             for attempt in 1..=8 {
-                match ensure_started() {
+                match ensure_started_for(generation) {
                     Ok(()) => {
                         log::info!("XIAOMI VOICE PCM warmup ok attempt={attempt}");
+                        if generation == WARMUP_GENERATION.load(Ordering::Acquire) {
+                            WARMING.store(false, Ordering::Release);
+                        }
                         return;
                     }
                     Err(e) => {
+                        if generation != WARMUP_GENERATION.load(Ordering::Acquire) {
+                            return;
+                        }
                         log::debug!("XIAOMI VOICE PCM warmup attempt={attempt}: {e}");
                         std::thread::sleep(Duration::from_millis(250));
                     }
                 }
             }
+            if generation == WARMUP_GENERATION.load(Ordering::Acquire) {
+                WARMING.store(false, Ordering::Release);
+            }
             log::warn!("XIAOMI VOICE PCM warmup gave up; will retry on first push");
+        })
+        .map_err(|error| {
+            if generation == WARMUP_GENERATION.load(Ordering::Acquire) {
+                WARMING.store(false, Ordering::Release);
+            }
+            log::warn!("PCM warmup thread start failed: {error}");
         })
         .ok();
 }
@@ -135,32 +181,43 @@ pub fn is_ready() -> bool {
     READY.load(Ordering::Acquire)
 }
 
-pub fn clear() {
-    if let Some(c) = CLIENT.lock().as_ref() {
-        let _ = c.sock.send_to(b"CLEAR", c.peer);
-    }
-    if let Some(c) = CLIENT.lock().as_mut() {
-        c.have_prev = false;
-    }
+pub fn first_packet_observed() -> bool {
+    FIRST_PACKET.load(Ordering::Acquire)
 }
 
-pub fn end_session() {
-    if let Some(c) = CLIENT.lock().as_ref() {
-        let _ = c.sock.send_to(b"END", c.peer);
-    }
+pub fn clear() -> Result<(), String> {
+    let mut client = CLIENT.lock();
+    let Some(c) = client.as_mut() else {
+        return Err("PCM client is not ready".into());
+    };
+    c.sock
+        .send_to(b"CLEAR", c.peer)
+        .map_err(|e| e.to_string())?;
+    c.have_prev = false;
+    FIRST_PACKET.store(false, Ordering::Release);
+    Ok(())
 }
 
-pub fn push_16k(samples: &[i16]) {
+pub fn end_session() -> Result<(), String> {
+    let client = CLIENT.lock();
+    let Some(c) = client.as_ref() else {
+        // Ending an already-clean session is idempotent.
+        return Ok(());
+    };
+    c.sock.send_to(b"END", c.peer).map_err(|e| e.to_string())
+}
+
+pub fn push_16k(samples: &[i16]) -> Result<(), String> {
     if samples.is_empty() {
-        return;
+        return Err("empty PCM frame".into());
     }
-    if !READY.load(Ordering::Acquire) && ensure_started().is_err() {
-        return;
+    if !READY.load(Ordering::Acquire) {
+        ensure_started()?;
     }
     let mut guard = CLIENT.lock();
     let Some(c) = guard.as_mut() else {
         READY.store(false, Ordering::Release);
-        return;
+        return Err("PCM client disappeared".into());
     };
     let mut previous = if c.have_prev { c.prev } else { samples[0] };
     let mut out = Vec::with_capacity(samples.len() * 3 * 2);
@@ -181,6 +238,7 @@ pub fn push_16k(samples: &[i16]) {
     let udp_ok = match c.sock.send_to(&out, peer) {
         Ok(_) => {
             c.sent.fetch_add(1, Ordering::Relaxed);
+            FIRST_PACKET.store(true, Ordering::Release);
             true
         }
         Err(_) => {
@@ -191,10 +249,19 @@ pub fn push_16k(samples: &[i16]) {
     drop(guard);
     // 增益后送声电平（仅 UDP 成功）
     crate::bridges::xiaomi::voice_meter::on_output_pcm(samples, udp_ok);
+    if udp_ok {
+        Ok(())
+    } else {
+        Err("PCM UDP send failed".into())
+    }
 }
 
 pub fn stop() {
+    let _start = START_LOCK.lock();
+    WARMUP_GENERATION.fetch_add(1, Ordering::AcqRel);
+    WARMING.store(false, Ordering::Release);
     READY.store(false, Ordering::Release);
+    FIRST_PACKET.store(false, Ordering::Release);
     if let Some(c) = CLIENT.lock().take() {
         // END：让 router 关流，勿用 CLEAR（CLEAR = 会话开始开流）
         let _ = c.sock.send_to(b"END", c.peer);

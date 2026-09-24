@@ -112,7 +112,14 @@ pub fn run_audio_router_cli(args: &[String]) -> i32 {
     }
 }
 
-fn resolve_cable_device() -> Result<(cpal::Device, cpal::SupportedStreamConfig, cpal::StreamConfig), String> {
+fn resolve_cable_device() -> Result<
+    (
+        cpal::Device,
+        cpal::SupportedStreamConfig,
+        cpal::StreamConfig,
+    ),
+    String,
+> {
     let host = cpal::default_host();
     let device = find_cable(&host)?;
     let supported = device
@@ -179,10 +186,7 @@ fn open_held_cable(
         supported.sample_format(),
         stream_config.buffer_size
     );
-    eprintln!(
-        "AUDIO ROUTER CABLE HELD device={} play={}",
-        name, play_now
-    );
+    eprintln!("AUDIO ROUTER CABLE HELD device={} play={}", name, play_now);
     Ok(HeldCable {
         device,
         supported,
@@ -263,44 +267,40 @@ fn run_router(port: u16) -> Result<(), String> {
 
     const MAX_BUFFER_SAMPLES: usize = 2_880;
 
-    let ensure_session_output = |held: &mut Option<HeldCable>,
-                                idle_deadline: &mut Option<Instant>|
-     -> Result<(), String> {
-        *idle_deadline = None;
-        match mode {
-            AudioLifecycle::AlwaysPlay => {
-                if held.is_none() {
-                    *held = Some(open_held_cable(true, &buffer, &running)?);
-                } else if let Some(h) = held.as_mut() {
-                    ensure_stream_playing(h, &buffer, &running)?;
+    let ensure_session_output =
+        |held: &mut Option<HeldCable>, idle_deadline: &mut Option<Instant>| -> Result<(), String> {
+            *idle_deadline = None;
+            match mode {
+                AudioLifecycle::AlwaysPlay => {
+                    if held.is_none() {
+                        *held = Some(open_held_cable(true, &buffer, &running)?);
+                    } else if let Some(h) = held.as_mut() {
+                        ensure_stream_playing(h, &buffer, &running)?;
+                    }
+                }
+                AudioLifecycle::HoldDevice => {
+                    if held.is_none() {
+                        *held = Some(open_held_cable(false, &buffer, &running)?);
+                    }
+                    ensure_stream_playing(held.as_mut().unwrap(), &buffer, &running)?;
+                }
+                AudioLifecycle::Deferred => {
+                    if held.is_none() {
+                        *held = Some(open_held_cable(true, &buffer, &running)?);
+                    } else if let Some(h) = held.as_mut() {
+                        ensure_stream_playing(h, &buffer, &running)?;
+                    }
                 }
             }
-            AudioLifecycle::HoldDevice => {
-                if held.is_none() {
-                    *held = Some(open_held_cable(false, &buffer, &running)?);
-                }
-                ensure_stream_playing(held.as_mut().unwrap(), &buffer, &running)?;
-            }
-            AudioLifecycle::Deferred => {
-                if held.is_none() {
-                    *held = Some(open_held_cable(true, &buffer, &running)?);
-                } else if let Some(h) = held.as_mut() {
-                    ensure_stream_playing(h, &buffer, &running)?;
-                }
-            }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
-    let on_session_end = |idle_deadline: &mut Option<Instant>| {
-        match mode {
-            AudioLifecycle::AlwaysPlay => {
-                *idle_deadline = None;
-            }
-            AudioLifecycle::HoldDevice | AudioLifecycle::Deferred => {
-                *idle_deadline =
-                    Some(Instant::now() + Duration::from_millis(STREAM_IDLE_CLOSE_MS));
-            }
+    let on_session_end = |idle_deadline: &mut Option<Instant>| match mode {
+        AudioLifecycle::AlwaysPlay => {
+            *idle_deadline = None;
+        }
+        AudioLifecycle::HoldDevice | AudioLifecycle::Deferred => {
+            *idle_deadline = Some(Instant::now() + Duration::from_millis(STREAM_IDLE_CLOSE_MS));
         }
     };
 
@@ -561,8 +561,8 @@ fn create_kill_on_close_job() -> Result<windows::Win32::Foundation::HANDLE, Stri
     };
 
     unsafe {
-        let job = CreateJobObjectW(None, PCWSTR::null())
-            .map_err(|e| format!("CreateJobObjectW: {e}"))?;
+        let job =
+            CreateJobObjectW(None, PCWSTR::null()).map_err(|e| format!("CreateJobObjectW: {e}"))?;
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if let Err(e) = SetInformationJobObject(
@@ -580,6 +580,9 @@ fn create_kill_on_close_job() -> Result<windows::Win32::Foundation::HANDLE, Stri
 
 /// 主进程：拉起 audio router 子进程（对齐 Python XiaomiWorkers audio 角色）
 pub fn spawn_audio_router_process() -> Result<(), String> {
+    if audio_router_process_alive() && audio_router_ready() {
+        return Ok(());
+    }
     stop_audio_router_process();
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let port = pcm_port();
@@ -607,7 +610,9 @@ pub fn spawn_audio_router_process() -> Result<(), String> {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
     }
-    let child = cmd.spawn().map_err(|e| format!("spawn audio router: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn audio router: {e}"))?;
 
     #[cfg(target_os = "windows")]
     let job = {

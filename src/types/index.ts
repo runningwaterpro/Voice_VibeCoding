@@ -1,6 +1,6 @@
 // 前端类型定义
 
-export type BridgeType = "xiaomi" | "t1" | "hanvon";
+export type BridgeType = "xiaomi";
 
 export type BridgeStatus =
   | "Disconnected"
@@ -54,8 +54,6 @@ export interface GlobalSettings {
   language: string;
   minimize_to_tray: boolean;
   start_minimized_to_tray?: boolean;
-  /** 开启时隐藏 T1 / V60 等开发中项目菜单 */
-  hide_dev_menus?: boolean;
   ignored_update_version?: string | null;
 }
 
@@ -81,6 +79,23 @@ export interface AppUpdateDownloadProgress {
   downloaded: number;
   total?: number | null;
   percent?: number | null;
+}
+
+export interface VoiceSnapshot {
+  generation: number;
+  worker_alive: boolean;
+  device_connected: boolean;
+  voice_channel: boolean;
+  voice_ready: boolean;
+  first_audio_packet: boolean;
+  pressed: boolean;
+  injection: string;
+  audio: string;
+  phase: string;
+  status_code: string;
+  detail: string;
+  primary_action: string;
+  resources_clean: boolean;
 }
 
 export interface AudioDevice {

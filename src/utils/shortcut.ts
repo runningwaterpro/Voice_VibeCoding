@@ -172,12 +172,6 @@ export function splitShortcutVks(keys: readonly number[]) {
   };
 }
 
-/** The only historical truncated preset produced by the old Codex capture flow. */
-export function isLegacyIncompleteCodexShortcut(keys: readonly number[]): boolean {
-  const normalized = normalizeShortcutVks(keys);
-  return normalized.length === 2 && normalized[0] === 0xa2 && normalized[1] === 0xa0;
-}
-
 export function vksToHotkeyNames(vks: readonly number[]): string[] {
   const map: Record<number, string> = {
     0xa2: "leftctrl", 0xa3: "rightctrl", 0x11: "ctrl",

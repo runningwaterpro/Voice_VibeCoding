@@ -171,9 +171,13 @@ pub fn start_key_logger(
             std::thread::Builder::new()
                 .name("xiaomi-gatt-input".into())
                 .spawn(move || {
-                    let result =
-                        run_input_session(app2.clone(), address_u64, iface, runtime2.clone(), gate2);
-                    runtime2.running.store(false, std::sync::atomic::Ordering::SeqCst);
+                    let result = run_input_session(
+                        app2.clone(),
+                        address_u64,
+                        iface,
+                        runtime2.clone(),
+                        gate2,
+                    );
                     match result {
                         Ok(()) => {}
                         Err(e) => {
@@ -185,10 +189,7 @@ pub fn start_key_logger(
                 .ok();
         }
 
-        emit_message(
-            &app,
-            "按键监听已启动（HID-Tap 返回/音量 + ATVV 语音/音频）",
-        );
+        emit_message(&app, "按键监听已启动（HID-Tap 返回/音量 + ATVV 语音/音频）");
     }
     #[cfg(not(target_os = "windows"))]
     {

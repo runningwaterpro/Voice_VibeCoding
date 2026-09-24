@@ -13,10 +13,9 @@ use tauri::{AppHandle, Emitter, Manager};
 /// 后续若改为查自己的仓库，改回 true 并替换 GITEE_RAW / GITHUB_RAW 即可。
 pub const UPDATE_CHECK_ENABLED: bool = false;
 
-const GITEE_RAW: &str =
-    "https://gitee.com/mwlt/remote-voice-vibe-coding/raw/main/update/latest.json";
+const GITEE_RAW: &str = "";
 const GITHUB_RAW: &str =
-    "https://raw.githubusercontent.com/mwlt/Voice_VibeCoding/main/update/latest.json";
+    "https://raw.githubusercontent.com/runningwaterpro/Voice_VibeCoding/main/update/latest.json";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,11 +80,14 @@ pub fn current_version() -> &'static str {
 }
 
 pub fn last_result() -> UpdateCheckResult {
-    LAST_RESULT.lock().clone().unwrap_or_else(|| UpdateCheckResult {
-        checked: false,
-        current_version: current_version().into(),
-        ..Default::default()
-    })
+    LAST_RESULT
+        .lock()
+        .clone()
+        .unwrap_or_else(|| UpdateCheckResult {
+            checked: false,
+            current_version: current_version().into(),
+            ..Default::default()
+        })
 }
 
 fn normalize_version(raw: &str) -> String {
@@ -310,7 +312,10 @@ fn download_agent() -> ureq::Agent {
 }
 
 fn setup_filename(version: &str) -> String {
-    format!("Voice VibeCoding_{}_x64-setup.exe", normalize_version(version))
+    format!(
+        "Voice VibeCoding_{}_x64-setup.exe",
+        normalize_version(version)
+    )
 }
 
 fn emit_download_progress(app: &AppHandle, downloaded: u64, total: Option<u64>) {
@@ -343,8 +348,8 @@ fn download_setup(app: &AppHandle, url: &str, dest: &Path) -> Result<(), String>
         .and_then(|s| s.parse::<u64>().ok());
 
     let mut reader = resp.into_reader();
-    let mut file = std::fs::File::create(dest)
-        .map_err(|e| format!("无法写入 {}: {e}", dest.display()))?;
+    let mut file =
+        std::fs::File::create(dest).map_err(|e| format!("无法写入 {}: {e}", dest.display()))?;
 
     let mut downloaded = 0u64;
     let mut buf = [0u8; 64 * 1024];
@@ -418,7 +423,10 @@ pub fn spawn_download(
             match result {
                 Ok(()) => match launch_installer(&dest) {
                     Ok(()) => {
-                        log::info!("UPDATE download complete, installer launched: {}", dest.display());
+                        log::info!(
+                            "UPDATE download complete, installer launched: {}",
+                            dest.display()
+                        );
                         let _ = app_bg.emit(
                             "app-update-download-complete",
                             DownloadCompletePayload {

@@ -12,7 +12,7 @@ pub enum AudioCommand {
     Open { mic_device: String },
     Close,
     Status,
-    PcmData(Vec<u8>),  // 原始 PCM 音频数据
+    PcmData(Vec<u8>), // 原始 PCM 音频数据
 }
 
 /// 启动音频 UDP 服务器
@@ -28,7 +28,8 @@ pub async fn start_audio_udp_server(
 
     let mut buf = [0u8; 65536];
     loop {
-        let (n, peer) = socket.recv_from(&mut buf)
+        let (n, peer) = socket
+            .recv_from(&mut buf)
             .await
             .map_err(|e| format!("音频接收失败: {}", e))?;
 
@@ -56,7 +57,9 @@ fn handle_audio_command(
 ) -> Option<UdpResponse> {
     match msg.command.as_str() {
         "open" => {
-            let mic = msg.params.get("device")
+            let mic = msg
+                .params
+                .get("device")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default")
                 .to_string();

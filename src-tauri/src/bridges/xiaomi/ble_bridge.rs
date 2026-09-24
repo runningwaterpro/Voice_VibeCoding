@@ -182,7 +182,8 @@ impl XiaomiBleBridge {
                 let _ = windows::Win32::System::Com::CoInitializeEx(
                     None,
                     windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
-                ).ok();
+                )
+                .ok();
             }
 
             let rt = tokio::runtime::Runtime::new()
@@ -222,7 +223,9 @@ impl XiaomiBleBridge {
 }
 
 impl Drop for XiaomiBleBridge {
-    fn drop(&mut self) { self.stop(); }
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 /// Windows BLE 扫描实现
@@ -255,8 +258,7 @@ async fn ble_scan_windows(
     filter: ScanFilter,
 ) {
     use windows::Devices::Bluetooth::Advertisement::{
-        BluetoothLEAdvertisementWatcher, BluetoothLEScanningMode,
-        BluetoothLEAdvertisementFilter,
+        BluetoothLEAdvertisementFilter, BluetoothLEAdvertisementWatcher, BluetoothLEScanningMode,
     };
     use windows::Foundation::TypedEventHandler;
 
@@ -276,7 +278,10 @@ async fn ble_scan_windows(
         let _ = watcher.SetAdvertisementFilter(&ad_filter);
     }
 
-    if watcher.SetScanningMode(BluetoothLEScanningMode::Active).is_err() {
+    if watcher
+        .SetScanningMode(BluetoothLEScanningMode::Active)
+        .is_err()
+    {
         log::warn!("Failed to set Active scanning mode, using default");
     }
 
@@ -289,14 +294,15 @@ async fn ble_scan_windows(
     let handler = TypedEventHandler::new(
         move |_sender: &Option<BluetoothLEAdvertisementWatcher>,
               args: &Option<
-                  windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementReceivedEventArgs,
-              >| {
+            windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementReceivedEventArgs,
+        >| {
             if !running_clone.load(Ordering::SeqCst) {
                 return Ok(());
             }
             if let Some(args) = args {
                 if let Ok(addr) = args.BluetoothAddress() {
-                    let name = args.Advertisement()
+                    let name = args
+                        .Advertisement()
                         .and_then(|a| a.LocalName())
                         .map(|n| n.to_string())
                         .unwrap_or_default();
@@ -309,10 +315,14 @@ async fn ble_scan_windows(
                         }
                     }
                     if let Some(min_rssi) = filter_handler.min_rssi {
-                        if rssi < min_rssi { return Ok(()); }
+                        if rssi < min_rssi {
+                            return Ok(());
+                        }
                     }
                     if let Some(target_addr) = filter_handler.bluetooth_address {
-                        if addr != target_addr { return Ok(()); }
+                        if addr != target_addr {
+                            return Ok(());
+                        }
                     }
 
                     let _ = tx_handler.send(BleEvent::DeviceFound(XiaomiBleInfo {

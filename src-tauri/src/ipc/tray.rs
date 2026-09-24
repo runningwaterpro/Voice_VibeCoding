@@ -41,15 +41,9 @@ fn load_tray_icon(kind: TrayIconKind) -> Result<Image<'static>, tauri::Error> {
     // Prefer 32px: Windows tray is ~16–20px; 128 downscale looks mushy.
     // 用户提供的原始 PNG（未改尺寸）：Ready=蓝 / Error=红 / Init=橙
     match kind {
-        TrayIconKind::Ready => load_tray_png(include_bytes!(
-            "../../icons/user-brand/blue.png"
-        )),
-        TrayIconKind::Init => load_tray_png(include_bytes!(
-            "../../icons/user-brand/orange.png"
-        )),
-        TrayIconKind::Error => load_tray_png(include_bytes!(
-            "../../icons/user-brand/red.png"
-        )),
+        TrayIconKind::Ready => load_tray_png(include_bytes!("../../icons/user-brand/blue.png")),
+        TrayIconKind::Init => load_tray_png(include_bytes!("../../icons/user-brand/orange.png")),
+        TrayIconKind::Error => load_tray_png(include_bytes!("../../icons/user-brand/red.png")),
     }
 }
 
@@ -139,6 +133,8 @@ fn quit_app(app: &AppHandle) {
     {
         runtime.request_stop();
     }
+    crate::bridges::xiaomi::winuhid_env::cancel_runtime_reprobe();
+    crate::bridges::xiaomi::key_mapping::release_voice_resources();
     crate::bridges::xiaomi::hid_report_tap::stop_and_join();
     crate::bridges::xiaomi::special_keys::stop_special_key_hook();
     crate::audio::pcm_router::stop_audio_router_process();
