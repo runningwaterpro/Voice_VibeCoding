@@ -236,9 +236,9 @@ pub fn on_uncorrelated_f5_down() {
     if let Err(e) = app
         .notification()
         .builder()
-        .title("遥控器 ATVV 未连接")
+        .title("语音通道未就绪")
         .body(
-            "语音键可能触发系统 F5（如记事本插入日期）。请打开本软件，在小米设置中点击「修复 ATVV 连接」。",
+            "语音键可能触发系统 F5。请打开本软件，点「一键修复」重连语音通道（保持遥控器开机并靠近）。",
         )
         .show()
     {
