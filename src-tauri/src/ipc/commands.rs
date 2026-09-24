@@ -1033,7 +1033,7 @@ pub(crate) fn run_atvv_repair_pipeline(
         t0.elapsed().as_millis()
     );
     let diag = connect::diagnose_voice(host.bridge_alive);
-    let (msg, code) = if ok {
+    let (mut msg, mut code) = if ok {
         (
             "ATVV 语音通道已恢复（已重启桥接）".to_string(),
             "ok",
@@ -1043,9 +1043,21 @@ pub(crate) fn run_atvv_repair_pipeline(
             "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复」。".to_string(),
             "conflict",
         )
+    } else if !host.bridge_alive {
+        (
+            "已尝试重启桥接，但桥接未运行。请再点一次「一键修复」或查看日志。".to_string(),
+            "bridge_down",
+        )
     } else {
         (diag.message.clone(), diag.code)
     };
+    // 窄竞态：wait 超时后订阅刚好成功 → diag 会是 ok，但流水线按失败返回
+    if !ok && code == "ok" {
+        code = "atvv_not_subscribed";
+        if msg.is_empty() {
+            msg = "遥控器可发现，但语音通道仍未就绪。保持开机并靠近后再试。".into();
+        }
+    }
     log::info!("XIAOMI ATVV repair pipeline done atvv_ok={ok} code={code}");
     Ok((ok, msg, code, true))
 }

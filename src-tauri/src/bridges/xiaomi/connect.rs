@@ -636,17 +636,16 @@ fn windows_monitor_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // 串行化：测试共用 ATVV_SUBSCRIBED 全局，并行会互踩
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn diagnose_ok_when_subscribed() {
+    fn diagnose_codes() {
+        let _g = TEST_LOCK.lock().unwrap();
         mark_atvv_subscribed(true);
-        let d = diagnose_voice(false);
-        assert_eq!(d.code, "ok");
-        reset_atvv_subscribed();
-    }
-
-    #[test]
-    fn diagnose_bridge_down_before_pair_probe() {
+        assert_eq!(diagnose_voice(false).code, "ok");
         reset_atvv_subscribed();
         let d = diagnose_voice(false);
         assert_eq!(d.code, "bridge_down");

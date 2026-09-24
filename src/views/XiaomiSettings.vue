@@ -1397,11 +1397,15 @@ interface AtvvRepairResult {
 function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
   const code = result?.code || "";
   const msg = result?.message || "";
+  const restarted = !!result?.fullRestart;
+  const restartNote = restarted
+    ? "；已重启桥接，电量图标可能短暂消失"
+    : "";
   if (ok) {
     return {
       label: "语音通道",
       ok: true,
-      msg: result?.fullRestart ? "已连接（重启桥接）" : "已连接",
+      msg: restarted ? "已连接（重启桥接）" : "已连接",
     } as const;
   }
   if (code === "pair_missing") {
@@ -1409,7 +1413,7 @@ function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
       label: "语音通道",
       ok: false,
       msg: "遥控器未在系统配对",
-      suggestion: "打开 Windows 蓝牙设置，配对「MI RC」后重试",
+      suggestion: `打开 Windows 蓝牙设置，配对「MI RC」后重试${restartNote}`,
     } as const;
   }
   if (code === "conflict") {
@@ -1417,22 +1421,39 @@ function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
       label: "语音通道",
       ok: false,
       msg: "端口被占用",
-      suggestion: "关闭占用程序后重试，或重启电脑",
+      suggestion: `关闭占用程序后重试，或重启电脑${restartNote}`,
     } as const;
   }
-  if (code === "atvv_not_subscribed" || code === "discover_error") {
+  if (code === "discover_error") {
+    // 枚举失败 = 配对状态未知，禁止写成「已配对」
     return {
       label: "语音通道",
       ok: false,
-      msg: "已配对，通道未就绪",
-      suggestion: msg || "保持遥控器开机并靠近电脑后再点一次",
+      msg: "无法检测遥控器",
+      suggestion: `${msg || "检查蓝牙是否开启，遥控器开机并靠近后重试"}${restartNote}`,
+    } as const;
+  }
+  if (code === "atvv_not_subscribed") {
+    return {
+      label: "语音通道",
+      ok: false,
+      msg: restarted ? "已配对，通道未就绪（已重启桥接）" : "已配对，通道未就绪",
+      suggestion: `${msg || "保持遥控器开机并靠近电脑后再点一次"}${restartNote}`,
+    } as const;
+  }
+  if (code === "bridge_down") {
+    return {
+      label: "语音通道",
+      ok: false,
+      msg: "桥接未运行",
+      suggestion: `${msg || "再点一次「一键修复」或查看日志"}${restartNote}`,
     } as const;
   }
   return {
     label: "语音通道",
     ok: false,
     msg: msg || "未就绪",
-    ...(msg ? { suggestion: msg } : {}),
+    ...(msg || restarted ? { suggestion: `${msg}${restartNote}`.trim() } : {}),
   } as const;
 }
 
