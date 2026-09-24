@@ -5,6 +5,7 @@
 //! 2. 按 VID/PID token / 设备名筛选小米 2 Pro
 //! 3. `BluetoothLEDevice::FromBluetoothAddressAsync` 打开设备并校验 ATVV 服务
 
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -34,6 +35,62 @@ pub fn wait_atvv_subscribed(timeout: Duration) -> bool {
 
 pub fn atvv_subscribed() -> bool {
     ATVV_SUBSCRIBED.load(Ordering::SeqCst)
+}
+
+/// 语音链路分层诊断（只读）。code 供 UI/修复共用，禁止再靠文案正则反推。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceDiag {
+    /// ok | bridge_down | pair_missing | atvv_not_subscribed | discover_error
+    pub code: &'static str,
+    pub layer: &'static str,
+    pub message: String,
+}
+
+pub fn diagnose_voice(bridge_alive: bool) -> VoiceDiag {
+    if atvv_subscribed() {
+        return VoiceDiag {
+            code: "ok",
+            layer: "atvv",
+            message: String::new(),
+        };
+    }
+    if !bridge_alive {
+        return VoiceDiag {
+            code: "bridge_down",
+            layer: "bridge",
+            message: "桥接未运行。点「一键修复」或「启动」恢复监听。".into(),
+        };
+    }
+    #[cfg(target_os = "windows")]
+    {
+        match windows_discover_candidates() {
+            Ok(list) if list.is_empty() => VoiceDiag {
+                code: "pair_missing",
+                layer: "pair",
+                message: "未在系统中找到已配对的小米遥控器。请打开 Windows 蓝牙设置，配对「MI RC」后重试。".into(),
+            },
+            Ok(_) => VoiceDiag {
+                // 已能枚举到配对设备，但未订阅 → 闲置后通道掉线，不是没配对
+                code: "atvv_not_subscribed",
+                layer: "atvv",
+                message: "遥控器已配对/可发现，但语音通道未就绪。点「一键修复」重连语音通道；请保持遥控器开机并靠近电脑。".into(),
+            },
+            Err(e) => VoiceDiag {
+                code: "discover_error",
+                layer: "pair",
+                message: format!("枚举蓝牙设备失败：{e}"),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        VoiceDiag {
+            code: "atvv_not_subscribed",
+            layer: "atvv",
+            message: "语音通道未就绪（仅 Windows 支持详细诊断）。".into(),
+        }
+    }
 }
 
 /// Android TV Voice-over-BLE 服务 UUID（与 Python `atvv_record.VOICE_SERVICE_UUID` 一致）
@@ -573,5 +630,26 @@ fn windows_monitor_connection(
     } else {
         log::warn!("Xiaomi remote disconnected");
         Err("遥控器已断开连接".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnose_ok_when_subscribed() {
+        mark_atvv_subscribed(true);
+        let d = diagnose_voice(false);
+        assert_eq!(d.code, "ok");
+        reset_atvv_subscribed();
+    }
+
+    #[test]
+    fn diagnose_bridge_down_before_pair_probe() {
+        reset_atvv_subscribed();
+        let d = diagnose_voice(false);
+        assert_eq!(d.code, "bridge_down");
+        assert_eq!(d.layer, "bridge");
     }
 }

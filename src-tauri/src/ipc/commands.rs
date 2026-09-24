@@ -521,9 +521,14 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
             "warn".into(),
         )
     } else if bridge_alive && !atvv_ok {
+        let d = crate::bridges::xiaomi::connect::diagnose_voice(true);
         (
-            "ATVV 未连接".into(),
-            "语音专用通道未就绪。请确认 Windows 已配对「MI RC」且遥控器开机；配对后点「修复 ATVV 连接」。".into(),
+            if d.code == "pair_missing" {
+                "未找到遥控器".to_string()
+            } else {
+                "语音通道未就绪".to_string()
+            },
+            d.message,
             "warn".into(),
         )
     } else if !cable_ready {
@@ -876,6 +881,10 @@ pub struct AtvvRepairResult {
     pub message: String,
     pub atvv_ok: bool,
     pub had_conflicts: bool,
+    /// ok | pair_missing | atvv_not_subscribed | conflict | discover_error | bridge_down
+    pub code: String,
+    /// true=整桥重启过（电量会闪）
+    pub full_restart: bool,
 }
 
 /// R2+W：修复 ATVV。有占用则先弹冲突框；`force=true` 表示用户已清完，直接跑流水线。
@@ -917,6 +926,8 @@ pub async fn repair_xiaomi_atvv(
                     ),
                     atvv_ok: false,
                     had_conflicts: true,
+                    code: "conflict".into(),
+                    full_restart: false,
                 });
             }
         }
@@ -924,7 +935,7 @@ pub async fn repair_xiaomi_atvv(
 
     let app_for_job = app.clone();
     let t0 = std::time::Instant::now();
-    let (ok, msg) = tokio::task::spawn_blocking(move || {
+    let (ok, msg, code, full_restart) = tokio::task::spawn_blocking(move || {
         let state = app_for_job.state::<BridgeState>();
         let config_manager = app_for_job.state::<ConfigManager>();
         run_atvv_repair_pipeline(&app_for_job, state.inner(), config_manager.inner())
@@ -936,7 +947,7 @@ pub async fn repair_xiaomi_atvv(
     })??;
     let elapsed_ms = t0.elapsed().as_millis();
     log::info!(
-        "XIAOMI ATVV repair result ok={ok} elapsed_ms={elapsed_ms} msg={msg}"
+        "XIAOMI ATVV repair result ok={ok} code={code} full_restart={full_restart} elapsed_ms={elapsed_ms} msg={msg}"
     );
 
     let _ = app.emit(
@@ -944,6 +955,8 @@ pub async fn repair_xiaomi_atvv(
         serde_json::json!({
             "ok": ok,
             "message": &msg,
+            "code": &code,
+            "fullRestart": full_restart,
         }),
     );
 
@@ -952,16 +965,42 @@ pub async fn repair_xiaomi_atvv(
         message: msg,
         atvv_ok: ok,
         had_conflicts: false,
+        code: code.into(),
+        full_restart,
     })
 }
 
+/// 返回 (ok, message, code, full_restart)
 pub(crate) fn run_atvv_repair_pipeline(
     app: &AppHandle,
     state: &BridgeState,
     config_manager: &ConfigManager,
-) -> Result<(bool, String), String> {
+) -> Result<(bool, String, &'static str, bool), String> {
     log::info!("XIAOMI ATVV repair pipeline start");
     let t0 = std::time::Instant::now();
+    let bridge_alive = app
+        .try_state::<Arc<XiaomiRuntime>>()
+        .map(|r| r.running.load(std::sync::atomic::Ordering::SeqCst))
+        .unwrap_or(false);
+
+    // 轻路径：桥还在 → poke 会话立刻重订，不整桥（电量不闪）
+    if bridge_alive && !connect::atvv_subscribed() {
+        crate::bridges::xiaomi::input_session::poke_atvv_retry();
+        let ok_light = connect::wait_atvv_subscribed(std::time::Duration::from_secs(8));
+        log::info!(
+            "XIAOMI ATVV repair light path ok={ok_light} elapsed_ms={}",
+            t0.elapsed().as_millis()
+        );
+        if ok_light {
+            return Ok((
+                true,
+                "语音通道已恢复（未重启桥接）".to_string(),
+                "ok",
+                false,
+            ));
+        }
+    }
+
     crate::bridges::xiaomi::hid_report_tap::stop_and_join();
     log::info!(
         "XIAOMI ATVV repair hid_tap joined ms={}",
@@ -993,15 +1032,22 @@ pub(crate) fn run_atvv_repair_pipeline(
         conflicts.len(),
         t0.elapsed().as_millis()
     );
-    let msg = if ok {
-        "ATVV 语音通道已恢复".to_string()
+    let diag = connect::diagnose_voice(host.bridge_alive);
+    let (msg, code) = if ok {
+        (
+            "ATVV 语音通道已恢复（已重启桥接）".to_string(),
+            "ok",
+        )
     } else if !conflicts.is_empty() {
-        "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复 ATVV 连接」。".to_string()
+        (
+            "重连后仍无 ATVV，且仍有桥接占用进程。请结束占用后再点「修复」。".to_string(),
+            "conflict",
+        )
     } else {
-        "已重连但仍未订阅 ATVV。若 Windows 蓝牙未配对「MI RC」，请先在「设置 → 蓝牙和其他设备」完成配对再重试；已配对则靠近遥控器后再点一次。".to_string()
+        (diag.message.clone(), diag.code)
     };
-    log::info!("XIAOMI ATVV repair pipeline done atvv_ok={ok}");
-    Ok((ok, msg))
+    log::info!("XIAOMI ATVV repair pipeline done atvv_ok={ok} code={code}");
+    Ok((ok, msg, code, true))
 }
 
 fn append_host_log(_config_manager: &ConfigManager, message: &str) {

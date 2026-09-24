@@ -11,10 +11,21 @@ use crate::bridges::xiaomi::key_log::{
 };
 use crate::bridges::xiaomi::key_mapping;
 use std::collections::HashSet;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
+
+/// 轻量修复：强制会话立刻重试 ATVV 订阅（不整桥重启）
+static FORCE_ATVV_RETRY: AtomicBool = AtomicBool::new(false);
+
+pub fn poke_atvv_retry() {
+    FORCE_ATVV_RETRY.store(true, Ordering::SeqCst);
+}
+
+fn take_force_atvv_retry() -> bool {
+    FORCE_ATVV_RETRY.swap(false, Ordering::SeqCst)
+}
 
 const HID_SERVICE: u128 = 0x00001812_0000_1000_8000_00805f9b34fb;
 const HID_REPORT: u128 = 0x00002a4d_0000_1000_8000_00805f9b34fb;
@@ -415,14 +426,21 @@ fn windows_run_input_session(
     while !runtime.should_stop() {
         // ponytail: 固定 2s 足够覆盖 2s PCM 预热 / 30s ATVV / 60s 电量；更细 deadline 不必
         std::thread::sleep(Duration::from_millis(2000));
+        let force_retry = take_force_atvv_retry();
+        if force_retry {
+            // 用户点了修复：清空历史失败次数，允许立刻再订
+            atvv_periodic_failures = 0;
+        }
         if !atvv_ok
-            && atvv_periodic_failures < ATVV_PERIODIC_MAX_FAILURES
-            && since_atvv_retry.elapsed() >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)
+            && (force_retry
+                || (atvv_periodic_failures < ATVV_PERIODIC_MAX_FAILURES
+                    && since_atvv_retry.elapsed()
+                        >= Duration::from_secs(ATVV_PERIODIC_RETRY_SECS)))
         {
             atvv_periodic_failures += 1;
             since_atvv_retry = Instant::now();
             log::info!(
-                "ATVV periodic retry attempt={atvv_periodic_failures}/{ATVV_PERIODIC_MAX_FAILURES}"
+                "ATVV periodic retry attempt={atvv_periodic_failures}/{ATVV_PERIODIC_MAX_FAILURES} force={force_retry}"
             );
             if let Some(atvv) = atvv_service.as_ref() {
                 match subscribe_atvv_service(&app, atvv, &gate, &mut tokens, gain_db) {

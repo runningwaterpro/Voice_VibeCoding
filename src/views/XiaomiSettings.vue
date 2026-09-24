@@ -307,7 +307,7 @@ const errorTitle = computed(() => {
   if (!h.winuhid_ready) missing.push("虚拟键盘");
   if (!h.cable_ready) missing.push("虚拟声卡");
   if (!h.audio_alive) missing.push("语音路由");
-  if (!h.atvv_ok) missing.push("ATVV");
+  if (!h.atvv_ok) missing.push("语音通道");
   if (missing.length === 0) return "状态异常";
   if (missing.length === 1) return `${missing[0]}未就绪`;
   return `未就绪：${missing.join("、")}`;
@@ -472,45 +472,19 @@ async function autoRepairAll() {
       }
 
       if (!h.atvv_ok) {
-        // 最多试 1 次：失败多为未配对遥控器，再循环只会卡在「修复中」
         if (atvvAttempts >= 1) {
-          prependLog("一键修复：ATVV 已尝试仍失败，停止重试（请先配对遥控器）");
+          prependLog("一键修复：语音通道已尝试仍失败，停止重试");
           break;
         }
         atvvAttempts++;
-        prependLog("一键修复：修复 ATVV 连接");
-        await repairAtvv();
-        // refreshHost 会覆盖 detail，先留住修复结果文案
-        const failDetail = host.value.detail || "";
+        prependLog("一键修复：修复语音通道");
+        const atvvResult = await repairAtvv();
         await refreshHost();
         const ok = !!host.value.atvv_ok;
-        const conflict = !ok && failDetail.includes("占用");
-        const pairing =
-          !ok &&
-          /配对|MI RC|未找到已配对|未找到|蓝牙|bluetooth/i.test(failDetail);
-        repairStepLog.value.push({
-          label: "ATVV 连接",
-          ok,
-          msg: ok
-            ? "已连接"
-            : conflict
-              ? "端口被占用"
-              : pairing
-                ? "遥控器未配对"
-                : describeStepError(failDetail || host.value.detail || "未就绪"),
-          ...(ok
-            ? {}
-            : {
-                suggestion: conflict
-                  ? "关闭占用程序后重试，或重启电脑"
-                  : pairing
-                    ? "打开 Windows 蓝牙设置，配对「MI RC」后重试"
-                    : describeStepError(failDetail || host.value.detail || ""),
-              }),
-        });
+        const step = atvvStepFromResult(atvvResult, ok);
+        repairStepLog.value.push({ ...step });
         if (!ok) {
-          // 无论配对还是其它失败，一键修复都收尾，避免反复 12s 空转
-          prependLog("一键修复：ATVV 未恢复，结束（需人工处理后可再点一次）");
+          prependLog("一键修复：语音通道未恢复，结束（可稍后再点一次）");
           break;
         }
         continue;
@@ -1415,10 +1389,55 @@ interface AtvvRepairResult {
   message: string;
   atvvOk: boolean;
   hadConflicts: boolean;
+  code?: string;
+  fullRestart?: boolean;
 }
 
-async function repairAtvv() {
-  if (atvvRepairing.value || restarting.value || voiceRepairing.value) return;
+/** 步骤文案：只认后端 code，不再对 message 跑“配对”正则 */
+function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
+  const code = result?.code || "";
+  const msg = result?.message || "";
+  if (ok) {
+    return {
+      label: "语音通道",
+      ok: true,
+      msg: result?.fullRestart ? "已连接（重启桥接）" : "已连接",
+    } as const;
+  }
+  if (code === "pair_missing") {
+    return {
+      label: "语音通道",
+      ok: false,
+      msg: "遥控器未在系统配对",
+      suggestion: "打开 Windows 蓝牙设置，配对「MI RC」后重试",
+    } as const;
+  }
+  if (code === "conflict") {
+    return {
+      label: "语音通道",
+      ok: false,
+      msg: "端口被占用",
+      suggestion: "关闭占用程序后重试，或重启电脑",
+    } as const;
+  }
+  if (code === "atvv_not_subscribed" || code === "discover_error") {
+    return {
+      label: "语音通道",
+      ok: false,
+      msg: "已配对，通道未就绪",
+      suggestion: msg || "保持遥控器开机并靠近电脑后再点一次",
+    } as const;
+  }
+  return {
+    label: "语音通道",
+    ok: false,
+    msg: msg || "未就绪",
+    ...(msg ? { suggestion: msg } : {}),
+  } as const;
+}
+
+async function repairAtvv(): Promise<AtvvRepairResult | null> {
+  if (atvvRepairing.value || restarting.value || voiceRepairing.value) return null;
   atvvRepairing.value = true;
   let awaitingClear = false;
   prependLog("ATVV 修复：开始");
@@ -1430,7 +1449,7 @@ async function repairAtvv() {
     prependLog(
       awaitingClear
         ? `ATVV 修复：等待清理占用 — ${result.message}`
-        : `ATVV 修复结果 ok=${result.atvvOk} — ${result.message}`,
+        : `ATVV 修复结果 ok=${result.atvvOk} code=${result.code || "?"} fullRestart=${result.fullRestart ? 1 : 0} — ${result.message}`,
     );
     host.value = {
       ...host.value,
@@ -1438,14 +1457,15 @@ async function repairAtvv() {
         ? "ATVV 已修复"
         : awaitingClear
           ? "等待清理占用"
-          : "ATVV 修复未完成",
+          : "语音通道未就绪",
       detail: result.message,
       tone: result.atvvOk ? "ok" : awaitingClear ? "warn" : "error",
     };
     if (awaitingClear) {
-      return;
+      return result;
     }
     await refreshHost();
+    return result;
   } catch (e) {
     prependLog(`ATVV 修复失败: ${String(e)}`);
     host.value = {
@@ -1453,6 +1473,14 @@ async function repairAtvv() {
       status_text: "ATVV 修复失败",
       detail: String(e),
       tone: "error",
+    };
+    return {
+      phase: "done",
+      message: String(e),
+      atvvOk: false,
+      hadConflicts: false,
+      code: "error",
+      fullRestart: false,
     };
   } finally {
     if (!awaitingClear || inAutoRepair.value) {
@@ -1863,20 +1891,22 @@ onMounted(async () => {
   }
 
   try {
-    unlistenAtvvRepair = await listen<{ ok?: boolean; message?: string }>(
-      "xiaomi-atvv-repair-result",
-      async (event) => {
-        const p = event.payload || {};
-        host.value = {
-          ...host.value,
-          status_text: p.ok ? "ATVV 已修复" : "ATVV 修复未完成",
-          detail: p.message || "",
-          tone: p.ok ? "ok" : "error",
-        };
-        atvvRepairing.value = false;
-        await refreshHost();
-      },
-    );
+    unlistenAtvvRepair = await listen<{
+      ok?: boolean;
+      message?: string;
+      code?: string;
+      fullRestart?: boolean;
+    }>("xiaomi-atvv-repair-result", async (event) => {
+      const p = event.payload || {};
+      host.value = {
+        ...host.value,
+        status_text: p.ok ? "ATVV 已修复" : "语音通道未就绪",
+        detail: p.message || "",
+        tone: p.ok ? "ok" : "error",
+      };
+      atvvRepairing.value = false;
+      await refreshHost();
+    });
   } catch (e) {
     console.warn("listen xiaomi-atvv-repair-result failed:", e);
   }
