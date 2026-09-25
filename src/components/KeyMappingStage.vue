@@ -108,6 +108,8 @@ let unlistenCaptured: UnlistenFn | null = null;
 let unlistenProgress: UnlistenFn | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let applied = false;
+let disposed = false;
+const captureStartPending = ref(false);
 let resizeObs: ResizeObserver | null = null;
 let lineRaf: number | null = null;
 let micFlashTimer: ReturnType<typeof setTimeout> | null = null;
@@ -449,6 +451,7 @@ function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
+  void invoke("capture_shortcut_touch").catch(() => {});
   if (applied) return;
   const chord = chordFromEvent(e);
   if (chord.length > 0) {
@@ -456,6 +459,14 @@ function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
     const labels = chord.map((vk) => vkDisplayName(vk));
     void onCaptured(chord, labels);
   }
+}
+
+function resetCaptureUi(error?: string) {
+  stopPolling();
+  capturing.value = false;
+  liveLabels.value = [];
+  applied = false;
+  if (error) captureError.value = error;
 }
 
 function startPolling() {
@@ -470,6 +481,7 @@ function startPolling() {
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
         active: boolean;
+        timed_out: boolean;
       }>("capture_shortcut_poll");
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
@@ -477,12 +489,8 @@ function startPolling() {
       const result = snap?.pending;
       if (result && Array.isArray(result.keys) && result.keys.length > 0) {
         onCaptured(result.keys, result.labels || []);
-      } else if (snap && !snap.active && capturing.value) {
-        stopPolling();
-        capturing.value = false;
-        liveLabels.value = [];
-        applied = false;
-        captureError.value = "快捷键录入已超时或已取消";
+      } else if (snap && snap.timed_out && capturing.value) {
+        resetCaptureUi("快捷键录入已超时或已取消");
       }
     } catch (e) {
       console.warn("capture poll failed", e);
@@ -520,22 +528,26 @@ async function startCapture() {
   liveLabels.value = [];
   applied = false;
   // 后端探针通过后才进入 capturing（禁止先亮 UI）
+  captureStartPending.value = true;
   try {
     await invoke("capture_shortcut_start");
+    if (disposed) {
+      await invoke("capture_shortcut_stop").catch(() => {});
+      return;
+    }
     capturing.value = true;
     startPolling();
   } catch (e) {
     capturing.value = false;
     stopPolling();
     captureError.value = String(e);
+  } finally {
+    captureStartPending.value = false;
   }
 }
 
 async function cancelCapture() {
-  stopPolling();
-  capturing.value = false;
-  liveLabels.value = [];
-  applied = false;
+  resetCaptureUi();
   try {
     await invoke("capture_shortcut_stop");
   } catch {
@@ -631,6 +643,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  disposed = true;
   stopPolling();
   unlistenCaptured?.();
   unlistenProgress?.();
@@ -647,7 +660,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", scheduleUpdateLine);
   window.removeEventListener("keydown", blockBrowserKeysDuringCapture, true);
   window.removeEventListener("keyup", blockBrowserKeysDuringCapture, true);
-  if (capturing.value) {
+  if (capturing.value || captureStartPending.value) {
     invoke("capture_shortcut_stop").catch(() => {});
   }
 });

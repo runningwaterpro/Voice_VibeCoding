@@ -1142,10 +1142,12 @@ fn arm_atvv_voice_state(st: &mut AtvvVoiceState, clear_frames: bool) {
 
 /// Press the RC003 voice button through the production VoiceSession seam.
 fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<AtvvVoiceState>>) {
-    let chord = app
+    let config = app
         .try_state::<crate::config::manager::ConfigManager>()
-        .and_then(|manager| manager.get_device_config("xiaomi").ok())
-        .map(|config| key_mapping::resolve_voice_hotkey(&config))
+        .and_then(|manager| manager.get_device_config("xiaomi").ok());
+    let chord = config
+        .as_ref()
+        .map(|config| key_mapping::resolve_voice_hotkey(config))
         .unwrap_or_default();
 
     let snapshot = {
@@ -1154,6 +1156,9 @@ fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<
         };
         if st.remote_pressed {
             return;
+        }
+        if let Some(config) = config.as_ref() {
+            crate::bridges::xiaomi::voice_gain::begin_session(config.gain_auto, config.gain_db);
         }
         arm_atvv_voice_state(&mut st, true);
         st.remote_pressed = true;

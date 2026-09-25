@@ -342,6 +342,14 @@ impl CaptureRuntime {
             .unwrap_or(false)
     }
 
+    fn touch(&self) {
+        if self.capturing.load(Ordering::SeqCst) {
+            if let Ok(mut deadline) = self.deadline.try_lock() {
+                *deadline = Some(Instant::now() + CAPTURE_TIMEOUT);
+            }
+        }
+    }
+
     fn take_pending(&self) -> Option<ShortcutCapturedPayload> {
         self.pending.lock().unwrap().take()
     }
@@ -358,6 +366,7 @@ pub struct ShortcutPollSnapshot {
     pub pending: Option<ShortcutCapturedPayload>,
     pub progress: Vec<String>,
     pub active: bool,
+    pub timed_out: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +512,7 @@ pub fn feed_capture_key(vk: u32, is_down: bool) {
         Err(_) => return,
     };
     if let Some(runtime) = runtime {
+        runtime.touch();
         if runtime.capturing.load(Ordering::SeqCst) {
             match step {
                 CaptureStep::Captured(keys) => {
@@ -1012,6 +1022,10 @@ impl ShortcutCaptureSession {
         }
     }
 
+    pub fn touch(&self) {
+        self.runtime.touch();
+    }
+
     pub fn cancel(&self) -> Result<(), String> {
         log::info!(
             "[DEBUG-cap] cancel enter swallow={} submitted={} capturing={}",
@@ -1096,14 +1110,15 @@ impl ShortcutCaptureSession {
 
     /// 取出最终结果（若有）并同时返回当前进度标签，供前端在 emit 丢失时刷新 live UI。
     pub fn poll_snapshot(&self) -> ShortcutPollSnapshot {
-        if self.runtime.expired() {
+        let timed_out = self.runtime.expired();
+        if timed_out {
             let _ = self.cancel();
         }
-        let pending = self.runtime.take_pending();
         ShortcutPollSnapshot {
-            active: pending.is_some() || self.runtime.capturing.load(Ordering::SeqCst),
-            pending,
+            pending: self.runtime.take_pending(),
             progress: self.runtime.peek_progress(),
+            active: self.runtime.capturing.load(Ordering::SeqCst),
+            timed_out,
         }
     }
 
@@ -1146,6 +1161,16 @@ mod tests {
         let snapshot = session.poll_snapshot();
         assert!(snapshot.pending.is_none());
         assert!(!snapshot.active);
+        assert!(snapshot.timed_out);
+    }
+
+    #[test]
+    fn capture_activity_extends_inactivity_deadline() {
+        let runtime = CaptureRuntime::new();
+        runtime.capturing.store(true, Ordering::SeqCst);
+        *runtime.deadline.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1));
+        runtime.touch();
+        assert!(!runtime.expired());
     }
 
     #[test]

@@ -306,6 +306,15 @@ pub async fn capture_shortcut_stop(
     Ok(vec![])
 }
 
+/// 记录一次录入期间的按键活动，延长无操作超时。
+#[tauri::command]
+pub async fn capture_shortcut_touch(
+    session: State<'_, crate::bridges::shared::shortcut_capture::ShortcutCaptureSession>,
+) -> Result<(), String> {
+    session.touch();
+    Ok(())
+}
+
 /// 轮询录制快照：最终结果（若有）+ 当前进度标签。
 /// 进度走 IPC 兜底，避免仅依赖 `shortcut-capture-progress` emit（部分机器上会丢/延迟）。
 #[tauri::command]

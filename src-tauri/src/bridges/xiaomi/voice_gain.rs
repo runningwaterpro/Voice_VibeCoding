@@ -38,13 +38,13 @@ const AGC_EWMA_ALPHA: f32 = 0.3;
 
 struct AgcState {
     prev_input_db: f32,
-    speech_frames: u32,
+    non_silent_frames: u32,
     last_adjust: Option<Instant>,
 }
 
 static AGC_STATE: Mutex<AgcState> = Mutex::new(AgcState {
     prev_input_db: -60.0,
-    speech_frames: 0,
+    non_silent_frames: 0,
     last_adjust: None,
 });
 static LIVE_GAIN_DB: AtomicU32 = AtomicU32::new(GAIN_DB_DEFAULT.to_bits());
@@ -81,10 +81,17 @@ pub fn set_auto_enabled(on: bool) {
         // 重置内部状态，避免上次残留
         let mut state = AGC_STATE.lock();
         state.prev_input_db = -60.0;
-        state.speech_frames = 0;
+        state.non_silent_frames = 0;
         state.last_adjust = None;
     }
     log::info!("voice gain auto: {on}");
+}
+
+/// 开始一次新的按压会话。自动增益从配置中的手动基准重新开始，
+/// 不继承上一句话的 live 值或控制器状态。
+pub fn begin_session(auto_enabled: bool, manual_gain_db: f32) {
+    set_auto_enabled(auto_enabled);
+    set_gain_db(manual_gain_db);
 }
 
 pub fn auto_enabled() -> bool {
@@ -112,7 +119,7 @@ pub fn auto_adjust(input_level: f32) {
 
     // 只有绝对静音才冻结；-60..-40 dBFS 的远距离语音仍可慢速升增益。
     if input_db < AGC_SILENCE_GATE_DBFS {
-        state.speech_frames = 0;
+        state.non_silent_frames = 0;
         state.prev_input_db = input_db;
         state.last_adjust = Some(now);
         return;
@@ -121,7 +128,7 @@ pub fn auto_adjust(input_level: f32) {
     // EWMA 平滑输入电平
     let smoothed = state.prev_input_db * (1.0 - AGC_EWMA_ALPHA) + input_db * AGC_EWMA_ALPHA;
     state.prev_input_db = smoothed;
-    state.speech_frames = state.speech_frames.saturating_add(1);
+    state.non_silent_frames = state.non_silent_frames.saturating_add(1);
 
     // 控制器按真实经过时间推进，而不是假设每个音频帧都是固定长度。
     // 测试或异常帧间隔极短时仍使用一个 15ms 的最小步长。
@@ -133,8 +140,8 @@ pub fn auto_adjust(input_level: f32) {
         .max(AGC_MIN_STEP_SECONDS);
     state.last_adjust = Some(now);
 
-    // VAD 迟滞：需连续 3 帧超过静音门限才开始调整。
-    if state.speech_frames < 3 {
+    // 非静音迟滞：需连续 3 帧超过静音门限才开始调整。
+    if state.non_silent_frames < 3 {
         return;
     }
 
@@ -178,6 +185,20 @@ mod tests {
     }
 
     #[test]
+    fn begin_session_resets_auto_gain_to_manual_baseline() {
+        set_auto_enabled(true);
+        set_gain_db(10.0);
+        let quiet_level = 10f32.powf(-50.0 / 20.0);
+        for _ in 0..20 {
+            auto_adjust(quiet_level);
+        }
+        assert!(gain_db() > 10.0);
+        begin_session(true, 10.0);
+        assert_eq!(gain_db(), 10.0);
+        set_auto_enabled(false);
+    }
+
+    #[test]
     fn auto_adjust_disabled_is_noop() {
         set_auto_enabled(false);
         set_gain_db(10.0);
@@ -186,16 +207,17 @@ mod tests {
     }
 
     #[test]
-    fn auto_adjust_raises_quiet_input_below_old_gate() {
+    fn quiet_burst_reaches_useful_gain_within_300ms() {
         set_auto_enabled(true);
         set_gain_db(10.0);
         let quiet_level = 10f32.powf(-50.0 / 20.0);
+        // 20 个典型 15ms ATVV 帧，模拟约 300ms 的远距离语音起音。
         for _ in 0..20 {
             auto_adjust(quiet_level);
         }
         assert!(
             gain_db() >= 12.0,
-            "far speech should raise gain quickly, got {}",
+            "far speech should raise gain within about 300ms, got {}",
             gain_db()
         );
         set_auto_enabled(false);
