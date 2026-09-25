@@ -449,10 +449,6 @@ function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
-  if (e.key === "Escape" || vkFromEvent(e) === 0x1b) {
-    void cancelCapture();
-    return;
-  }
   if (applied) return;
   const chord = chordFromEvent(e);
   if (chord.length > 0) {
@@ -473,6 +469,7 @@ function startPolling() {
       const snap = await invoke<{
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
+        active: boolean;
       }>("capture_shortcut_poll");
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
@@ -480,6 +477,12 @@ function startPolling() {
       const result = snap?.pending;
       if (result && Array.isArray(result.keys) && result.keys.length > 0) {
         onCaptured(result.keys, result.labels || []);
+      } else if (snap && !snap.active && capturing.value) {
+        stopPolling();
+        capturing.value = false;
+        liveLabels.value = [];
+        applied = false;
+        captureError.value = "快捷键录入已超时或已取消";
       }
     } catch (e) {
       console.warn("capture poll failed", e);

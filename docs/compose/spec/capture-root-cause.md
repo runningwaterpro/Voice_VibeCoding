@@ -10,7 +10,7 @@ commits: 4f11191..bc00403
 
 ## Report
 
-**What was built** — 修复映射热键「通常录不上」：前端在录入期间直接用 WebView `keydown` 组成并弦并保存（Shift+F10 / A / Ctrl+P 不再依赖低级钩子是否收到键）。后端保留 LL 钩子吞键与诊断：探针不再否决录入、stop/start 线程必须 join、退出只卸自己的 HHOOK、overlap bump + generation settle、契约测试防回归。
+**What was built** — 修复映射热键「通常录不上」：前端在录入期间直接用 WebView `keydown` 组成并弦并保存（Shift+F10 / A / Ctrl+P 不再依赖低级钩子是否收到键）。Esc 与修饰键组合现在同样作为候选按键；取消只由界面、超时或生命周期触发。后端保留 LL 钩子吞键与诊断：探针不再否决录入、stop/start 线程必须 join、退出只卸自己的 HHOOK、overlap bump + generation settle、契约测试防回归。
 
 **Verification** — 用户实测 Shift+F10、A、Ctrl+P 均正常录入。CI：`debug/capture-root-cause` 多次 `build-nsis` success；本包 `bc00403` run 35589997219 success。
 

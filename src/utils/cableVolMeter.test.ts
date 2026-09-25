@@ -10,7 +10,7 @@ import {
 
 describe("cableVolMeter", () => {
   it("maps silence to floor dB", () => {
-    expect(cableLevelToDb(0)).toBe(-42);
+    expect(cableLevelToDb(0)).toBe(-60);
   });
 
   it("maps full scale to 0 dBFS", () => {
@@ -18,16 +18,16 @@ describe("cableVolMeter", () => {
   });
 
   it("classifies zones on dB thresholds", () => {
-    expect(cableZoneForDb(-42)).toBe("idle");
-    expect(cableZoneForDb(-36)).toBe("low");
+    expect(cableZoneForDb(-60)).toBe("idle");
+    expect(cableZoneForDb(-48)).toBe("low");
     expect(cableZoneForDb(-12)).toBe("ok");
     expect(cableZoneForDb(-3)).toBe("high");
-    expect(CABLE_VOL_DB_LOW).toBe(-28);
+    expect(CABLE_VOL_DB_LOW).toBe(-36);
     expect(CABLE_VOL_DB_HIGH).toBe(-6);
   });
 
   it("converts level to pct monotonically", () => {
-    expect(cableDbToPct(-42)).toBe(0);
+    expect(cableDbToPct(-60)).toBe(0);
     expect(cableDbToPct(0)).toBe(100);
     // 0.5 linear ≈ -6.02 dBFS → ok (not yet high)
     expect(cableZoneForLevel(0.5)).toBe("ok");

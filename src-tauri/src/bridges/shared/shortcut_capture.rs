@@ -119,7 +119,7 @@ pub fn vk_to_label(vk: u32) -> String {
         0x0D => "Enter".into(),
         0x13 => "Pause".into(),
         0x14 => "CapsLock".into(),
-        0x1B => "Esc".into(),
+        VK_ESCAPE => "Esc".into(),
         0x20 => "Space".into(),
         0x21 => "PageUp".into(),
         0x22 => "PageDown".into(),
@@ -275,7 +275,6 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
 struct CaptureRuntime {
     stop: AtomicBool,
     capturing: AtomicBool,
-    cancel_requested: AtomicBool,
     deadline: Mutex<Option<Instant>>,
     pending: Mutex<Option<ShortcutCapturedPayload>>,
     progress: Mutex<Vec<String>>,
@@ -287,7 +286,6 @@ impl CaptureRuntime {
         Self {
             stop: AtomicBool::new(true),
             capturing: AtomicBool::new(false),
-            cancel_requested: AtomicBool::new(false),
             deadline: Mutex::new(None),
             pending: Mutex::new(None),
             progress: Mutex::new(Vec::new()),
@@ -336,12 +334,6 @@ impl CaptureRuntime {
         }
     }
 
-    fn request_cancel(&self) {
-        self.cancel_requested.store(true, Ordering::SeqCst);
-        self.capturing.store(false, Ordering::SeqCst);
-        self.stop.store(true, Ordering::SeqCst);
-    }
-
     fn expired(&self) -> bool {
         self.deadline
             .lock()
@@ -365,6 +357,7 @@ impl CaptureRuntime {
 pub struct ShortcutPollSnapshot {
     pub pending: Option<ShortcutCapturedPayload>,
     pub progress: Vec<String>,
+    pub active: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -489,14 +482,6 @@ fn probe_hook_alive() {
 pub fn feed_capture_key(vk: u32, is_down: bool) {
     // 探针键绝不进引擎（否则会 publish 成用户绑定）
     if vk == PROBE_VK {
-        return;
-    }
-    if vk == VK_ESCAPE && is_down {
-        if let Ok(runtime) = HOOK_RUNTIME.try_lock() {
-            if let Some(runtime) = runtime.as_ref() {
-                runtime.request_cancel();
-            }
-        }
         return;
     }
     if CAPTURE_SUBMITTED.load(Ordering::SeqCst) {
@@ -1036,7 +1021,6 @@ impl ShortcutCaptureSession {
         );
         self.runtime.stop.store(true, Ordering::SeqCst);
         self.runtime.capturing.store(false, Ordering::SeqCst);
-        self.runtime.cancel_requested.store(false, Ordering::SeqCst);
         *self.runtime.deadline.lock().unwrap() = None;
         consumer_listen::stop();
 
@@ -1064,7 +1048,6 @@ impl ShortcutCaptureSession {
         self.runtime.progress.lock().unwrap().clear();
         self.runtime.stop.store(false, Ordering::SeqCst);
         self.runtime.capturing.store(true, Ordering::SeqCst);
-        self.runtime.cancel_requested.store(false, Ordering::SeqCst);
         *self.runtime.deadline.lock().unwrap() = Some(Instant::now() + CAPTURE_TIMEOUT);
         reset_hook_session();
 
@@ -1113,17 +1096,19 @@ impl ShortcutCaptureSession {
 
     /// 取出最终结果（若有）并同时返回当前进度标签，供前端在 emit 丢失时刷新 live UI。
     pub fn poll_snapshot(&self) -> ShortcutPollSnapshot {
-        if self.runtime.cancel_requested.load(Ordering::SeqCst) || self.runtime.expired() {
+        if self.runtime.expired() {
             let _ = self.cancel();
         }
+        let pending = self.runtime.take_pending();
         ShortcutPollSnapshot {
-            pending: self.runtime.take_pending(),
+            active: pending.is_some() || self.runtime.capturing.load(Ordering::SeqCst),
+            pending,
             progress: self.runtime.peek_progress(),
         }
     }
 
     pub fn is_active(&self) -> bool {
-        if self.runtime.cancel_requested.load(Ordering::SeqCst) || self.runtime.expired() {
+        if self.runtime.expired() {
             let _ = self.cancel();
         }
         self.runtime.capturing.load(Ordering::SeqCst)
@@ -1155,14 +1140,12 @@ mod tests {
     }
 
     #[test]
-    fn capture_deadline_expires_and_cancel_request_is_visible() {
-        let runtime = CaptureRuntime::new();
-        assert!(!runtime.expired());
-        *runtime.deadline.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1));
-        assert!(runtime.expired());
-        runtime.request_cancel();
-        assert!(runtime.cancel_requested.load(Ordering::SeqCst));
-        assert!(!runtime.capturing.load(Ordering::SeqCst));
+    fn capture_deadline_expires_and_poll_reports_inactive() {
+        let session = ShortcutCaptureSession::new();
+        *session.runtime.deadline.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1));
+        let snapshot = session.poll_snapshot();
+        assert!(snapshot.pending.is_none());
+        assert!(!snapshot.active);
     }
 
     #[test]
@@ -1188,6 +1171,25 @@ mod tests {
         assert_eq!(
             eng.step(&frame(&[(0x41, true)])),
             CaptureStep::Captured(vec![0x41])
+        );
+    }
+
+    #[test]
+    fn capture_escape_as_main_key() {
+        let mut eng = idle_engine();
+        assert_eq!(
+            eng.on_event(VK_ESCAPE, true),
+            CaptureStep::Captured(vec![VK_ESCAPE])
+        );
+    }
+
+    #[test]
+    fn capture_modifier_plus_escape_as_main_key() {
+        let mut eng = idle_engine();
+        eng.on_event(VK_LCONTROL, true);
+        assert_eq!(
+            eng.on_event(VK_ESCAPE, true),
+            CaptureStep::Captured(vec![VK_LCONTROL, VK_ESCAPE])
         );
     }
 

@@ -163,10 +163,28 @@ pub fn postprocess(samples: &[i16], gain_db: f32) -> Vec<i16> {
     samples
         .iter()
         .map(|&s| {
-            let v = (s as f32 * gain).round();
-            v.clamp(-32768.0, 32767.0) as i16
+            let v = s as f32 * gain;
+            soft_clip(v)
         })
         .collect()
+}
+
+fn soft_clip(value: f32) -> i16 {
+    const LIMIT: f32 = 32767.0;
+    const KNEE: f32 = LIMIT * 0.75;
+    let magnitude = value.abs();
+    let clipped = if magnitude <= KNEE {
+        magnitude
+    } else {
+        let range = LIMIT - KNEE;
+        KNEE + range * ((magnitude - KNEE) / range).tanh()
+    };
+    let signed = if value.is_sign_negative() {
+        -clipped
+    } else {
+        clipped
+    };
+    signed.round().clamp(-LIMIT, LIMIT) as i16
 }
 
 impl Default for AdpcmDecoder {
@@ -213,6 +231,21 @@ mod tests {
         decoder.reset();
         assert_eq!(decoder.predictor, 0);
         assert_eq!(decoder.step_index, 0);
+    }
+
+    #[test]
+    fn postprocess_soft_limits_large_gain_without_hard_clipping() {
+        let output = postprocess(&[i16::MAX, i16::MIN], 30.0);
+        assert!(output[0] > i16::MAX - 256);
+        assert!(output[1] < i16::MIN + 256);
+        assert!(output[0].abs() <= i16::MAX);
+        assert!(output[1].abs() <= i16::MAX);
+    }
+
+    #[test]
+    fn postprocess_keeps_quiet_linear_gain() {
+        let output = postprocess(&[1000], 6.0);
+        assert_eq!(output[0], 1995);
     }
 
     #[test]

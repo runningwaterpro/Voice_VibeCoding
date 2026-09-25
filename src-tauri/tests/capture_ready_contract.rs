@@ -167,6 +167,15 @@ fn stop_only_at_app_lifecycle_not_reconnect() {
 }
 
 #[test]
+fn escape_is_a_capture_candidate_not_an_implicit_cancel() {
+    let frontend = include_str!("../../src/components/KeyMappingStage.vue");
+    assert!(!frontend.contains("e.key === \"Escape\""));
+
+    let backend = include_str!("../src/bridges/shared/shortcut_capture.rs");
+    assert!(!backend.contains("vk == VK_ESCAPE && is_down"));
+}
+
+#[test]
 fn frontend_records_chord_from_webview_keydown() {
     // 第一性：钩子可能收不到键，但 WebView 能收到 keydown —— 必须能从前端录。
     for rel in ["src/components/KeyMappingStage.vue"] {

@@ -12,9 +12,21 @@ _Avoid_: T1, V60, generic remote support
 The association between one physical RC003 button and the computer action it produces.
 _Avoid_: key configuration, shortcut editor
 
+**Button capture**:
+The active process of collecting a physical key sequence as a candidate Button mapping. Every observed key, including Esc, is a candidate during capture.
+_Avoid_: implicit cancel, Escape-to-cancel
+
+**Capture cancellation**:
+The explicit end of a Button capture without accepting a candidate. It is a separate user action or lifecycle event, never inferred from a captured key.
+_Avoid_: Escape-to-cancel, accidental capture commit
+
 **Press-to-talk voice**:
 A voice interaction that begins when the RC003 voice button is pressed and ends when it is released.
 _Avoid_: toggle voice, hands-free voice
+
+**Automatic gain**:
+The bounded live adjustment of voice input toward a target output level so distant speech remains audible. The user-facing outcome is intelligible speech, not a particular displayed gain number.
+_Avoid_: fixed volume boost, automatic microphone permission
 
 **Voice readiness**:
 The condition in which a press-to-talk attempt has all required user-visible prerequisites available, including pairing, remote connection, voice channel, virtual input, and audio delivery.

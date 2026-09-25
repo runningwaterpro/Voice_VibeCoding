@@ -1,11 +1,11 @@
-/** 送声/输入标尺：电平 0..1 → dBFS（RMS 为主，量程 -42..0） */
+/** 送声/输入标尺：电平 0..1 → dBFS（RMS 为主，量程 -60..0） */
 
-export const CABLE_VOL_DB_MIN = -42;
+export const CABLE_VOL_DB_MIN = -60;
 export const CABLE_VOL_DB_MAX = 0;
-export const CABLE_VOL_DB_LOW = -28;
+export const CABLE_VOL_DB_LOW = -36;
 export const CABLE_VOL_DB_HIGH = -6;
 
-export const CABLE_VOL_TICKS = [-36, -24, -12, -6, 0] as const;
+export const CABLE_VOL_TICKS = [-48, -36, -24, -12, 0] as const;
 
 export function cableLevelToDb(level: number): number {
   const v = Math.max(0, Math.min(1, level));

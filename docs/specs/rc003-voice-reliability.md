@@ -53,7 +53,7 @@ WinUHid 的无界面安装可以自动开始并显示步骤；需要 UAC 时由 
 33. As a user, I want the interface to show one primary next action and optional details, so that repair does not present several competing controls.
 34. As a user, I want the current missing capability to remain visible, so that I do not think the application is ready when it is not.
 35. As a user, I want raw-input fallback disabled when it cannot identify the RC003, so that ordinary keyboard input cannot trigger remote mappings.
-36. As a user, I want shortcut capture to cancel safely on Escape and inactivity, so that my keyboard is never left swallowed.
+36. As a user, I want every physical key observed during button capture, including Escape and modifier combinations, to become a candidate mapping, so that “press what you want mapped” is literal. Cancellation is explicit through the interface, inactivity timeout, or window/page lifecycle and never inferred from a captured key.
 37. As a user, I want a failed mapping save to roll back the displayed value, so that the interface never shows a mapping that was not persisted.
 38. As a developer, I want T1/V60 code and commands removed, so that unsupported paths do not remain in the release surface.
 39. As a developer, I want one VoiceSession interface to test, so that tests exercise production sequencing instead of disconnected helper functions.
@@ -80,6 +80,8 @@ WinUHid 的无界面安装可以自动开始并显示步骤；需要 UAC 时由 
 15. Configuration and mapping changes are committed only after persistence succeeds; failed saves roll back the visible draft.
 16. The implementation begins with P0 user-facing and safety fixes, then establishes lifecycle tests, then performs the VoiceSession and supporting module refactors.
 17. The release surface must not expose T1/V60, and in-app update behavior must not point at an unrelated upstream source.
+18. Button capture treats Escape and modifier combinations as ordinary candidates. Capture cancellation is a separate explicit lifecycle action so a desired mapping can never be lost to an implicit shortcut meaning.
+19. Automatic gain uses a bounded, time-based controller: absolute silence is protected, distant speech in the quiet band is amplified more quickly, the target is approximately -18 dBFS, the ceiling is +30 dB, and output uses soft limiting rather than hard clipping.
 
 ## Testing Decisions
 
@@ -94,7 +96,7 @@ WinUHid 的无界面安装可以自动开始并显示步骤；需要 UAC 时由 
 9. Raw Input tests verify that arbitrary keyboard events are ignored or the production fallback is disabled.
 10. Default-microphone tests verify that setup never changes the default capture endpoint or microphone privacy settings.
 11. Hardware acceptance uses real Windows 10/11, RC003, Doubao, and Qianwen. It verifies pairing, press-to-talk, first audio packet, release, ordinary button mappings, disconnect/reconnect, and clean shutdown.
-12. CI runs frontend unit tests, frontend build, Rust tests, Rust formatting checks, and Windows integration tests where the environment supports them. Source-string contract tests are not sufficient as the only protection.
+12. CI runs frontend unit tests, frontend build, Rust compile/format checks, and Windows packaging. Full Rust runtime tests remain a separate command because the Tauri Windows test harness can fail before test execution with `STATUS_ENTRYPOINT_NOT_FOUND`; source-string contract tests are not sufficient as the only protection.
 13. Existing capture, voice chord, first-packet, and configuration tests are prior art and should be retained or rewritten to cross the VoiceSession seam rather than duplicate production logic.
 
 ## Out of Scope
