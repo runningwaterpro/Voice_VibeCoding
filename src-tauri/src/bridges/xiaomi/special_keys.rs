@@ -430,7 +430,6 @@ fn hook_loop() {
         // CAS：仅当仍是自己的句柄时清空
         #[cfg(target_os = "windows")]
         {
-            use std::sync::atomic::AtomicPtr;
             let _ = HOOK_PTR.compare_exchange(
                 mine.0,
                 std::ptr::null_mut(),

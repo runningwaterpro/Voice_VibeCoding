@@ -204,7 +204,10 @@ pub fn end_session() -> Result<(), String> {
         // Ending an already-clean session is idempotent.
         return Ok(());
     };
-    c.sock.send_to(b"END", c.peer).map_err(|e| e.to_string())
+    c.sock
+        .send_to(b"END", c.peer)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 pub fn push_16k(samples: &[i16]) -> Result<(), String> {

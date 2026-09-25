@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// 轻量修复：强制会话立刻重试 ATVV 订阅（不整桥重启）
 static FORCE_ATVV_RETRY: AtomicBool = AtomicBool::new(false);
