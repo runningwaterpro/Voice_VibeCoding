@@ -308,10 +308,10 @@ pub async fn capture_shortcut_stop(
 
 /// 记录一次录入期间的按键活动，延长无操作超时。
 #[tauri::command]
-pub async fn capture_shortcut_touch(
+pub async fn capture_shortcut_activity(
     session: State<'_, crate::bridges::shared::shortcut_capture::ShortcutCaptureSession>,
 ) -> Result<(), String> {
-    session.touch();
+    session.extend_capture_deadline();
     Ok(())
 }
 

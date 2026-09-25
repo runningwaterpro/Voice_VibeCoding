@@ -70,6 +70,7 @@ function isLeftButton(id: string): boolean {
 }
 
 function openManualShortcutEditor() {
+  if (captureStartPending.value) return;
   const id = selectedId.value;
   if (!id) return;
   const action = props.config.button_bindings?.[id] || { type: "None", value: null };
@@ -346,6 +347,7 @@ function updateLine() {
 }
 
 async function selectButton(id: string) {
+  if (captureStartPending.value) return;
   if (selectedId.value === id) {
     if (capturing.value) {
       await cancelCapture();
@@ -451,7 +453,7 @@ function blockBrowserKeysDuringCapture(e: KeyboardEvent) {
   if (!capturing.value) return;
   e.preventDefault();
   e.stopPropagation();
-  void invoke("capture_shortcut_touch").catch(() => {});
+  void invoke("capture_shortcut_activity").catch(() => {});
   if (applied) return;
   const chord = chordFromEvent(e);
   if (chord.length > 0) {
@@ -481,7 +483,7 @@ function startPolling() {
         pending: { keys: number[]; labels: string[] } | null;
         progress: string[];
         active: boolean;
-        timed_out: boolean;
+        timedOut: boolean;
       }>("capture_shortcut_poll");
       if (Array.isArray(snap?.progress) && snap.progress.length > 0) {
         liveLabels.value = snap.progress;
@@ -489,8 +491,8 @@ function startPolling() {
       const result = snap?.pending;
       if (result && Array.isArray(result.keys) && result.keys.length > 0) {
         onCaptured(result.keys, result.labels || []);
-      } else if (snap && snap.timed_out && capturing.value) {
-        resetCaptureUi("快捷键录入已超时或已取消");
+      } else if (snap && snap.timedOut && capturing.value) {
+        resetCaptureUi("快捷键录入已超时，请重新开始");
       }
     } catch (e) {
       console.warn("capture poll failed", e);
@@ -518,6 +520,7 @@ async function onCaptured(keys: number[], labels: string[]) {
 }
 
 async function startCapture() {
+  if (disposed || captureStartPending.value) return;
   const buttonId = selectedId.value;
   if (!buttonId) return;
   if (capturing.value) {
@@ -742,7 +745,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="btn-sm btn-edit"
-                :disabled="capturing && selectedId !== btn.id"
+                :disabled="captureStartPending || (capturing && selectedId !== btn.id)"
                 @click="startCapture"
               >
                 {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
@@ -756,7 +759,7 @@ onUnmounted(() => {
                 v-if="btn.action.type !== 'None'"
                 type="button"
                 class="btn-sm btn-clear"
-                :disabled="capturing"
+                :disabled="capturing || captureStartPending"
                 @click="clearBinding(btn.id)"
               >
                 清除
@@ -857,7 +860,7 @@ onUnmounted(() => {
                 <button
                   type="button"
                   class="btn-sm btn-edit"
-                  :disabled="capturing && selectedId !== btn.id"
+                  :disabled="captureStartPending || (capturing && selectedId !== btn.id)"
                   @click="startCapture"
                 >
                   {{ capturing && selectedId === btn.id ? "取消录入" : "录入" }}
@@ -871,7 +874,7 @@ onUnmounted(() => {
                   v-if="btn.action.type !== 'None'"
                   type="button"
                   class="btn-sm btn-clear"
-                  :disabled="capturing"
+                  :disabled="capturing || captureStartPending"
                   @click="clearBinding(btn.id)"
                 >
                   清除

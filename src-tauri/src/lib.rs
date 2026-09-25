@@ -239,7 +239,7 @@ pub fn run() {
             ipc::commands::update_key_mapping,
             ipc::commands::capture_shortcut_start,
             ipc::commands::capture_shortcut_stop,
-            ipc::commands::capture_shortcut_touch,
+            ipc::commands::capture_shortcut_activity,
             ipc::commands::capture_shortcut_poll,
             ipc::commands::get_audio_devices,
             ipc::commands::get_bridge_logs,

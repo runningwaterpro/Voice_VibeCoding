@@ -1086,6 +1086,8 @@ impl VoiceSessionAdapters for AtvvVoiceAdapters {
     }
 }
 
+const AUDIO_SETTLE_GUARD: Duration = Duration::from_millis(80);
+
 /// ATVV 语音会话共享状态
 struct AtvvVoiceState {
     decoder: crate::bridges::xiaomi::adpcm_decoder::AdpcmDecoder,
@@ -1097,6 +1099,8 @@ struct AtvvVoiceState {
     frames: u64,
     /// 遥控语音键当前是否按下
     remote_pressed: bool,
+    /// 丢弃上一次按压结束后短暂到达的旧音频帧
+    audio_quarantine_until: Option<Instant>,
     voice: VoiceSession<AtvvVoiceAdapters>,
 }
 
@@ -1158,7 +1162,10 @@ fn on_voice_remote_press(app: &AppHandle, gate: &KeyEmitGate, state: &Arc<Mutex<
             return;
         }
         if let Some(config) = config.as_ref() {
-            crate::bridges::xiaomi::voice_gain::begin_session(config.gain_auto, config.gain_db);
+            crate::bridges::xiaomi::voice_gain::begin_voice_gain_session(
+                config.gain_auto,
+                config.gain_db,
+            );
         }
         arm_atvv_voice_state(&mut st, true);
         st.remote_pressed = true;
@@ -1206,6 +1213,7 @@ fn on_voice_remote_release(
             return;
         }
         st.streaming = false;
+        st.audio_quarantine_until = Some(Instant::now() + AUDIO_SETTLE_GUARD);
         st.pending.clear();
         let snapshot = st.voice.handle(VoiceEvent::Release);
         st.remote_pressed = snapshot.pressed;
@@ -1327,6 +1335,7 @@ fn subscribe_atvv_service(
         gain_db,
         frames: 0,
         remote_pressed: false,
+        audio_quarantine_until: None,
         voice,
     }));
 
@@ -1453,6 +1462,9 @@ fn handle_atvv_audio(app: &AppHandle, state: &Arc<Mutex<AtvvVoiceState>>, payloa
     let Ok(mut st) = state.lock() else {
         return;
     };
+    if matches!(st.audio_quarantine_until, Some(until) if Instant::now() < until) {
+        return;
+    }
     if !st.streaming {
         // Audio without a current press is not a valid hold-to-talk session.
         if !st.remote_pressed {

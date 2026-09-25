@@ -342,7 +342,7 @@ impl CaptureRuntime {
             .unwrap_or(false)
     }
 
-    fn touch(&self) {
+    fn extend_capture_deadline(&self) {
         if self.capturing.load(Ordering::SeqCst) {
             if let Ok(mut deadline) = self.deadline.try_lock() {
                 *deadline = Some(Instant::now() + CAPTURE_TIMEOUT);
@@ -512,7 +512,7 @@ pub fn feed_capture_key(vk: u32, is_down: bool) {
         Err(_) => return,
     };
     if let Some(runtime) = runtime {
-        runtime.touch();
+        runtime.extend_capture_deadline();
         if runtime.capturing.load(Ordering::SeqCst) {
             match step {
                 CaptureStep::Captured(keys) => {
@@ -1022,8 +1022,8 @@ impl ShortcutCaptureSession {
         }
     }
 
-    pub fn touch(&self) {
-        self.runtime.touch();
+    pub fn extend_capture_deadline(&self) {
+        self.runtime.extend_capture_deadline();
     }
 
     pub fn cancel(&self) -> Result<(), String> {
@@ -1169,7 +1169,7 @@ mod tests {
         let runtime = CaptureRuntime::new();
         runtime.capturing.store(true, Ordering::SeqCst);
         *runtime.deadline.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1));
-        runtime.touch();
+        runtime.extend_capture_deadline();
         assert!(!runtime.expired());
     }
 

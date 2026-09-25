@@ -89,7 +89,7 @@ pub fn set_auto_enabled(on: bool) {
 
 /// 开始一次新的按压会话。自动增益从配置中的手动基准重新开始，
 /// 不继承上一句话的 live 值或控制器状态。
-pub fn begin_session(auto_enabled: bool, manual_gain_db: f32) {
+pub fn begin_voice_gain_session(auto_enabled: bool, manual_gain_db: f32) {
     set_auto_enabled(auto_enabled);
     set_gain_db(manual_gain_db);
 }
@@ -101,6 +101,10 @@ pub fn auto_enabled() -> bool {
 /// 每帧调用：根据输入电平自动调整增益。仅在 auto 模式下生效。
 /// `input_level` 是 voice_meter 算出的 0..1 RMS+峰值混合值。
 pub fn auto_adjust(input_level: f32) {
+    auto_adjust_at(input_level, Instant::now());
+}
+
+fn auto_adjust_at(input_level: f32, now: Instant) {
     if !auto_enabled() {
         return;
     }
@@ -114,7 +118,6 @@ pub fn auto_adjust(input_level: f32) {
     } else {
         -90.0
     };
-    let now = Instant::now();
     let mut state = AGC_STATE.lock();
 
     // 只有绝对静音才冻结；-60..-40 dBFS 的远距离语音仍可慢速升增益。
@@ -168,6 +171,7 @@ pub fn auto_adjust(input_level: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn gain_clamps_to_ui_range() {
@@ -185,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn begin_session_resets_auto_gain_to_manual_baseline() {
+    fn begin_voice_gain_session_resets_auto_gain_to_manual_baseline() {
         set_auto_enabled(true);
         set_gain_db(10.0);
         let quiet_level = 10f32.powf(-50.0 / 20.0);
@@ -193,7 +197,7 @@ mod tests {
             auto_adjust(quiet_level);
         }
         assert!(gain_db() > 10.0);
-        begin_session(true, 10.0);
+        begin_voice_gain_session(true, 10.0);
         assert_eq!(gain_db(), 10.0);
         set_auto_enabled(false);
     }
@@ -212,8 +216,9 @@ mod tests {
         set_gain_db(10.0);
         let quiet_level = 10f32.powf(-50.0 / 20.0);
         // 20 个典型 15ms ATVV 帧，模拟约 300ms 的远距离语音起音。
-        for _ in 0..20 {
-            auto_adjust(quiet_level);
+        let start = Instant::now();
+        for frame in 0..20 {
+            auto_adjust_at(quiet_level, start + Duration::from_millis((frame + 1) * 15));
         }
         assert!(
             gain_db() >= 12.0,
