@@ -2,6 +2,8 @@
 
 This gate is manual and release-blocking. Run it on a real Windows 10 or Windows 11 machine with the RC003, VB-CABLE, WinUHid, Doubao, and Qianwen available.
 
+CI uses `cargo check --all-targets` as the blocking Rust gate. The full Windows `cargo test` harness is available as `npm run test:rust:run`, but is not used to block installer packaging because Tauri dialog dependencies can make the test executable fail at process startup with `STATUS_ENTRYPOINT_NOT_FOUND` even when compilation succeeds.
+
 ## Before setup
 
 - [ ] Record the current Windows default microphone.
