@@ -65,12 +65,14 @@ const ariaLabel = computed(() => {
   flex-shrink: 0;
 }
 
+/* 内缩会让 100% 时填充条仍差 1px 碰不到边框，看起来“不满”。
+   轨道贴住 padding box，边框本身承担外轮廓，scaleX(1) 才是真正的满格。 */
 .battery-track {
   position: absolute;
-  top: 1px;
-  left: 1px;
-  right: 1px;
-  bottom: 1px;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   border-radius: 1px;
   overflow: hidden;
 }
@@ -112,9 +114,5 @@ const ariaLabel = computed(() => {
 
 .battery-icon.is-unknown {
   color: #94a3b8;
-}
-
-.battery-icon.is-unknown .battery-fill {
-  width: 0 !important;
 }
 </style>
