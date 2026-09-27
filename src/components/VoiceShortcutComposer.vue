@@ -273,7 +273,8 @@ watch(() => props.initialKeys, resetFromKeys, { immediate: true });
     transform: none !important;
   }
 }
-@media (max-width: 760px) {
+/* 断点 700：窗口已收窄到 722px，录入面板保持原布局不折行 */
+@media (max-width: 700px) {
   .shortcut-composer-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

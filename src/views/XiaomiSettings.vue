@@ -2747,7 +2747,8 @@ async function retryLoadConfig() {
   font-weight: 400;
   color: var(--text-secondary);
 }
-@media (max-width: 840px) {
+/* 断点 700：窗口已收窄到 722px，此处不再让概览行变单列 */
+@media (max-width: 700px) {
   .overview-row {
     grid-template-columns: 1fr;
   }
@@ -3406,7 +3407,8 @@ async function retryLoadConfig() {
   gap: 10px;
   align-items: start;
 }
-@media (max-width: 900px) {
+/* 断点 700：窗口已收窄到 722px，此处不再让电平表叠成单列 */
+@media (max-width: 700px) {
   .status-meters-row {
     grid-template-columns: 1fr;
   }
