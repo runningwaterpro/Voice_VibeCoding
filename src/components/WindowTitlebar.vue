@@ -149,6 +149,12 @@ onUnmounted(() => {
   transition: background-color 120ms cubic-bezier(0.23, 1, 0.32, 1), color 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .win-ctl {
+    transition: none;
+  }
+}
+
 .win-ctl:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #e8ecf1;

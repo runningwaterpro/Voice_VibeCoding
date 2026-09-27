@@ -95,6 +95,15 @@ function buttonText(status: BridgeStatus): string {
   50% { opacity: 0.3; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .status-indicator.connecting .dot {
+    animation: none;
+  }
+  .btn {
+    transition: none;
+  }
+}
+
 .btn {
   padding: 8px 16px;
   border: none;

@@ -10,9 +10,11 @@ const clampedLevel = computed(() => {
   return Math.max(0, Math.min(100, Math.round(props.level)));
 });
 
-const fillWidth = computed(() =>
-  clampedLevel.value == null ? "0%" : `${clampedLevel.value}%`
-);
+/* 电量读数会频繁变化，用 scaleX 走合成层，避免 width 触发布局 */
+const fillTransform = computed(() => {
+  const level = clampedLevel.value;
+  return `scaleX(${level == null ? 0 : level / 100})`;
+});
 
 const tone = computed(() => {
   const level = clampedLevel.value;
@@ -37,7 +39,7 @@ const ariaLabel = computed(() => {
   >
     <span class="battery-body">
       <span class="battery-track">
-        <span class="battery-fill" :style="{ width: fillWidth }" />
+        <span class="battery-fill" :style="{ transform: fillTransform }" />
       </span>
     </span>
     <span class="battery-cap" aria-hidden="true" />
@@ -73,13 +75,20 @@ const ariaLabel = computed(() => {
   overflow: hidden;
 }
 
+/* 圆角交给 .battery-track 的 overflow 裁剪：scaleX 会把圆角横向拉变形 */
 .battery-fill {
   display: block;
+  width: 100%;
   height: 100%;
-  max-width: 100%;
-  border-radius: 1px;
+  transform-origin: left center;
   background: currentColor;
-  transition: width 0.25s ease, background-color 0.25s ease;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battery-fill {
+    transition: none;
+  }
 }
 
 .battery-cap {

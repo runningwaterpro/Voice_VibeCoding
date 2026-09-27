@@ -28,6 +28,14 @@ const props = withDefaults(
 
 const db = computed(() => cableLevelToDb(props.level));
 const markerPct = computed(() => cableDbToPct(db.value));
+/**
+ * 电平表每秒更新多次，必须走 transform 合成，不能动 left/width。
+ * translateX 的百分比按元素自身宽度解析，所以 marker 铺满整条轨，
+ * 偏移量才是轨道百分比（-1.5px 把 3px 指针居中在刻度上）。
+ */
+const markerTransform = computed(
+  () => `translateX(calc(${markerPct.value}% - 1.5px))`,
+);
 const zone = computed(() =>
   props.disabled ? "idle" : cableZoneForDb(db.value)
 );
@@ -80,7 +88,7 @@ const ariaLabel = computed(() => {
       />
       <span
         class="ruler-marker"
-        :style="{ left: `${markerPct}%` }"
+        :style="{ transform: markerTransform }"
         aria-hidden="true"
       />
     </div>
@@ -183,22 +191,41 @@ const ariaLabel = computed(() => {
   pointer-events: none;
 }
 
+/* 指针铺满轨道宽度，视觉条交给 ::before，位移才能用轨道百分比 */
 .ruler-marker {
   position: absolute;
   top: -4px;
   bottom: -4px;
-  width: 3px;
-  margin-left: -1.5px;
-  border-radius: 2px;
-  background: #e8ecf1;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 6px rgba(232, 236, 241, 0.35);
-  transition: left 100ms linear, background-color 120ms ease;
+  left: 0;
+  width: 100%;
+  transform: translateX(0);
+  transition: transform 100ms linear;
   pointer-events: none;
 }
 
-.shell-active.zone-high .ruler-marker {
+.ruler-marker::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: #e8ecf1;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 6px rgba(232, 236, 241, 0.35);
+  transition: background-color 120ms ease;
+}
+
+.shell-active.zone-high .ruler-marker::before {
   background: #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 8px rgba(224, 107, 107, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ruler-marker,
+  .ruler-marker::before {
+    transition: none;
+  }
 }
 
 .ruler-hint {

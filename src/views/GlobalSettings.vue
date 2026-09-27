@@ -249,9 +249,11 @@ async function checkUpdate() {
     </div>
 
     <Teleport to="body">
-      <div v-if="toastVisible" class="settings-toast" role="status">
-        设置已保存
-      </div>
+      <Transition name="settings-toast">
+        <div v-if="toastVisible" class="settings-toast" role="status">
+          设置已保存
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -484,17 +486,28 @@ async function checkUpdate() {
   font-weight: 500;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
   pointer-events: none;
-  animation: settings-toast-in 0.2s ease-out;
 }
 
-@keyframes settings-toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+.settings-toast-enter-active {
+  transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.settings-toast-leave-active {
+  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.settings-toast-enter-from,
+.settings-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle-slider,
+  .toggle-slider::before,
+  .settings-toast-enter-active,
+  .settings-toast-leave-active {
+    transition: none;
   }
 }
 </style>

@@ -138,6 +138,7 @@ function progressWidth(): string {
   justify-content: center;
   padding: 20px;
   background: rgba(15, 23, 42, 0.45);
+  animation: update-bd-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .update-dialog {
@@ -151,6 +152,28 @@ function progressWidth(): string {
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
   color: var(--text, #1e293b);
   overflow: hidden;
+  transform-origin: center;
+  animation: update-dialog-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes update-bd-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes update-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .update-dialog-scroll {
@@ -313,6 +336,17 @@ function progressWidth(): string {
   }
   100% {
     transform: translateX(320%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-backdrop,
+  .update-dialog,
+  .update-progress-track.indeterminate .update-progress-bar {
+    animation: none;
+  }
+  .update-progress-bar {
+    transition: none;
   }
 }
 </style>

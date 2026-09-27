@@ -740,4 +740,13 @@ defineExpose({ keyEl, rootRef });
   color: #6d737b;
   opacity: 0.85;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .key-cap,
+  .dpad-dir,
+  .key-ok,
+  .vol-hit {
+    transition: none;
+  }
+}
 </style>

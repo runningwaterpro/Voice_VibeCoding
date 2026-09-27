@@ -2483,14 +2483,16 @@ async function retryLoadConfig() {
   </div>
 
   <Teleport to="body">
-    <div
-      v-if="gainToastVisible"
-      class="gain-toast"
-      :class="{ 'gain-toast--error': gainToastError }"
-      role="status"
-    >
-      {{ gainToastMessage }}
-    </div>
+    <Transition name="gain-toast">
+      <div
+        v-if="gainToastVisible"
+        class="gain-toast"
+        :class="{ 'gain-toast--error': gainToastError }"
+        role="status"
+      >
+        {{ gainToastMessage }}
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -2973,8 +2975,7 @@ async function retryLoadConfig() {
   .voice-modal,
   .setup-tips-modal,
   .btn,
-  .stepper-btn,
-  .ruler-marker {
+  .stepper-btn {
     animation: none !important;
     transition: none !important;
     transform: none !important;
@@ -3372,7 +3373,6 @@ async function retryLoadConfig() {
   align-items: baseline;
 }
 
-.info-item-audio .ble-wave,
 .info-item-cable-vol .cable-vol-ruler {
   flex-shrink: 0;
   height: 28px;
@@ -3504,12 +3504,18 @@ async function retryLoadConfig() {
   padding: 16px 18px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
-.repair-modal-enter-active,
-.repair-modal-leave-active {
+/* 进场留给用户看清，离场要快：等长时序读起来像卡住 */
+.repair-modal-enter-active {
   transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.repair-modal-leave-active .repair-card {
+.repair-modal-leave-active {
+  transition: opacity 130ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.repair-modal-enter-active .repair-card {
   transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.repair-modal-leave-active .repair-card {
+  transition: transform 130ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .repair-modal-enter-from,
 .repair-modal-leave-to {
@@ -3780,44 +3786,6 @@ async function retryLoadConfig() {
 .info-item-audio.is-receiving .audio-state {
   color: #15803d;
 }
-.ble-wave {
-  height: 28px;
-  padding: 0;
-  border-radius: 4px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: #94a3b8;
-  overflow: hidden;
-}
-.ble-wave-svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.ble-wave-fill {
-  fill: currentColor;
-  opacity: 0.22;
-  transition: d 60ms linear;
-}
-.ble-wave-line {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  transition: points 60ms linear;
-}
-.info-item-audio.is-receiving .ble-wave {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-  color: #16a34a;
-}
-.info-item-audio.is-session .ble-wave {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #d97706;
-}
-
 .info-label {
   font-size: 12px;
   color: var(--text-secondary);
@@ -4027,21 +3995,30 @@ async function retryLoadConfig() {
   font-weight: 500;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
   pointer-events: none;
-  animation: gain-toast-in 0.2s ease-out;
 }
 
 .gain-toast--error {
   background: rgba(127, 29, 29, 0.94);
 }
 
-@keyframes gain-toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+.gain-toast-enter-active {
+  transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.gain-toast-leave-active {
+  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.gain-toast-enter-from,
+.gain-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gain-toast-enter-active,
+  .gain-toast-leave-active {
+    transition: none;
   }
 }
 
