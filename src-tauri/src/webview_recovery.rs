@@ -30,16 +30,18 @@ pub fn reveal_webview(window: &WebviewWindow) {
 
 /// 最小化到托盘：show + minimize + 不占任务栏。
 /// **禁止 hide()**：长期 hide 会让 Windows 回收 WebView2，导致白屏/黑屏。
-pub fn minimize_main_to_tray(window: &WebviewWindow) {
+pub fn minimize_main_to_tray(window: &WebviewWindow, reason: &str) {
     reveal_webview(window);
     let _ = window.show();
     let _ = window.minimize();
     let _ = window.set_skip_taskbar(true);
-    log::info!("WINDOW: minimized to tray (skip_taskbar, no hide)");
+    log::info!("WINDOW: minimized to tray reason={reason} (skip_taskbar, no hide)");
 }
 
 /// 还原主窗口到前台（托盘左键 / 二次启动 / 菜单「打开状态」）
 pub fn restore_main_window(app: &AppHandle) {
+    // 启动到托盘是一次性启动策略；用户恢复后，后续前端重载不能再次最小化。
+    set_boot_to_tray(false);
     if let Some(window) = app.get_webview_window(MAIN_LABEL) {
         let _ = window.set_skip_taskbar(false);
         reveal_webview(&window);
@@ -53,7 +55,7 @@ pub fn restore_main_window(app: &AppHandle) {
 pub fn reveal_main_on_frontend_ready(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_LABEL) {
         if boot_to_tray() {
-            minimize_main_to_tray(&window);
+            minimize_main_to_tray(&window, "frontend_ready");
         } else {
             let _ = window.set_skip_taskbar(false);
             reveal_webview(&window);
@@ -75,7 +77,8 @@ pub fn attach_main_window_close_handler(app: &AppHandle, window: &WebviewWindow)
                 .unwrap_or(true);
             if minimize {
                 api.prevent_close();
-                minimize_main_to_tray(&window_);
+                log::info!("WINDOW: CloseRequested -> minimize_to_tray");
+                minimize_main_to_tray(&window_, "close_requested");
             } else {
                 // 关窗即退出（托盘仍存活时须主动 exit）
                 api.prevent_close();

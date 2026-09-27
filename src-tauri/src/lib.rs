@@ -134,7 +134,9 @@ pub fn run() {
                         .name("start-to-tray".into())
                         .spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(800));
-                            webview_recovery::minimize_main_to_tray(&win);
+                            if webview_recovery::boot_to_tray() {
+                                webview_recovery::minimize_main_to_tray(&win, "startup_fallback");
+                            }
                         })?;
                 } else {
                     // 正常启动：visible:false 防闪；前端就绪优先 show，此处作兜底
