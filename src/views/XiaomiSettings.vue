@@ -255,7 +255,9 @@ function describeStepError(raw: string): string {
 
 const showRepairModal = computed(() => {
   const snapshot = voiceStatus.snapshot;
-  const allReady = Boolean(snapshot?.voice_ready);
+  // 状态尚未加载时不要把“未知”显示成“正在启动桥接”。
+  if (!snapshot) return false;
+  const allReady = snapshot.voice_ready;
   if (autoRepairing.value) return !allReady;
   if (repairDismissed.value) return false;
   const connecting = connBusy.value || restarting.value;

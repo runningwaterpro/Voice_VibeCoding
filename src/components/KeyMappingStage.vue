@@ -1064,8 +1064,9 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 400;
   color: var(--text);
-  flex-shrink: 1;
+  flex: 0 0 auto;
   min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
 }
 
