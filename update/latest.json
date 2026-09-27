@@ -1,8 +1,8 @@
 {
-  "version": "1.2.0",
-  "notes": "RC003 按住说话稳定性升级：远距离自动增益、软限幅、全按键录入、录入超时与会话隔离。",
+  "version": "1.2.1",
+  "notes": "界面更紧凑：窗口收窄至 722px，热键条与容器边距缩小。",
   "giteePage": "",
-  "githubPage": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/tag/v1.2.0",
+  "githubPage": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/tag/v1.2.1",
   "giteeSetupUrl": "",
-  "githubSetupUrl": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/download/v1.2.0/Voice.VibeCoding_1.2.0_x64-setup.exe"
+  "githubSetupUrl": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/download/v1.2.1/Voice.VibeCoding_1.2.1_x64-setup.exe"
 }
