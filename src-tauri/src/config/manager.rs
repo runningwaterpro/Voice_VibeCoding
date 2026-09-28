@@ -126,7 +126,7 @@ impl DeviceConfig {
             voice_release_behavior: VoiceReleaseBehavior::None,
             bluetooth_address: None,
             gain_db: default_gain_db(),
-            gain_auto: false,
+            gain_auto: true,
             retry_delay: default_retry_delay(),
             voice_shortcut_enabled: true,
             tv_action_ready_delay: default_tv_delay(),
@@ -470,6 +470,10 @@ mod tests {
             Some(vec!["leftctrl".to_string(), "leftwin".to_string()])
         );
         assert_eq!(config.trigger_mode, TriggerMode::Hold);
+        assert!(
+            config.gain_auto,
+            "new installs should enable automatic gain"
+        );
     }
 
     #[test]
