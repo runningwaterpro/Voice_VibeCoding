@@ -7,7 +7,9 @@
 
 它把小米蓝牙遥控器 2 Pro 当作麦克风和键盘使用，专门解决 Windows 上“语音输入”和“遥控器热键”这两个具体问题。
 
-![Voice VibeCoding 主界面](docs/images/main-interface.png)
+<p align="center">
+  <img src="docs/images/main-interface.png" alt="Voice VibeCoding 主界面" width="720" />
+</p>
 
 > 这是实际使用中的主界面：上方显示输入音量、增益后音量和自动增益状态；下方显示小米蓝牙遥控器 2 Pro 的按键映射。语音卡片被选中时，表示当前正在使用语音键。
 
