@@ -88,7 +88,7 @@ pub fn diagnose_voice(bridge_alive: bool) -> VoiceDiag {
                 // 已能枚举到配对设备，但未订阅 → 闲置后通道掉线，不是没配对
                 code: "atvv_not_subscribed",
                 layer: "atvv",
-                message: "遥控器已配对/可发现，但语音通道未就绪。点「一键修复」重连语音通道；请保持遥控器开机并靠近电脑。".into(),
+                message: "遥控器已配对/可发现，但语音通道未就绪。点「一键修复」重连语音通道；请把遥控器拿近电脑。".into(),
             },
             Err(e) => VoiceDiag {
                 code: "discover_error",
@@ -432,7 +432,7 @@ fn map_winrt_null(context: &str, err: windows::core::Error) -> String {
     // WinRT 异步成功但返回 null 时，windows-rs 常报 0x00000000「操作成功完成」
     let code = err.code().0 as u32;
     if code == 0 {
-        format!("{context}：设备对象为空。请确认遥控器已开机、已在 Windows 配对，并靠近电脑后重试")
+        format!("{context}：设备对象为空。请确认遥控器已在 Windows 配对，并拿近电脑后重试")
     } else {
         format!("{context}: {err}")
     }
@@ -592,7 +592,7 @@ fn windows_open_via_address(candidate: &XiaomiCandidate) -> Result<XiaomiConnect
         .unwrap_or_else(|_| candidate.name.clone());
     if name.is_empty() && candidate.name.is_empty() {
         return Err(format!(
-            "未找到已配对 BLE 设备: {}（请确认 Windows 已配对且设备开机）",
+            "未找到已配对 BLE 设备: {}（请确认 Windows 已配对，且遥控器在范围内并已唤醒）",
             candidate.address
         ));
     }

@@ -222,7 +222,7 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
                 last_wait_log = Instant::now();
                 emit_message(
                     &app,
-                    "HID Tap 等待 RC003 WUDFHost（请确认遥控器已配对且开机）",
+                    "HID Tap 等待 RC003 WUDFHost（请确认遥控器已配对，并在范围内且已唤醒）",
                 );
                 tap_log("XIAOMI HID TAP waiting_for_rc003_host (HostPid registry miss — not normal when remote is connected)");
             }

@@ -570,6 +570,8 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
             if d.code == "pair_missing" {
                 "未找到遥控器".to_string()
             } else {
+                // atvv_not_subscribed：软件正按 retry_delay 自动重连，
+                // 遥控器拿近即可，不需要用户点修复。
                 "语音通道未就绪".to_string()
             },
             d.message,
@@ -602,13 +604,18 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
     };
 
     let voice_ready = bridge_alive && audio_alive && cable_ready && winuhid_ready && atvv_ok;
-    // 托盘：绿=语音就绪；红=桥接在跑但未完全就绪；黄=尚未起来
+    // 托盘：绿=语音就绪；红=需要修的软件故障；黄=还在等（桥接未起或遥控器不在）。
+    // 遥控器只是不在身边时不能标红：软件正在自动重连，红标会让用户误以为要处理。
+    let remote_present = app
+        .try_state::<BridgeState>()
+        .map(|state| state.get_info(BridgeType::Xiaomi).status == BridgeStatus::Connected)
+        .unwrap_or(false);
     let tray_kind = if voice_ready {
         crate::ipc::tray::TrayIconKind::Ready
-    } else if bridge_alive {
-        crate::ipc::tray::TrayIconKind::Error
-    } else {
+    } else if !bridge_alive || !remote_present {
         crate::ipc::tray::TrayIconKind::Init
+    } else {
+        crate::ipc::tray::TrayIconKind::Error
     };
     crate::ipc::tray::sync_runtime_icons(app, tray_kind);
 
@@ -1102,7 +1109,7 @@ pub(crate) fn run_atvv_repair_pipeline(
     if !ok && code == "ok" {
         code = "atvv_not_subscribed";
         if msg.is_empty() {
-            msg = "遥控器可发现，但语音通道仍未就绪。保持开机并靠近后再试。".into();
+            msg = "遥控器可发现，但语音通道仍未就绪。把遥控器拿近电脑，等它自动连上后再试。".into();
         }
     }
     log::info!("XIAOMI ATVV repair pipeline done atvv_ok={ok} code={code}");

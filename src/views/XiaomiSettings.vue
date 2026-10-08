@@ -165,7 +165,8 @@ type RailState =
   | "err_hid"
   | "err_cable"
   | "err_route"
-  | "err_bridge";
+  | "err_bridge"
+  | "remote_absent";
 
 const connBusy = ref(false);
 
@@ -186,7 +187,10 @@ const receivingNow = computed(() => voiceMeter.value.bleState === "receiving");
 const railStateRaw = computed<RailState>(() => {
   const snapshot = voiceStatus.snapshot;
   if (connectingNow.value) return "connecting";
-  if (!snapshot || !snapshot.worker_alive || !snapshot.device_connected) return "err_bridge";
+  if (!snapshot) return "err_bridge";
+  // 桥接进程挂 = 真故障；遥控器不在 = 等待用户拿近，两者不要混为一谈。
+  if (!snapshot.worker_alive) return "err_bridge";
+  if (!snapshot.device_connected) return "remote_absent";
   if (snapshot.status_code === "winuhid_missing") return "err_hid";
   if (snapshot.status_code === "audio_missing") return "err_route";
   if (receivingNow.value || snapshot.first_audio_packet) return "voice";
@@ -253,6 +257,16 @@ function describeStepError(raw: string): string {
   return raw.length > 80 ? raw.slice(0, 80) + "…" : raw;
 }
 
+/**
+ * 是否属于「软件修不了、只能等用户把遥控器拿近」的情况。
+ *
+ * 后端重连循环已按 retry_delay（默认 3s）无限重试，遥控器一回来按一下即可用。
+ * 这类情况没有可执行的修复动作，所以不弹「一键修复」，只在状态栏提示。
+ */
+const needsUserNearby = computed(
+  () => voiceStatus.snapshot?.status_code === "remote_absent",
+);
+
 const showRepairModal = computed(() => {
   const snapshot = voiceStatus.snapshot;
   // 状态尚未加载时不要把“未知”显示成“正在启动桥接”。
@@ -260,13 +274,17 @@ const showRepairModal = computed(() => {
   const allReady = snapshot.voice_ready;
   if (autoRepairing.value) return !allReady;
   if (repairDismissed.value) return false;
+  // 遥控器不在身边：后端正在自动重连，用户拿近就能用，不给无效的修复入口。
+  if (needsUserNearby.value) return false;
   const connecting = connBusy.value || restarting.value;
   return !allReady && !connecting;
 });
 const bootingPhase = computed(() => inBootGrace.value);
 const bootStepText = computed(() => {
   const snapshot = voiceStatus.snapshot;
-  if (!snapshot?.worker_alive || !snapshot.device_connected) return "正在启动桥接…";
+  // 区分两种“还没连上”：桥接没起来 vs 遥控器不在身边。
+  if (!snapshot?.worker_alive) return "正在启动桥接…";
+  if (!snapshot.device_connected) return "正在连接遥控器…";
   if (snapshot.status_code === "winuhid_missing") return "正在初始化虚拟键盘…";
   if (snapshot.status_code === "audio_missing") return "正在建立语音路由…";
   return "即将就绪…";
@@ -276,10 +294,9 @@ const errorTitle = computed(() => {
   if (!snapshot || snapshot.voice_ready) return "状态正常";
   return snapshot.detail || "语音环境未就绪";
 });
-const canDismiss = computed(() => {
-  const snapshot = voiceStatus.snapshot;
-  return Boolean(snapshot?.device_connected) && !inBootGrace.value;
-});
+// 出口必须常开：启动期之外一律可「稍后处理」。
+// 旧逻辑要求 device_connected 为真，遥控器恰好不在身边时反而不给关闭按钮。
+const canDismiss = computed(() => !inBootGrace.value);
 
 const repairResultTitle = computed(() => {
   const log = repairStepLog.value;
@@ -1355,7 +1372,8 @@ function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
       label: "语音通道",
       ok: false,
       msg: "无法检测遥控器",
-      suggestion: `${msg || "检查蓝牙是否开启，遥控器开机并靠近后重试"}${restartNote}`,
+      // 遥控器没有开关机键，不能写“开机”。真实原因是距离/休眠。
+      suggestion: `${msg || "确认 Windows 蓝牙已开启，并把遥控器拿近电脑后重试"}${restartNote}`,
     } as const;
   }
   if (code === "atvv_not_subscribed") {
@@ -1363,7 +1381,8 @@ function atvvStepFromResult(result: AtvvRepairResult | null, ok: boolean) {
       label: "语音通道",
       ok: false,
       msg: restarted ? "已配对，通道未就绪（已重启桥接）" : "已配对，通道未就绪",
-      suggestion: `${msg || "保持遥控器开机并靠近电脑后再点一次"}${restartNote}`,
+      // 软件正按 retry_delay 自动重连，遥控器拿近并按一下即可恢复。
+      suggestion: `${msg || "把遥控器拿近电脑，等它自动连上后再点一次"}${restartNote}`,
     } as const;
   }
   if (code === "bridge_down") {

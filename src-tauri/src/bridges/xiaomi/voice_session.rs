@@ -68,6 +68,7 @@ pub enum VoicePhase {
 pub enum PrimaryAction {
     None,
     ConnectRemote,
+    RestartBridge,
     RepairWinUHid,
     RepairAudio,
     Retry,
@@ -154,11 +155,21 @@ pub fn snapshot_from_readiness(
             "语音环境已就绪",
             PrimaryAction::None,
         )
-    } else if !worker_alive || !device_connected {
+    } else if !worker_alive {
+        // 桥接进程不在了：软件自己能修，卡片给「一键修复」。
+        (
+            VoicePhase::Recovering,
+            "bridge_down",
+            "桥接未运行",
+            PrimaryAction::RestartBridge,
+        )
+    } else if !device_connected {
+        // 遥控器不在身边/休眠：软件修不了，但重连循环正按 retry_delay 重试，
+        // 拿近并按一下即可恢复。不要把它当成需要修复的故障。
         (
             VoicePhase::Connecting,
-            "not_ready",
-            "RC003 尚未连接",
+            "remote_absent",
+            "遥控器未连接 · 拿近电脑",
             PrimaryAction::ConnectRemote,
         )
     } else if !voice_channel {
@@ -220,9 +231,10 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
             injection: InjectionOutcome::NotAttempted,
             audio: AudioOutcome::Unknown,
             phase: VoicePhase::Idle,
-            status_code: "not_ready".into(),
+            // 初始快照：什么都还没起。这是启动过程，不是故障。
+            status_code: "starting".into(),
             detail: "等待 RC003 连接和语音环境就绪".into(),
-            primary_action: PrimaryAction::ConnectRemote,
+            primary_action: PrimaryAction::None,
             resources_clean: true,
             adapters,
         }
@@ -409,14 +421,17 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
         self.cleanup_resources();
         self.worker_alive = false;
         self.device_connected = false;
+        // 断连 = 遥控器离开范围或休眠。软件修不了，但重连循环会按
+        // retry_delay 自动重试；不要归到 bridge_down 去骗用户点修复。
         self.voice_channel = false;
         self.audio_ready = false;
         self.pressed = false;
         self.phase = VoicePhase::Disconnected;
-        self.status_code = "disconnected".into();
-        self.detail = "RC003 已断开".into();
+        // 直接给结论，不走 recompute_primary_action：那个函数按 worker_alive
+        // 判断，而 worker_alive 在这里已随会话结束置 false，会误判成桥接故障。
+        self.status_code = "remote_absent".into();
+        self.detail = "遥控器未连接 · 拿近电脑".into();
         self.primary_action = PrimaryAction::ConnectRemote;
-        self.recompute_primary_action();
     }
 
     fn shutdown(&mut self) {
@@ -467,7 +482,7 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
             self.winuhid_ready,
         ) {
             (false, _, _, _, _) => "语音 worker 尚未运行".into(),
-            (_, false, _, _, _) => "RC003 尚未连接".into(),
+            (_, false, _, _, _) => "遥控器未连接 · 拿近电脑".into(),
             (_, _, false, _, _) => "ATVV 语音通道尚未就绪".into(),
             (_, _, _, false, _) => "音频路由尚未就绪".into(),
             (_, _, _, _, false) => "WinUHid 尚未就绪".into(),
@@ -488,14 +503,31 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
             self.detail = "语音环境已就绪".into();
             self.primary_action = PrimaryAction::None;
         } else {
-            self.status_code = "not_ready".into();
+            // status_code 必须与 snapshot_from_readiness 同一套归因，
+            // 否则前端会按错误的分支决定弹不弹修复卡。
+            self.status_code = if !self.worker_alive {
+                "bridge_down"
+            } else if !self.device_connected {
+                "remote_absent"
+            } else if !self.voice_channel {
+                "voice_channel_missing"
+            } else if !self.winuhid_ready {
+                "winuhid_missing"
+            } else {
+                "audio_missing"
+            }
+            .into();
             self.detail = self.missing_readiness_detail();
             self.recompute_primary_action();
         }
     }
 
     fn recompute_primary_action(&mut self) {
-        self.primary_action = if !self.worker_alive || !self.device_connected {
+        // 与 snapshot_from_readiness 保持同一套归因：
+        // 桥接进程挂 = 软件能修；遥控器不在 = 用户拿近，重连循环自己会重试。
+        self.primary_action = if !self.worker_alive {
+            PrimaryAction::RestartBridge
+        } else if !self.device_connected {
             PrimaryAction::ConnectRemote
         } else if !self.voice_channel {
             PrimaryAction::Retry
@@ -602,6 +634,53 @@ mod tests {
         let snapshot = snapshot_from_readiness(1, true, true, false, true, true);
         assert!(!snapshot.voice_ready);
         assert_eq!(snapshot.status_code, "voice_channel_missing");
+    }
+
+    /// 桥接进程挂掉 = 软件自己能修，必须给 RestartBridge。
+    #[test]
+    fn bridge_down_is_attributed_to_worker_not_to_remote() {
+        let snapshot = snapshot_from_readiness(1, false, false, false, true, true);
+        assert!(!snapshot.voice_ready);
+        assert_eq!(snapshot.status_code, "bridge_down");
+        assert_eq!(snapshot.primary_action, PrimaryAction::RestartBridge);
+    }
+
+    /// 遥控器不在身边 = 软件修不了，只能 ConnectRemote（不弹修复卡）。
+    /// 这是拆分归因的核心回归：以前两者都落到 not_ready/ConnectRemote。
+    #[test]
+    fn remote_absent_is_separate_from_bridge_down() {
+        let snapshot = snapshot_from_readiness(1, true, false, false, true, true);
+        assert!(!snapshot.voice_ready);
+        assert_eq!(snapshot.status_code, "remote_absent");
+        assert_eq!(snapshot.primary_action, PrimaryAction::ConnectRemote);
+    }
+
+    /// ObserveReadiness 路径必须与 snapshot_from_readiness 同归因，
+    /// 否则前端按 status_code 分支时会和轮询路径不一致。
+    #[test]
+    fn observe_readiness_uses_same_attribution() {
+        let adapters = FakeAdapters::new();
+        let mut session = VoiceSession::new(9, adapters);
+
+        let absent = session.handle(VoiceEvent::ObserveReadiness {
+            worker_alive: true,
+            device_connected: false,
+            voice_channel: false,
+            audio_ready: true,
+            winuhid_ready: true,
+        });
+        assert_eq!(absent.status_code, "remote_absent");
+        assert_eq!(absent.primary_action, PrimaryAction::ConnectRemote);
+
+        let down = session.handle(VoiceEvent::ObserveReadiness {
+            worker_alive: false,
+            device_connected: false,
+            voice_channel: false,
+            audio_ready: true,
+            winuhid_ready: true,
+        });
+        assert_eq!(down.status_code, "bridge_down");
+        assert_eq!(down.primary_action, PrimaryAction::RestartBridge);
     }
 
     #[test]
