@@ -192,6 +192,10 @@ fn windows_run_input_session(
                                     .store(true, Ordering::SeqCst);
                             }
                             runtime_conn.cancel_session();
+                            // 断线不经过 ObserveReadiness，必须显式改写归因，
+                            // 否则 latest_snapshot 保留断线前 status_code，
+                            // 前端会误弹「一键修复」。
+                            crate::bridges::xiaomi::voice_session::publish_remote_absent();
                             crate::bridges::xiaomi::key_mapping::release_voice_resources();
                         } else if status == BluetoothConnectionStatus::Disconnected {
                             log::debug!(

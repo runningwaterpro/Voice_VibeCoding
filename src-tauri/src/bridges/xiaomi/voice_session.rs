@@ -106,6 +106,28 @@ pub fn clear_latest_snapshot() {
     *LATEST_SNAPSHOT.lock() = None;
 }
 
+/// 断线事件专用：把当前快照归因为「遥控器不在身边」并立即发布。
+///
+/// BLE 断线由 input_session 的 ConnectionStatusChanged 回调捕获，那条路径
+/// 不经过 ObserveReadiness / recompute_readiness，所以 latest_snapshot 会保留
+/// 断线前的 status_code。前端据此判断要不要弹修复卡，会把「遥控器不在身边」
+/// 误当成需要修复的故障。这里显式改写归因，避免弹窗。
+pub fn publish_remote_absent() {
+    let mut g = LATEST_SNAPSHOT.lock();
+    let Some(s) = g.as_mut() else {
+        return;
+    };
+    // 重连循环仍在运行，worker 视角上它还活着；真正断的是设备。
+    s.worker_alive = true;
+    s.device_connected = false;
+    s.voice_channel = false;
+    s.voice_ready = false;
+    s.phase = VoicePhase::Disconnected;
+    s.status_code = "remote_absent".into();
+    s.detail = "遥控器未连接 · 拿近电脑".into();
+    s.primary_action = PrimaryAction::ConnectRemote;
+}
+
 /// Platform operations used by the session. Implementations may be backed by
 /// WinUHid, PCM, or test fakes; the session owns their ordering.
 pub trait VoiceSessionAdapters {

@@ -262,10 +262,15 @@ function describeStepError(raw: string): string {
  *
  * 后端重连循环已按 retry_delay（默认 3s）无限重试，遥控器一回来按一下即可用。
  * 这类情况没有可执行的修复动作，所以不弹「一键修复」，只在状态栏提示。
+ *
+ * 判据用 device_connected 这个实时字段，不依赖 status_code：
+ * BLE 断线走input_session 回调，不经过 status_code 的归因重算，
+ * 只看 status_code 会在断线瞬间漏判。
  */
-const needsUserNearby = computed(
-  () => voiceStatus.snapshot?.status_code === "remote_absent",
-);
+const needsUserNearby = computed(() => {
+  const s = voiceStatus.snapshot;
+  return Boolean(s?.worker_alive) && !s?.device_connected;
+});
 
 const showRepairModal = computed(() => {
   const snapshot = voiceStatus.snapshot;
@@ -343,8 +348,25 @@ watch(
  * - 声卡「需重启」只记一次，不中断后续独立步骤
  * - 每步以复测结果为准
  */
+/** 正在进行的互斥操作名，用于被拦截时告诉用户原因 */
+function busyReason(): string | null {
+  if (autoRepairing.value) return "一键修复进行中";
+  if (connBusy.value) return "正在切换连接状态";
+  if (restarting.value) return "正在重启桥接";
+  if (voiceRepairing.value) return "正在修复语音通道";
+  if (winuhidRepairing.value) return "正在修复虚拟键盘";
+  if (atvvRepairing.value) return "正在修复 ATVV";
+  return null;
+}
+
 async function autoRepairAll() {
-  if (primaryDisabled.value) return;
+  // 之前这里静默 return，用户点了没反应也不知道原因。
+  const busy = busyReason();
+  if (busy) {
+    prependLog(`一键修复：${busy}，请等它结束再试`);
+    repairDismissed.value = false;
+    return;
+  }
   autoRepairing.value = true;
   inAutoRepair.value = true;
   repairDismissed.value = false;
@@ -491,11 +513,45 @@ async function autoRepairAll() {
   } catch (e) {
     prependLog(`一键修复异常: ${String(e)}`);
   } finally {
+    // 修复过程会重启桥接，重启窗口期里快照会短暂变成「未就绪」。
+    // 直接收尾会让界面把已经修好的状态误报成失败、弹回修复卡。
+    // 这里等桥接落定后再复测一次，用稳定状态判定结果。
+    await settleAfterRepair();
     repairFinished.value = true;
     await nextTick();
     inAutoRepair.value = false;
     autoRepairing.value = false;
   }
+}
+
+/**
+ * 修复收尾：等桥接重启完成再复测。
+ * 修复里会 restart bridge，那几秒内轮询到的快照必然是未就绪，
+ * 用它判定就会把成功误报成失败。
+ */
+async function settleAfterRepair(): Promise<void> {
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    await refreshHost();
+    if (restarting.value || connBusy.value) continue;
+    const h = host.value;
+    if (
+      h.bridge_alive &&
+      h.atvv_ok &&
+      h.cable_ready &&
+      h.audio_alive &&
+      h.winuhid_ready
+    ) {
+      prependLog("一键修复：复测通过，各项已就绪");
+      repairStepLog.value.push({
+        label: "最终复测",
+        ok: true,
+        msg: "语音环境已就绪",
+      });
+      return;
+    }
+  }
+  prependLog("一键修复：复测仍未就绪，可稍后再点一次");
 }
 
 async function toggleRailConnect() {
