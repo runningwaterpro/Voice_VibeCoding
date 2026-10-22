@@ -202,7 +202,9 @@ fn xiaomi_reconnect_loop(
             }
             // 放弃自动重连：解除恢复标志，让前端重新把问题告诉用户。
             runtime.give_up_auto_recover();
-            runtime.running.store(false, std::sync::atomic::Ordering::SeqCst);
+            runtime
+                .running
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             break;
         }
         if let Some(state) = app.try_state::<BridgeState>() {
@@ -612,11 +614,7 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
                 "warn".into(),
             )
         } else if d.code == "pair_missing" {
-            (
-                "未找到遥控器".to_string(),
-                d.message,
-                "warn".into(),
-            )
+            ("未找到遥控器".to_string(), d.message, "warn".into())
         } else {
             // atvv_not_subscribed：软件正按 retry_delay 自动重连，
             // 遥控器拿近即可，不需要用户点修复。
