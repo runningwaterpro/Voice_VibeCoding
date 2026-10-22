@@ -272,6 +272,14 @@ const needsUserNearby = computed(() => {
   return Boolean(s?.worker_alive) && !s?.device_connected;
 });
 
+/**
+ * 后端正在自动恢复（重连循环在跑），用户不需要做任何事。
+ * 这时也不该弹「一键修复」——弹了等于打断一个正在自己修好的过程。
+ *
+ * auto_recovering 由后端给出：语音会话结束并正在重建时为真。
+ */
+const autoRecovering = computed(() => Boolean(voiceStatus.snapshot?.auto_recovering));
+
 const showRepairModal = computed(() => {
   const snapshot = voiceStatus.snapshot;
   // 状态尚未加载时不要把“未知”显示成“正在启动桥接”。
@@ -281,14 +289,17 @@ const showRepairModal = computed(() => {
   if (repairDismissed.value) return false;
   // 遥控器不在身边：后端正在自动重连，用户拿近就能用，不给无效的修复入口。
   if (needsUserNearby.value) return false;
+  // 后端正在自动重建会话：这是它在自愈，用户不需要介入，也不该被弹窗打断。
+  if (autoRecovering.value) return false;
   const connecting = connBusy.value || restarting.value;
   return !allReady && !connecting;
 });
 const bootingPhase = computed(() => inBootGrace.value);
 const bootStepText = computed(() => {
   const snapshot = voiceStatus.snapshot;
-  // 区分两种“还没连上”：桥接没起来 vs 遥控器不在身边。
+  // 区分三种“还没连上”：桥接没起来 / 遥控器不在身边 / 正在自动重建会话。
   if (!snapshot?.worker_alive) return "正在启动桥接…";
+  if (snapshot.auto_recovering) return "正在自动恢复语音通道…";
   if (!snapshot.device_connected) return "正在连接遥控器…";
   if (snapshot.status_code === "winuhid_missing") return "正在初始化虚拟键盘…";
   if (snapshot.status_code === "audio_missing") return "正在建立语音路由…";

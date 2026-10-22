@@ -116,7 +116,14 @@ pub const VOICE_CONTROL_UUID: &str = "ab5e0004-5a21-4f05-bc7d-af01f617b664";
 /// 小米遥控器 2 Pro 硬件 token（Windows 接口 ID 中的 VID/PID）
 pub const XIAOMI_2_PRO_HARDWARE_TOKEN: &str = "dev_vid&012717_pid&32b8";
 
-const XIAOMI_2_PRO_NAMES: &[&str] = &["mi rc", "xiaomi bluetooth remote 2 pro"];
+// 遥控器在不同固件/配对下会暴露不同名字。除硬件 token 匹配外，
+// 名字匹配是第二道兜底，漏一个名字就可能选不到设备。
+const XIAOMI_2_PRO_NAMES: &[&str] = &[
+    "mi rc",
+    "xiaomi bluetooth remote 2 pro",
+    "小米蓝牙语音遥控器",
+    "小米蓝牙遥控器 2 pro",
+];
 
 /// 运行时停止标志（点击「断开」时置位）
 #[derive(Default)]
@@ -135,6 +142,22 @@ pub struct XiaomiRuntime {
     pub lifecycle: Mutex<()>,
     /// 蓝牙异常断开标志（非用户主动断开时置位，用于托盘图标区分）
     pub abnormal_disconnect: AtomicBool,
+    /// 需要重建连接会话的标志。
+    ///
+    /// 独立于 `running`：`running` 表示「桥接在跑」，会被前端读成 bridge_alive
+    /// 去驱动托盘图标和修复弹窗。语音会话结束不代表桥接死了，所以不能动
+    /// `running`（那会让托盘闪红、让「遥控器不在身边」判定失效）。
+    /// 这个标志只唤醒重连循环：会话一结束就置位，让 monitor 返回、
+    /// 循环进入下一轮重建会话。没人置位的话自动重连从未发生过。
+    pub reconnect_pending: AtomicBool,
+    /// 后端正在自动恢复中（会话已坏，正在重建）。
+    ///
+    /// 与 `reconnect_pending` 区别：后者在每轮尝试开始时清零，只用来唤醒
+    /// monitor；这个标志一直为真直到真的恢复成功或彻底放弃，用来告诉前端
+    /// 「不要弹一键修复，也不要提示用户处理」。
+    pub auto_recovering: AtomicBool,
+    /// 连续语音会话失败次数。用于给自动重连设上限，避免真故障时无限重启。
+    pub atvv_fail_count: AtomicU32,
 }
 
 impl XiaomiRuntime {
@@ -164,6 +187,52 @@ impl XiaomiRuntime {
         self.session_cancelled.store(false, Ordering::SeqCst);
         self.session_active.store(false, Ordering::SeqCst);
         self.abnormal_disconnect.store(false, Ordering::SeqCst);
+        self.reconnect_pending.store(false, Ordering::SeqCst);
+        self.auto_recovering.store(false, Ordering::SeqCst);
+        self.atvv_fail_count.store(0, Ordering::SeqCst);
+    }
+
+    /// 语音会话结束（正常断开或建立失败）：请求重连循环重建会话。
+    pub fn request_reconnect(&self) {
+        self.reconnect_pending.store(true, Ordering::SeqCst);
+        self.auto_recovering.store(true, Ordering::SeqCst);
+    }
+
+    /// 语音会话建立失败：请求重连并累加失败次数。
+    /// 返回累计失败次数，供调用方判断是否已超过自动重连上限。
+    pub fn report_session_failure(&self) -> u32 {
+        self.reconnect_pending.store(true, Ordering::SeqCst);
+        self.auto_recovering.store(true, Ordering::SeqCst);
+        self.atvv_fail_count.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// 会话成功建立：失败计数清零，恢复标志解除，重新开始计算。
+    pub fn clear_fail_count(&self) {
+        self.atvv_fail_count.store(0, Ordering::SeqCst);
+        self.auto_recovering.store(false, Ordering::SeqCst);
+    }
+
+    /// 放弃自动重连：解除恢复标志，让前端重新提示用户处理。
+    pub fn give_up_auto_recover(&self) {
+        self.auto_recovering.store(false, Ordering::SeqCst);
+    }
+
+    /// 新一轮尝试开始：清重连请求，让 monitor 继续等待。
+    /// 注意不要在这里清失败计数和恢复标志——它们只在真的成功或放弃时归零。
+    pub fn clear_reconnect_pending(&self) {
+        self.reconnect_pending.store(false, Ordering::SeqCst);
+    }
+
+    pub fn reconnect_pending(&self) -> bool {
+        self.reconnect_pending.load(Ordering::SeqCst)
+    }
+
+    pub fn is_auto_recovering(&self) -> bool {
+        self.auto_recovering.load(Ordering::SeqCst)
+    }
+
+    pub fn atvv_fail_count(&self) -> u32 {
+        self.atvv_fail_count.load(Ordering::SeqCst)
     }
 
     pub fn should_stop(&self) -> bool {
@@ -676,11 +745,20 @@ fn windows_monitor_connection(
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    while !runtime.should_stop() && runtime.running.load(Ordering::SeqCst) {
+    // 等三件事之一：用户停止、桥接已停、语音会话结束。
+    // 语音会话结束必须能唤醒这里，否则重连循环永远不会进入下一轮，
+    // 自动重连从未发生过（会话失败后只能靠用户手动点「一键修复」）。
+    while !runtime.should_stop()
+        && runtime.running.load(Ordering::SeqCst)
+        && !runtime.reconnect_pending()
+    {
         std::thread::sleep(Duration::from_millis(200));
     }
-    runtime.running.store(false, Ordering::SeqCst);
+    // 只在用户主动停止时清 running。语音会话结束是「要重建会话」，
+    // 不是「桥接死了」——running 保持 true，桥接活着，重连循环会自己接上。
+    // 若这里清掉 running，前端会把 bridge_alive 读成 false 而误弹修复卡。
     if runtime.should_stop() {
+        runtime.running.store(false, Ordering::SeqCst);
         Ok(())
     } else {
         log::warn!("Xiaomi remote disconnected");
@@ -705,5 +783,61 @@ mod tests {
         let d = diagnose_voice(false);
         assert_eq!(d.code, "bridge_down");
         assert_eq!(d.layer, "bridge");
+    }
+
+    /// 会话失败必须让重连循环知道要重来。
+    /// 回归点：以前 ATVV 会话失败没人上报，monitor 永远等不到信号，
+    /// 自动重连从未发生，只能靠用户手动点「一键修复」。
+    #[test]
+    fn session_failure_requests_reconnect_and_counts() {
+        let rt = XiaomiRuntime::new();
+        assert!(!rt.reconnect_pending());
+        assert!(!rt.is_auto_recovering());
+
+        let first = rt.report_session_failure();
+        assert_eq!(first, 1);
+        assert!(rt.reconnect_pending(), "monitor 必须能被唤醒");
+        assert!(rt.is_auto_recovering(), "前端需要知道软件在自愈");
+
+        let second = rt.report_session_failure();
+        assert_eq!(second, 2);
+        assert_eq!(rt.atvv_fail_count(), 2);
+    }
+
+    /// 成功建立会话后失败计数归零，重新开始计算。
+    #[test]
+    fn success_resets_failure_budget() {
+        let rt = XiaomiRuntime::new();
+        rt.report_session_failure();
+        rt.report_session_failure();
+        assert_eq!(rt.atvv_fail_count(), 2);
+
+        rt.clear_fail_count();
+        assert_eq!(rt.atvv_fail_count(), 0);
+        assert!(!rt.is_auto_recovering(), "恢复成功后不再算自动恢复中");
+    }
+
+    /// 放弃自动重连后必须解除恢复标志，否则前端永远不提示用户处理。
+    #[test]
+    fn give_up_clears_auto_recovering() {
+        let rt = XiaomiRuntime::new();
+        rt.report_session_failure();
+        assert!(rt.is_auto_recovering());
+
+        rt.give_up_auto_recover();
+        assert!(!rt.is_auto_recovering());
+    }
+
+    /// 新一轮尝试不能清掉「正在自愈」标志，否则重建过程中前端会弹修复卡。
+    /// 也不该清失败计数——计数只在真的成功时归零。
+    #[test]
+    fn new_attempt_keeps_recovering_flag_and_budget() {
+        let rt = XiaomiRuntime::new();
+        rt.report_session_failure();
+
+        rt.clear_reconnect_pending();
+        assert!(!rt.reconnect_pending(), "monitor 要能继续等待新会话");
+        assert!(rt.is_auto_recovering(), "重建期间不能弹修复卡");
+        assert_eq!(rt.atvv_fail_count(), 1, "失败预算不能每轮清零");
     }
 }

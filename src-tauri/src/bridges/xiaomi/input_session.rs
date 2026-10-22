@@ -167,12 +167,31 @@ fn windows_run_input_session(
         .get()
         .map_err(|e| format!("input session get: {e}"))?;
 
-    match device.ConnectionStatus() {
-        Ok(status) if status == BluetoothConnectionStatus::Disconnected => {
-            return Err("遥控器已断开连接".into());
+    // 开机瞬间的竞态：connect.rs 用 DeviceId 打开的句柄已被 Windows 认为连上，
+    // 而这里用地址另开的句柄可能还没建好连接，直接读会得到 Disconnected。
+    // 一次性读取就退出会让开机时 ATVV 永久不可用，只能等用户手动点「一键修复」。
+    // 这里等待并复查，给 Windows 几秒时间把地址映射到活动连接。
+    //
+    // 只认 Connected：其它状态（Disconnected/Connecting）都继续等。
+    // 即使这 10 秒都没等到，重连循环还会带着新句柄再试一轮。
+    const CONNECT_STATE_WAIT: usize = 10;
+    let mut connected = false;
+    for attempt in 0..CONNECT_STATE_WAIT {
+        match device.ConnectionStatus() {
+            Ok(BluetoothConnectionStatus::Connected) => {
+                connected = true;
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => return Err(format!("读取连接状态失败: {e}")),
         }
-        Ok(_) => {}
-        Err(e) => return Err(format!("读取连接状态失败: {e}")),
+        if attempt == 0 {
+            log::info!("BLE device not connected yet; waiting for Windows to settle");
+        }
+        std::thread::sleep(Duration::from_millis(1000));
+    }
+    if !connected {
+        return Err("遥控器已断开连接".into());
     }
 
     let runtime_conn = Arc::clone(&runtime);
@@ -368,6 +387,8 @@ fn windows_run_input_session(
 
     if atvv_ok {
         mark_atvv_subscribed(true);
+        // 真的订阅上了：失败计数归零，重连上限重新开始计算。
+        runtime.clear_fail_count();
         log::info!("ATVV subscribe ok after diagnostics");
     }
 

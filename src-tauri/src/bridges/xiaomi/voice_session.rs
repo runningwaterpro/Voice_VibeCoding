@@ -90,6 +90,9 @@ pub struct VoiceSnapshot {
     pub detail: String,
     pub primary_action: PrimaryAction,
     pub resources_clean: bool,
+    /// 后端正在自动重建语音会话，用户不需要做任何事。
+    /// 前端据此决定「不要弹一键修复，也不要提示用户处理」。
+    pub auto_recovering: bool,
 }
 
 static LATEST_SNAPSHOT: Mutex<Option<VoiceSnapshot>> = Mutex::new(None);
@@ -157,6 +160,7 @@ pub struct VoiceSession<A> {
     detail: String,
     primary_action: PrimaryAction,
     resources_clean: bool,
+    auto_recovering: bool,
     adapters: A,
 }
 
@@ -235,6 +239,7 @@ pub fn snapshot_from_readiness(
         detail: detail.into(),
         primary_action,
         resources_clean: true,
+        auto_recovering: false,
     }
 }
 
@@ -258,6 +263,7 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
             detail: "等待 RC003 连接和语音环境就绪".into(),
             primary_action: PrimaryAction::None,
             resources_clean: true,
+            auto_recovering: false,
             adapters,
         }
     }
@@ -578,6 +584,7 @@ impl<A: VoiceSessionAdapters> VoiceSession<A> {
             detail: self.detail.clone(),
             primary_action: self.primary_action,
             resources_clean: self.resources_clean,
+            auto_recovering: false,
         }
     }
 }

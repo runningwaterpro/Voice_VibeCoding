@@ -109,6 +109,10 @@ pub fn xiaomi_reconnect_loop_public(
     xiaomi_reconnect_loop(app, runtime, configured, retry);
 }
 
+/// ATVV 会话自动重连上限。与 key_log 里的同名常量保持一致语义：
+/// 超过后停止自动重试，提示用户处理，避免真故障时无限重启。
+const ATVV_AUTO_RECONNECT_MAX: u32 = 3;
+
 /// 对齐 Python `atvv_live_bridge.run`：断线后按 retry_delay 自动重连
 fn xiaomi_reconnect_loop(
     app: AppHandle,
@@ -143,6 +147,9 @@ fn xiaomi_reconnect_loop(
         };
 
         configured = Some(connection.address.clone());
+        // 新一轮会话开始：清掉上一次的会话结束标志，让 monitor 继续等。
+        // 不清的话 monitor 立刻返回，重连会变成空转。
+        runtime.clear_reconnect_pending();
         if let Some(mgr) = app.try_state::<ConfigManager>() {
             if let Ok(mut cfg) = mgr.get_device_config("xiaomi") {
                 cfg.bluetooth_address = Some(connection.address.clone());
@@ -179,6 +186,24 @@ fn xiaomi_reconnect_loop(
         match result {
             Ok(()) => log::info!("Xiaomi monitor ended; reconnecting..."),
             Err(e) => log::warn!("Xiaomi disconnected: {e}; reconnecting..."),
+        }
+        // 语音会话结束会唤醒 monitor（靠 reconnect_pending 标志）。
+        // 超过自动重连上限就停下，交给用户处理，避免真故障时无限重启。
+        if runtime.reconnect_pending() && runtime.atvv_fail_count() > ATVV_AUTO_RECONNECT_MAX {
+            log::error!(
+                "ATVV auto-reconnect gave up after {} attempts; waiting for user",
+                runtime.atvv_fail_count()
+            );
+            if let Some(state) = app.try_state::<BridgeState>() {
+                state.update_status(
+                    BridgeType::Xiaomi,
+                    BridgeStatus::Error("语音通道连续无法建立（已停止自动重试）".into()),
+                );
+            }
+            // 放弃自动重连：解除恢复标志，让前端重新把问题告诉用户。
+            runtime.give_up_auto_recover();
+            runtime.running.store(false, std::sync::atomic::Ordering::SeqCst);
+            break;
         }
         if let Some(state) = app.try_state::<BridgeState>() {
             state.update_status(BridgeType::Xiaomi, BridgeStatus::Connecting);
@@ -455,12 +480,18 @@ pub fn current_voice_snapshot(app: &AppHandle) -> VoiceSnapshot {
         audio_ready,
         winuhid_ready,
     );
+    // 后端正在自动重建会话：这是它自己在修，用户不需要做任何事。
+    let auto_recovering = app
+        .try_state::<Arc<XiaomiRuntime>>()
+        .map(|rt| rt.is_auto_recovering())
+        .unwrap_or(false);
     if let Some(mut live) = crate::bridges::xiaomi::voice_session::latest_snapshot() {
         if live.generation == generation {
             live.worker_alive = current.worker_alive;
             live.device_connected = current.device_connected;
             live.voice_channel = current.voice_channel;
             live.voice_ready = current.voice_ready;
+            live.auto_recovering = auto_recovering;
             if !current.voice_ready {
                 live.phase = current.phase;
                 live.status_code = current.status_code;
@@ -470,6 +501,8 @@ pub fn current_voice_snapshot(app: &AppHandle) -> VoiceSnapshot {
             return live;
         }
     }
+    let mut current = current;
+    current.auto_recovering = auto_recovering;
     current
 }
 
@@ -566,17 +599,29 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
         )
     } else if bridge_alive && !atvv_ok {
         let d = crate::bridges::xiaomi::connect::diagnose_voice(true);
-        (
-            if d.code == "pair_missing" {
-                "未找到遥控器".to_string()
-            } else {
-                // atvv_not_subscribed：软件正按 retry_delay 自动重连，
-                // 遥控器拿近即可，不需要用户点修复。
-                "语音通道未就绪".to_string()
-            },
-            d.message,
-            "warn".into(),
-        )
+        // 后端正在自动重建会话：这是它自己在修，不需要用户做任何事，
+        // 也不该被当成「需要处理」的故障来提示。
+        let auto_recovering = app
+            .try_state::<Arc<XiaomiRuntime>>()
+            .map(|rt| rt.is_auto_recovering())
+            .unwrap_or(false);
+        if auto_recovering {
+            (
+                "正在自动恢复".to_string(),
+                "语音通道正在重建，软件会自动重试，无需操作。".to_string(),
+                "warn".into(),
+            )
+        } else if d.code == "pair_missing" {
+            (
+                "未找到遥控器".to_string(),
+                d.message,
+                "warn".into(),
+            )
+        } else {
+            // atvv_not_subscribed：软件正按 retry_delay 自动重连，
+            // 遥控器拿近即可，不需要用户点修复。
+            ("语音通道未就绪".to_string(), d.message, "warn".into())
+        }
     } else if !cable_ready {
         (
             "语音环境未就绪".into(),

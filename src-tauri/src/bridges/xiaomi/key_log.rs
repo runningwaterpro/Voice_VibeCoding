@@ -16,6 +16,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
+/// ATVV 会话自动重连上限。超过后停止自动重试，改为提示用户处理。
+/// 防止真故障（遥控器没电、未配对）时无限重启。
+const ATVV_AUTO_RECONNECT_MAX: u32 = 3;
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XiaomiKeyEvent {
@@ -179,10 +183,31 @@ pub fn start_key_logger(
                         gate2,
                     );
                     match result {
-                        Ok(()) => {}
+                        Ok(()) => {
+                            // 会话正常结束（远端断开）也要通知重连循环：
+                            // monitor 正在等这个信号，不置位就永远不会重建会话。
+                            runtime2.request_reconnect();
+                        }
                         Err(e) => {
                             log::warn!("ATVV input session unavailable: {e}");
-                            emit_message(&app2, &format!("ATVV 语音通道不可用: {e}"));
+                            let fails = runtime2.report_session_failure();
+                            if fails <= ATVV_AUTO_RECONNECT_MAX {
+                                log::warn!(
+                                    "ATVV session failed, requesting bridge reconnect (attempt {fails}/{ATVV_AUTO_RECONNECT_MAX})"
+                                );
+                            } else {
+                                // 超过上限：不再自动重连，交给用户。
+                                // 只发托盘消息，不弹全屏卡，避免打断用户。
+                                log::error!(
+                                    "ATVV session failed {fails} times, giving up auto-reconnect: {e}"
+                                );
+                                emit_message(
+                                    &app2,
+                                    &format!(
+                                        "语音通道连续 {fails} 次无法建立，已停止自动重试。请确认遥控器已开机并靠近电脑，再点「一键修复」。"
+                                    ),
+                                );
+                            }
                         }
                     }
                 })

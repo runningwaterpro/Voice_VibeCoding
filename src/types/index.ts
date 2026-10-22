@@ -96,6 +96,8 @@ export interface VoiceSnapshot {
   detail: string;
   primary_action: string;
   resources_clean: boolean;
+  /** 后端正在自动重建语音会话，用户不需要做任何事 */
+  auto_recovering: boolean;
 }
 
 export interface AudioDevice {
