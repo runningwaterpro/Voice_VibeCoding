@@ -22,6 +22,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// 遥控器未连接（休眠 / 不在范围内）的错误标识。
+///
+/// 这不是故障：遥控器静置一段时间后会断开 BLE，用户按一下任意键，
+/// Windows 才会重新建链。实测开机时遥控器就是睡眠状态，链路根本没建立。
+/// 上层据此判定为「等遥控器」，不消耗自动重连次数，也不弹修复卡。
+pub const REMOTE_ABSENT_ERR: &str = "遥控器未连接（等待按键唤醒）";
+
 /// 轻量修复：强制会话立刻重试 ATVV 订阅（不整桥重启）
 static FORCE_ATVV_RETRY: AtomicBool = AtomicBool::new(false);
 
@@ -167,16 +174,13 @@ fn windows_run_input_session(
         .get()
         .map_err(|e| format!("input session get: {e}"))?;
 
-    // 开机瞬间的竞态：connect.rs 用 DeviceId 打开的句柄已被 Windows 认为连上，
-    // 而这里用地址另开的句柄可能还没建好连接，直接读会得到 Disconnected。
-    // 一次性读取就退出会让开机时 ATVV 永久不可用，只能等用户手动点「一键修复」。
-    // 这里等待并复查，给 Windows 几秒时间把地址映射到活动连接。
-    //
-    // 只认 Connected：其它状态（Disconnected/Connecting）都继续等。
-    // 即使这 10 秒都没等到，重连循环还会带着新句柄再试一轮。
-    const CONNECT_STATE_WAIT: usize = 10;
+    // 遥控器休眠时 BLE 链路根本没建立，这里读到的就是「未连接」。
+    // 实测开机后连续 50 秒都是这个状态，直到用户按一下遥控器才建链，
+    // 所以这不是竞态、等下去不会自己好。短暂复查只为覆盖「刚醒还没连稳」，
+    // 等不到就交给重连循环继续试——它现在会一直重试且不消耗失败次数。
+    const CONNECT_STATE_WAIT: usize = 4;
     let mut connected = false;
-    for attempt in 0..CONNECT_STATE_WAIT {
+    for _ in 0..CONNECT_STATE_WAIT {
         match device.ConnectionStatus() {
             Ok(BluetoothConnectionStatus::Connected) => {
                 connected = true;
@@ -185,13 +189,11 @@ fn windows_run_input_session(
             Ok(_) => {}
             Err(e) => return Err(format!("读取连接状态失败: {e}")),
         }
-        if attempt == 0 {
-            log::info!("BLE device not connected yet; waiting for Windows to settle");
-        }
-        std::thread::sleep(Duration::from_millis(1000));
+        std::thread::sleep(Duration::from_millis(500));
     }
     if !connected {
-        return Err("遥控器已断开连接".into());
+        log::info!("BLE link not up; remote is asleep or out of range");
+        return Err(REMOTE_ABSENT_ERR.into());
     }
 
     let runtime_conn = Arc::clone(&runtime);
@@ -389,6 +391,10 @@ fn windows_run_input_session(
         mark_atvv_subscribed(true);
         // 真的订阅上了：失败计数归零，重连上限重新开始计算。
         runtime.clear_fail_count();
+        // 语音通道通了才算「已连接」。connect.rs 的探测走缓存 GATT，
+        // 遥控器睡眠时也会「成功」；若那时就标 Connected，托盘会标红，
+        // 前端也会以为遥控器已就绪，从而误弹「一键修复」。
+        publish_connected(&app);
         log::info!("ATVV subscribe ok after diagnostics");
     }
 
@@ -525,6 +531,10 @@ fn windows_run_input_session(
                         atvv_ok = true;
                         atvv_periodic_failures = 0;
                         mark_atvv_subscribed(true);
+                        // 后台重试成功也是真的连上了：清失败预算并对外标 Connected，
+                        // 否则前端会一直认为遥控器没连上。
+                        runtime.clear_fail_count();
+                        publish_connected(&app);
                         emit_message(&app, "ATVV 语音键/音频已订阅（后台重试成功）");
                         log::info!("ATVV subscribe recovered on periodic retry");
                         crate::ipc::tray::sync_runtime_icons(
@@ -598,6 +608,15 @@ fn windows_run_input_session(
         let _ = ch.RemoveValueChanged(token);
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn publish_connected(app: &AppHandle) {
+    use crate::bridges::{BridgeState, BridgeStatus, BridgeType};
+
+    if let Some(state) = app.try_state::<BridgeState>() {
+        state.update_status(BridgeType::Xiaomi, BridgeStatus::Connected);
+    }
 }
 
 #[cfg(target_os = "windows")]

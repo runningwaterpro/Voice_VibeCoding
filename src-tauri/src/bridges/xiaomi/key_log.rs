@@ -8,7 +8,7 @@
 //! Windows 原生音量失效且 Tap 未就绪时三键全死）。
 
 use crate::bridges::xiaomi::connect::XiaomiRuntime;
-use crate::bridges::xiaomi::input_session::run_input_session;
+use crate::bridges::xiaomi::input_session::{REMOTE_ABSENT_ERR, run_input_session};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -186,6 +186,12 @@ pub fn start_key_logger(
                         Ok(()) => {
                             // 会话正常结束（远端断开）也要通知重连循环：
                             // monitor 正在等这个信号，不置位就永远不会重建会话。
+                            runtime2.request_reconnect();
+                        }
+                        Err(e) if e.contains(REMOTE_ABSENT_ERR) => {
+                            // 遥控器在睡眠或不在范围内：按一下任意键就能醒。
+                            // 这是「等它」，不是故障——不计数、不提示、不弹卡。
+                            log::info!("ATVV session waiting for the remote to wake up");
                             runtime2.request_reconnect();
                         }
                         Err(e) => {

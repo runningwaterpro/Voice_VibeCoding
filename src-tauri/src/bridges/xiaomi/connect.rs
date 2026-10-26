@@ -85,10 +85,11 @@ pub fn diagnose_voice(bridge_alive: bool) -> VoiceDiag {
                 message: "未在系统中找到已配对的小米遥控器。请打开 Windows 蓝牙设置，配对「MI RC」后重试。".into(),
             },
             Ok(_) => VoiceDiag {
-                // 已能枚举到配对设备，但未订阅 → 闲置后通道掉线，不是没配对
+                // 已能枚举到配对设备，但未订阅 → 闲置后通道掉线或遥控器休眠，不是没配对。
+                // 实测遥控器静置后必须按一下才会重新建链，先让用户按，别让点修复。
                 code: "atvv_not_subscribed",
                 layer: "atvv",
-                message: "遥控器已配对/可发现，但语音通道未就绪。点「一键修复」重连语音通道；请把遥控器拿近电脑。".into(),
+                message: "遥控器在休眠或不在范围内。按一下遥控器任意键即可唤醒；仍未连上就把遥控器拿近电脑。".into(),
             },
             Err(e) => VoiceDiag {
                 code: "discover_error",
@@ -192,10 +193,12 @@ impl XiaomiRuntime {
         self.atvv_fail_count.store(0, Ordering::SeqCst);
     }
 
-    /// 语音会话结束（正常断开或建立失败）：请求重连循环重建会话。
+    /// 语音会话结束（远端断开 / 遥控器休眠）：请求重连循环重建会话。
+    ///
+    /// 不置 `auto_recovering`：这不是软件故障，是「等遥控器」，
+    /// 前端按 device_connected 显示等待状态即可。
     pub fn request_reconnect(&self) {
         self.reconnect_pending.store(true, Ordering::SeqCst);
-        self.auto_recovering.store(true, Ordering::SeqCst);
     }
 
     /// 语音会话建立失败：请求重连并累加失败次数。

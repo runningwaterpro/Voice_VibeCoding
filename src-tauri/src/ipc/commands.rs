@@ -163,7 +163,10 @@ fn xiaomi_reconnect_loop(
                 Some(connection.address.clone()),
                 None,
             );
-            state.update_status(BridgeType::Xiaomi, BridgeStatus::Connected);
+            // 这里不能标 Connected：discover 走的是缓存 GATT，遥控器还在睡眠时
+            // 也会「成功」。标了 Connected 会让托盘变红、前端以为遥控器已就绪
+            // 从而误弹「一键修复」。真正的 Connected 由语音通道订阅成功时给出
+            // （input_session 的 publish_connected）。
         }
         log::info!(
             "Xiaomi bridge ready name={} address={}",
@@ -616,9 +619,9 @@ pub fn xiaomi_host_status_now(app: &AppHandle) -> XiaomiHostStatus {
         } else if d.code == "pair_missing" {
             ("未找到遥控器".to_string(), d.message, "warn".into())
         } else {
-            // atvv_not_subscribed：软件正按 retry_delay 自动重连，
-            // 遥控器拿近即可，不需要用户点修复。
-            ("语音通道未就绪".to_string(), d.message, "warn".into())
+            // atvv_not_subscribed：遥控器休眠或通道闲置掉线。
+            // 重连循环会一直重试，用户按一下遥控器就能醒，不需要点修复。
+            ("等待遥控器唤醒".to_string(), d.message, "warn".into())
         }
     } else if !cable_ready {
         (
