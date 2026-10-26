@@ -8,7 +8,7 @@
 //! Windows 原生音量失效且 Tap 未就绪时三键全死）。
 
 use crate::bridges::xiaomi::connect::XiaomiRuntime;
-use crate::bridges::xiaomi::input_session::{REMOTE_ABSENT_ERR, run_input_session};
+use crate::bridges::xiaomi::input_session::{run_input_session, REMOTE_ABSENT_ERR};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
