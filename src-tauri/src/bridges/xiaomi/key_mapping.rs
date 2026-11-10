@@ -11,7 +11,7 @@ use crate::bridges::xiaomi::voice_chord_sanitizer::{
 use crate::bridges::xiaomi::voice_chord_state::VoiceChordState;
 use crate::bridges::xiaomi::voice_inject::scan_code_for_vk;
 use crate::config::manager::{ConfigManager, DeviceConfig, KeyAction};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -22,6 +22,12 @@ pub const EXTRA_INFO: usize = 0x584D_4952;
 
 static VOICE_CHORD: Mutex<VoiceChordState> = Mutex::new(VoiceChordState::empty());
 static DIRECT_MARKS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+/// 直接信号的单调计数 + 条件变量：让 LL 钩子线程在等 mark 时休眠，而不是 2ms 轮询。
+///
+/// 只做「有新信号」的唤醒信号，判断命中仍然走 `direct_signal_recent` 的时间窗语义，
+/// 所以吞键行为不变；变的只是等待期间不再周期性唤醒线程。
+static DIRECT_SIGNAL_TICK: Mutex<u64> = Mutex::new(0);
+static DIRECT_SIGNAL_CV: Condvar = Condvar::new();
 static REPEAT_GEN: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 static ACTION_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -146,6 +152,35 @@ pub fn mark_direct_signal(name: &str) {
     if name == "mic" || name == "voice" || binding_aliases(name).iter().any(|a| *a == "mic") {
         arm_voice_native_suppress();
     }
+    // 唤醒正在等 mark 的 LL 钩子线程（此处 DIRECT_MARKS 已释放，无锁顺序问题）
+    bump_direct_signal_tick();
+}
+
+/// 唤醒等待方：tick +1 后 notify。
+fn bump_direct_signal_tick() {
+    let mut g = DIRECT_SIGNAL_TICK.lock();
+    let next = g.wrapping_add(1);
+    *g = next;
+    drop(g);
+    DIRECT_SIGNAL_CV.notify_all();
+}
+
+/// 当前信号计数，供等待方比对是否错过了唤醒。
+pub fn direct_signal_tick() -> u64 {
+    *DIRECT_SIGNAL_TICK.lock()
+}
+
+/// 等下一次直接信号（或超时），返回最新计数。
+///
+/// 调用方先读 tick、再判命中、再进来等，可避免「判完没命中、mark 恰好在进等待前到达」
+/// 导致的丢失唤醒：tick 已在 mark 时递增，这里进来先比对一次。
+pub fn wait_direct_signal_tick(seen: u64, timeout: Duration) -> u64 {
+    let mut g = DIRECT_SIGNAL_TICK.lock();
+    if *g != seen {
+        return *g;
+    }
+    let _ = DIRECT_SIGNAL_CV.wait_for(&mut g, timeout);
+    *g
 }
 
 pub fn direct_signal_recent(name: &str, window: Duration) -> bool {

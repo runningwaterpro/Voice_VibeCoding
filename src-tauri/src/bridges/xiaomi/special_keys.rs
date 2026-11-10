@@ -9,7 +9,8 @@
 //! - 录入主路径在 WebView keydown；钩子只 best-effort 吞键，armed 不 gating。
 
 use crate::bridges::xiaomi::key_mapping::{
-    direct_signal_recent, on_uncorrelated_f5_down, should_suppress_voice_f5, EXTRA_INFO,
+    direct_signal_recent, direct_signal_tick, on_uncorrelated_f5_down, should_suppress_voice_f5,
+    wait_direct_signal_tick, EXTRA_INFO,
 };
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
@@ -86,14 +87,18 @@ fn wait_and_consume_vk(vk: u32, scan: u32) -> Option<&'static str> {
         _ => return None,
     };
     let deadline = Instant::now() + Duration::from_millis(SUPPRESS_WAIT_MS);
+    let mut seen = direct_signal_tick();
     loop {
         if names.iter().any(|&n| direct_signal_recent(n, window)) {
             return Some(label);
         }
-        if Instant::now() >= deadline {
+        let remain = deadline.saturating_duration_since(Instant::now());
+        if remain.is_zero() {
             break;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        // 事件等待代替 2ms 轮询：mark 到达即唤醒；命中判定与超时窗口不变。
+        // 物理键盘（遥控器静默、mark 永不到）仍会等到 SUPPRESS_WAIT_MS，但不占 CPU。
+        seen = wait_direct_signal_tick(seen, remain);
     }
     None
 }

@@ -65,7 +65,9 @@ pub fn set_gain_db(gain_db: f32) {
     let prev = f32::from_bits(LIVE_GAIN_DB.load(Ordering::Acquire));
     LIVE_GAIN_DB.store(clamped.to_bits(), Ordering::Release);
     if (prev - clamped).abs() > f32::EPSILON {
-        log::info!("voice gain live: {prev:.1} dB -> {clamped:.1} dB");
+        // 自动增益每帧都可能调整：INFO 会刷爆日志（实测 1s 数十行）。
+        // 排障需要时把日志级别调到 debug 即可看到。
+        log::debug!("voice gain live: {prev:.1} dB -> {clamped:.1} dB");
     }
 }
 

@@ -31,6 +31,11 @@ const FORWARDED: &[u16] = &[
 
 /// 附着/首包 IO 后短冷静期：只同步按键状态，不注入（避免连接抖动误触）
 const INPUT_GRACE: Duration = Duration::from_millis(800);
+
+/// 宿主 PID 复查间隔。`find_rc003_hidogatt_host_pid` 是注册表全表扫描（实测约 9.7ms），
+/// 原先每轮都查等于每秒白烧约 1% 单核。宿主真崩溃时 `stream.read` 会先返回 0/错误走 break，
+/// 不依赖这个复查，所以放宽到秒级无感知。
+const HOST_PID_RECHECK: Duration = Duration::from_secs(3);
 static INPUT_GRACE_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
 
 fn arm_input_grace() {
@@ -304,11 +309,21 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
         // 对齐 Python：1s accept 超时后 continue，保留 injection_attempted_pid
         let mut client: Option<TcpStream> = None;
         let wait_deadline = Instant::now() + Duration::from_secs(1);
+        // 未附着阶段的空转成本：accept 一轮 250ms（原 50ms），
+        // pid 复查单独按 HOST_PID_RECHECK 节流（原每轮都扫一次注册表）。
+        let mut last_pid_check: Option<Instant> = None;
         while !stop.load(Ordering::SeqCst) && Instant::now() < wait_deadline {
-            if find_rc003_hidogatt_host_pid() != Some(pid) {
-                injection_attempted_pid = None;
-                special_keys::set_hid_tap_ready(false);
-                break;
+            let pid_check_due = match last_pid_check {
+                Some(t) => t.elapsed() >= HOST_PID_RECHECK,
+                None => true,
+            };
+            if pid_check_due {
+                last_pid_check = Some(Instant::now());
+                if find_rc003_hidogatt_host_pid() != Some(pid) {
+                    injection_attempted_pid = None;
+                    special_keys::set_hid_tap_ready(false);
+                    break;
+                }
             }
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -318,7 +333,7 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
                     break;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(50));
+                    std::thread::sleep(Duration::from_millis(250));
                 }
                 Err(e) => {
                     tap_log(&format!("XIAOMI HID TAP accept: {e}"));
@@ -347,13 +362,18 @@ fn run_hub(app: AppHandle, gate_slot: Arc<Mutex<Arc<KeyEmitGate>>>, stop: Arc<At
         let mut last_heartbeat = Instant::now();
         let mut io_announced = false;
         let mut tmp = [0u8; 65536];
+        let mut last_pid_check = Instant::now();
 
         while !stop.load(Ordering::SeqCst) {
-            if find_rc003_hidogatt_host_pid() != Some(pid) {
-                tap_log(&format!("XIAOMI HID TAP HOST CHANGED old_pid={pid}"));
-                injection_attempted_pid = None;
-                special_keys::set_hid_tap_ready(false);
-                break;
+            // 已附着：read 每次超时（1s）都会回到这里，pid 复查按 HOST_PID_RECHECK 节流。
+            if last_pid_check.elapsed() >= HOST_PID_RECHECK {
+                last_pid_check = Instant::now();
+                if find_rc003_hidogatt_host_pid() != Some(pid) {
+                    tap_log(&format!("XIAOMI HID TAP HOST CHANGED old_pid={pid}"));
+                    injection_attempted_pid = None;
+                    special_keys::set_hid_tap_ready(false);
+                    break;
+                }
             }
 
             match stream.read(&mut tmp) {
