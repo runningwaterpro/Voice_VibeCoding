@@ -31,7 +31,13 @@ pub fn webview_ping() {
     crate::webview_guard::ping();
 }
 
-/// 前端 visibilitychange：隐藏时停 voice_meter UI 路
+/// 前端挂载时读一次界面可见性；之后跟随 `ui-visibility` 事件。
+#[tauri::command]
+pub fn get_ui_visible() -> bool {
+    crate::ui_state::ui_visible()
+}
+
+/// 前端 visibilitychange：隐藏时停 voice_meter UI 路（只能收紧，不能放宽）
 #[tauri::command]
 pub fn set_voice_meter_ui(visible: bool) {
     crate::bridges::xiaomi::voice_meter::set_ui_visible(visible);

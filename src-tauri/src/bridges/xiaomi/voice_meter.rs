@@ -4,7 +4,7 @@
 //! - `ble_level`：增益前「输入」RMS（0..1，UI 换算 dBFS）
 //! - `cable_level`：增益后「送声」RMS（UDP 成功时写入）
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -111,19 +111,19 @@ static METER: Mutex<MeterInner> = Mutex::new(MeterInner {
 
 static TICKER_STARTED: AtomicBool = AtomicBool::new(false);
 
-/// 0=未知(按可见), 1=可见, 2=隐藏（托盘/最小化）— UI 才需要电平/波形
-static UI_VIS: AtomicU8 = AtomicU8::new(0);
-
-/// 前端 visibilitychange 上报；隐藏时停 UI 路（波形/emit/ticker）
+/// 前端 visibilitychange 上报；隐藏时停 UI 路（波形/emit/ticker）。
+///
+/// 只能收紧：窗口可见性由 [`crate::ui_state`] 的窗口事件判定，
+/// 前端自报"可见"不会把最小化状态推翻。
 pub fn set_ui_visible(visible: bool) {
-    UI_VIS.store(if visible { 1 } else { 2 }, Ordering::SeqCst);
+    crate::ui_state::set_ui_hidden(!visible);
     if visible {
         emit_if_needed(true);
     }
 }
 
 fn ui_visible() -> bool {
-    UI_VIS.load(Ordering::SeqCst) != 2
+    crate::ui_state::ui_visible()
 }
 
 /// 在 app setup 时绑定，便于 PCM 线程发事件

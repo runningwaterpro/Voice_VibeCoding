@@ -2,9 +2,25 @@
 
 use crate::webview_guard::{self, HealthAction};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const MAIN_LABEL: &str = "main";
+
+/// 最近一次广播给前端的可见性；`Resized` 会连续触发，只在真正变化时发事件。
+static LAST_UI_VISIBLE: AtomicBool = AtomicBool::new(true);
+
+/// 把"窗口能否被用户看见"同步到 [`crate::ui_state`]，并在变化时通知前端。
+///
+/// 这是可见性的唯一判据：最小化到托盘时 `document.hidden` 不可靠，实测前端
+/// 轮询仍在跑。前端收到事件后暂停/恢复轮询和电平刷新。
+fn sync_ui_visibility(app: &AppHandle, window: &WebviewWindow) {
+    let visible = !window.is_minimized().unwrap_or(false) && window.is_visible().unwrap_or(false);
+    crate::ui_state::set_window_visible(visible);
+    if LAST_UI_VISIBLE.swap(visible, Ordering::SeqCst) != visible {
+        let _ = app.emit("ui-visibility", visible);
+        log::info!("WINDOW: ui visible={visible}");
+    }
+}
 
 /// 启动时是否进入托盘（设置「启动后最小化到托盘」或 `--minimized`）
 static BOOT_TO_TRAY: AtomicBool = AtomicBool::new(false);
@@ -35,6 +51,8 @@ pub fn minimize_main_to_tray(window: &WebviewWindow, reason: &str) {
     let _ = window.show();
     let _ = window.minimize();
     let _ = window.set_skip_taskbar(true);
+    // 立即置为隐藏，不等窗口事件；事件广播由 on_window_event 统一发出。
+    crate::ui_state::set_window_visible(false);
     log::info!("WINDOW: minimized to tray reason={reason} (skip_taskbar, no hide)");
 }
 
@@ -48,6 +66,7 @@ pub fn restore_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        sync_ui_visibility(app, &window);
     }
 }
 
@@ -60,16 +79,17 @@ pub fn reveal_main_on_frontend_ready(app: &AppHandle) {
             let _ = window.set_skip_taskbar(false);
             reveal_webview(&window);
             let _ = window.show();
+            sync_ui_visibility(app, &window);
         }
     }
 }
 
 /// 关闭到托盘：minimize + skip_taskbar（不用 hide）
-pub fn attach_main_window_close_handler(app: &AppHandle, window: &WebviewWindow) {
+pub fn attach_main_window_events(app: &AppHandle, window: &WebviewWindow) {
     let app_handle = app.clone();
     let window_ = window.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
             let minimize = app_handle
                 .try_state::<crate::config::manager::ConfigManager>()
                 .and_then(|m| m.get_global_settings().ok())
@@ -85,6 +105,11 @@ pub fn attach_main_window_close_handler(app: &AppHandle, window: &WebviewWindow)
                 crate::ipc::tray::quit_app_public(&app_handle);
             }
         }
+        // 最小化/还原/重建都会改变可见性：这是界面该不该刷新界面的唯一判据。
+        tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_) => {
+            sync_ui_visibility(&app_handle, &window_);
+        }
+        _ => {}
     });
 }
 
@@ -132,9 +157,10 @@ pub fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
     }
 
     let window = build_main_window(app)?;
-    attach_main_window_close_handler(app, &window);
+    attach_main_window_events(app, &window);
     reveal_webview(&window);
     let _ = window.show();
+    sync_ui_visibility(app, &window);
     webview_guard::on_recreated();
     log::info!("WEBVIEW RECOVERY: main window recreated");
     Ok(())

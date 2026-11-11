@@ -12,6 +12,7 @@ import BatteryLevelIcon from "../components/BatteryLevelIcon.vue";
 import CableVolRuler from "../components/CableVolRuler.vue";
 import KeyMappingStage from "../components/KeyMappingStage.vue";
 import { cableZoneForLevel } from "../utils/cableVolMeter";
+import { cancelPoll, pollEvery, type PollTask } from "../utils/statusPoll";
 import { vkDisplayName } from "../utils/vkDisplay";
 
 const bridge = useBridgeStore();
@@ -1182,17 +1183,18 @@ watch(
   { immediate: true },
 );
 
-let hostPollTimer: ReturnType<typeof setInterval> | null = null;
-let devicePollTimer: ReturnType<typeof setInterval> | null = null;
+let hostPoll: PollTask | null = null;
+let devicePoll: PollTask | null = null;
 
 function applyPollInterval(ms: number) {
-  if (hostPollTimer) clearInterval(hostPollTimer);
-  if (devicePollTimer) clearInterval(devicePollTimer);
-  hostPollTimer = null;
-  devicePollTimer = null;
+  cancelPoll(hostPoll);
+  cancelPoll(devicePoll);
+  hostPoll = null;
+  devicePoll = null;
   if (ms <= 0) return;
-  hostPollTimer = setInterval(refreshHost, ms);
-  devicePollTimer = setInterval(() => void bridge.refreshStatus(type), ms);
+  // 共用调度器：和 SideNav 的 2s 轮询共用一个定时器，界面隐藏时由 Rust 事件统一暂停。
+  hostPoll = pollEvery(refreshHost, ms);
+  devicePoll = pollEvery(() => void bridge.refreshStatus(type), ms);
 }
 
 function onVisibilityChange() {
@@ -2076,9 +2078,11 @@ onUnmounted(() => {
   unlistenCableProgress?.();
   unlistenCableComplete?.();
   unlistenCableError?.();
-  if (hostPollTimer) clearInterval(hostPollTimer);
+  cancelPoll(hostPoll);
+  hostPoll = null;
   if (bootGraceTimer) clearTimeout(bootGraceTimer);
-  if (devicePollTimer) clearInterval(devicePollTimer);
+  cancelPoll(devicePoll);
+  devicePoll = null;
   if (voiceTipCloseTimer) clearTimeout(voiceTipCloseTimer);
   if (gainTipCloseTimer) clearTimeout(gainTipCloseTimer);
   if (triggerTipCloseTimer) clearTimeout(triggerTipCloseTimer);

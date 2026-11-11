@@ -520,17 +520,21 @@ fn probe_cable_endpoints(force: bool) -> (bool, bool) {
     if !force {
         let g = CABLE_PROBE.lock();
         if let Some(c) = g.as_ref() {
-            let ready = cable_endpoints_ready(c.cable_input, c.cable_output);
-            let cache_ttl = if ready {
-                Duration::from_secs(2)
-            } else {
-                match not_ready_retry_interval() {
-                    Some(interval) => interval,
-                    None => return (c.cable_input, c.cable_output),
-                }
-            };
-            if c.at.elapsed() < cache_ttl {
+            if cable_endpoints_ready(c.cable_input, c.cable_output) {
+                // 已就绪：停止探测，直到安装/修复后 invalidate 或显式 fresh。
+                //
+                // 一次探测要把 MMDevices 下全部音频端点及其 Properties 读一遍
+                // （实测 300~500 次注册表读）。若按时间失效，而前端又是 1~2 秒
+                // 轮询一次状态，这份开销就变成每秒数百次读——托盘里也一样。
+                // 就绪状态只在安装/卸载/修复时改变，那些路径都会 invalidate。
                 return (c.cable_input, c.cable_output);
+            }
+            match not_ready_retry_interval() {
+                None => return (c.cable_input, c.cable_output),
+                Some(interval) if c.at.elapsed() < interval => {
+                    return (c.cable_input, c.cable_output);
+                }
+                Some(_) => {}
             }
         }
     }
@@ -550,8 +554,8 @@ pub fn invalidate_cable_probe_cache() {
 }
 
 pub fn voice_env_status() -> VoiceEnvStatus {
-    // Polling uses a short observation cache; explicit status/repair commands
-    // use voice_env_status_fresh() and bypass it.
+    // 就绪后直接吃缓存（探测要读几百个注册表键）；未就绪按重试间隔重探。
+    // 用户主动「检测/修复」走 voice_env_status_fresh() 绕过缓存。
     voice_env_status_inner(false)
 }
 

@@ -5,6 +5,7 @@ pub mod config;
 pub mod file_download;
 pub mod ipc;
 pub mod logging;
+pub mod ui_state;
 pub mod webview_guard;
 pub mod webview_recovery;
 
@@ -114,7 +115,7 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("main") {
                 // 关闭窗口：minimize_to_tray=true → minimize+skip_taskbar（禁止 hide）
-                webview_recovery::attach_main_window_close_handler(app.handle(), &window);
+                webview_recovery::attach_main_window_events(app.handle(), &window);
 
                 // 启动后最小化到托盘（用户设置）或 --minimized（自启）：统一走 minimize，不用 hide
                 let start_to_tray = app
@@ -275,6 +276,7 @@ pub fn run() {
             ipc::update_cmds::ignore_app_update,
             ipc::update_cmds::download_app_update,
             ipc::commands::webview_ping,
+            ipc::commands::get_ui_visible,
             ipc::commands::set_voice_meter_ui,
             ipc::commands::reveal_main_on_frontend_ready,
         ])

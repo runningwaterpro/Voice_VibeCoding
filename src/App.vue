@@ -9,6 +9,7 @@ import WindowTitlebar from "./components/WindowTitlebar.vue";
 import AppUpdateModal from "./components/AppUpdateModal.vue";
 import { useAppUpdateStore } from "./stores/appUpdate";
 import { useGlobalSettingsStore } from "./stores/globalSettings";
+import { setPollVisible } from "./utils/statusPoll";
 
 const appUpdate = useAppUpdateStore();
 const globalSettings = useGlobalSettingsStore();
@@ -30,6 +31,7 @@ interface ConflictSnapshot {
 const router = useRouter();
 let unlistenNav: UnlistenFn | null = null;
 let unlistenConflict: UnlistenFn | null = null;
+let unlistenUiVisibility: UnlistenFn | null = null;
 
 // WebView2 健康心跳：页面 JS 存活时每 5s 报告一次，供后端判定渲染进程是否死亡（自动 reload）
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -37,6 +39,24 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 function syncMeterUi() {
   // 托盘/最小化：停 voice_meter UI 路（后台看不到电平）
   invoke("set_voice_meter_ui", { visible: !document.hidden }).catch(() => {});
+}
+
+/**
+ * 界面可见性以 Rust 窗口事件为准：WebView2 在托盘态不一定派发
+ * `visibilitychange`，只靠 document.hidden 会让轮询和电平刷新一直跑。
+ */
+async function initUiVisibility() {
+  try {
+    unlistenUiVisibility = await listen<boolean>("ui-visibility", (ev) => {
+      setPollVisible(ev.payload !== false);
+      syncMeterUi();
+    });
+    const visible = await invoke<boolean>("get_ui_visible");
+    setPollVisible(visible !== false);
+  } catch (e) {
+    // 浏览器调试模式没有 Tauri API：保持默认可见。
+    console.warn("ui visibility init failed:", e);
+  }
 }
 
 const showConflict = ref(false);
@@ -244,11 +264,13 @@ onMounted(async () => {
   }, 5000);
   document.addEventListener("visibilitychange", syncMeterUi);
   syncMeterUi();
+  await initUiVisibility();
 });
 
 onUnmounted(() => {
   unlistenNav?.();
   unlistenConflict?.();
+  unlistenUiVisibility?.();
   appUpdate.dispose();
   document.removeEventListener("visibilitychange", syncMeterUi);
   if (heartbeatTimer) clearInterval(heartbeatTimer);

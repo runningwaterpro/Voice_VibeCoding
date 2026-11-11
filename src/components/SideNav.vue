@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import { useBridgeStore } from "../stores/bridge";
 import { useVoiceStatusStore } from "../stores/voiceStatus";
 import { useAppUpdateStore } from "../stores/appUpdate";
+import { cancelPoll, pollEvery, type PollTask } from "../utils/statusPoll";
 import SettingsSheet from "./SettingsSheet.vue";
 
 const bridge = useBridgeStore();
@@ -19,7 +20,7 @@ const session = ref({
   title: "正在启动…",
   sub: "",
 });
-let hostTimer: ReturnType<typeof setInterval> | null = null;
+let hostPoll: PollTask | null = null;
 
 const xiaomiStatusText = computed(() => bridge.statusLabel(bridge.devices.xiaomi.status));
 
@@ -54,17 +55,16 @@ async function refreshSession() {
 }
 
 function stopHostPoll() {
-  if (hostTimer) {
-    clearInterval(hostTimer);
-    hostTimer = null;
-  }
+  cancelPoll(hostPoll);
+  hostPoll = null;
 }
 
 function startHostPoll() {
   stopHostPoll();
   void refreshSession();
   void bridge.refreshStatus("xiaomi");
-  hostTimer = setInterval(() => {
+  // 共用调度器：界面隐藏时由 Rust 事件统一暂停，不必各自挂 visibilitychange。
+  hostPoll = pollEvery(() => {
     void refreshSession();
     void bridge.refreshStatus("xiaomi");
   }, 2000);
