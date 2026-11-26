@@ -35,6 +35,11 @@ static WINUHID_CANCEL: AtomicBool = AtomicBool::new(false);
 static VBCABLE_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static VBCABLE_CANCEL: AtomicBool = AtomicBool::new(false);
 
+/// 驱动包下载是否进行中；托盘回收界面时用来避免抽掉进度 UI。
+pub fn downloads_active() -> bool {
+    WINUHID_DOWNLOADING.load(Ordering::SeqCst) || VBCABLE_DOWNLOADING.load(Ordering::SeqCst)
+}
+
 fn download_agent() -> ureq::Agent {
     // 短读超时，便于轮询 cancel；连接仍给足时间
     ureq::AgentBuilder::new()

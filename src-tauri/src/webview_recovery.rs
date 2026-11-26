@@ -1,10 +1,23 @@
 //! WebView2 恢复：reload → recreate → restart 三级自救。
 
 use crate::webview_guard::{self, HealthAction};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const MAIN_LABEL: &str = "main";
+
+/// 托盘静置多久后销毁整个 WebView2 界面。
+///
+/// 延迟内“最小化又马上打开”仍是瞬时恢复；超过后点托盘要重建窗口，
+/// 约 0.5~1 秒。收益：托盘常驻内存从约 160MB 降到约 10MB。
+const UI_RECYCLE_DELAY: Duration = Duration::from_secs(30);
+
+/// 每次最小化/还原都递增，用来作废已经排队的回收任务。
+static RECYCLE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 托盘“一键修复”在界面已回收时的待办标记。
+static PENDING_TRAY_REPAIR: AtomicBool = AtomicBool::new(false);
 
 /// 最近一次广播给前端的可见性；`Resized` 会连续触发，只在真正变化时发事件。
 static LAST_UI_VISIBLE: AtomicBool = AtomicBool::new(true);
@@ -33,6 +46,66 @@ pub fn boot_to_tray() -> bool {
     BOOT_TO_TRAY.load(Ordering::SeqCst)
 }
 
+/// 下载/更新进行中时不要回收界面：前端监听一断，用户就看不到结果。
+fn ui_busy() -> bool {
+    crate::app_update::download_in_progress() || crate::file_download::downloads_active()
+}
+
+/// 作废已经排队的回收任务（窗口重新可见时调用）。
+fn cancel_ui_recycle() {
+    RECYCLE_SEQ.fetch_add(1, Ordering::SeqCst);
+}
+
+/// 最小化到托盘后排队销毁窗口，释放 WebView2 的 6 个进程。
+///
+/// 只销毁、不重建；点托盘时由 [`restore_main_window`] 按需重建。
+fn schedule_ui_recycle(app: &AppHandle) {
+    let seq = RECYCLE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("ui-recycle".into())
+        .spawn(move || {
+            std::thread::sleep(UI_RECYCLE_DELAY);
+            if RECYCLE_SEQ.load(Ordering::SeqCst) != seq {
+                return;
+            }
+            if crate::ui_state::ui_visible() {
+                return;
+            }
+            let app_main = app.clone();
+            if let Err(e) = app.run_on_main_thread(move || {
+                // 和托盘点击在同一线程上判定，避免“刚点开又被销毁”的竞态。
+                if RECYCLE_SEQ.load(Ordering::SeqCst) != seq {
+                    return;
+                }
+                if crate::ui_state::ui_visible() {
+                    return;
+                }
+                if ui_busy() {
+                    // 下载/更新还在跑：等下一轮，别把界面从用户眼前抽走。
+                    schedule_ui_recycle(&app_main);
+                    return;
+                }
+                let Some(window) = app_main.get_webview_window(MAIN_LABEL) else {
+                    return;
+                };
+                if !window.is_minimized().unwrap_or(false) {
+                    return;
+                }
+                log::info!("UI RECYCLE: releasing WebView2 while in tray");
+                match window.destroy() {
+                    Ok(()) => log::info!("UI RECYCLE: main window destroyed"),
+                    Err(e) => log::warn!("UI RECYCLE: destroy failed: {e}"),
+                }
+            }) {
+                log::warn!("UI RECYCLE: queue destroy failed: {e}");
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("UI RECYCLE: spawn failed: {e}");
+    }
+}
+
 /// 恢复 WebView2 渲染可见性（Windows hide/visible:false 后必须先 SetIsVisible）
 pub fn reveal_webview(window: &WebviewWindow) {
     #[cfg(target_os = "windows")]
@@ -46,7 +119,7 @@ pub fn reveal_webview(window: &WebviewWindow) {
 
 /// 最小化到托盘：show + minimize + 不占任务栏。
 /// **禁止 hide()**：长期 hide 会让 Windows 回收 WebView2，导致白屏/黑屏。
-pub fn minimize_main_to_tray(window: &WebviewWindow, reason: &str) {
+pub fn minimize_main_to_tray(app: &AppHandle, window: &WebviewWindow, reason: &str) {
     reveal_webview(window);
     let _ = window.show();
     let _ = window.minimize();
@@ -54,34 +127,67 @@ pub fn minimize_main_to_tray(window: &WebviewWindow, reason: &str) {
     // 立即置为隐藏，不等窗口事件；事件广播由 on_window_event 统一发出。
     crate::ui_state::set_window_visible(false);
     log::info!("WINDOW: minimized to tray reason={reason} (skip_taskbar, no hide)");
+    schedule_ui_recycle(app);
 }
 
-/// 还原主窗口到前台（托盘左键 / 二次启动 / 菜单「打开状态」）
+/// 还原主窗口到前台（托盘左键 / 二次启动 / 菜单“打开状态”）。
+/// 界面已被回收时先按需重建。
 pub fn restore_main_window(app: &AppHandle) {
     // 启动到托盘是一次性启动策略；用户恢复后，后续前端重载不能再次最小化。
     set_boot_to_tray(false);
-    if let Some(window) = app.get_webview_window(MAIN_LABEL) {
-        let _ = window.set_skip_taskbar(false);
-        reveal_webview(&window);
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        sync_ui_visibility(app, &window);
-    }
+    cancel_ui_recycle();
+    let window = match app.get_webview_window(MAIN_LABEL) {
+        Some(window) => window,
+        None => match create_main_window(app) {
+            Ok(window) => window,
+            Err(e) => {
+                log::error!("WINDOW: rebuild failed: {e}");
+                return;
+            }
+        },
+    };
+    let _ = window.set_skip_taskbar(false);
+    reveal_webview(&window);
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    sync_ui_visibility(app, &window);
 }
 
 /// 前端就绪后显示窗口；若启动策略为托盘则直接 minimize_to_tray。
 pub fn reveal_main_on_frontend_ready(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_LABEL) {
         if boot_to_tray() {
-            minimize_main_to_tray(&window, "frontend_ready");
+            minimize_main_to_tray(app, &window, "frontend_ready");
         } else {
             let _ = window.set_skip_taskbar(false);
             reveal_webview(&window);
             let _ = window.show();
             sync_ui_visibility(app, &window);
         }
+        if PENDING_TRAY_REPAIR.swap(false, Ordering::SeqCst) {
+            // 等设置页挂载并挂上 tray-auto-repair 监听，再补发托盘修复。
+            let app = app.clone();
+            std::thread::Builder::new()
+                .name("tray-repair-after-ready".into())
+                .spawn(move || {
+                    std::thread::sleep(Duration::from_millis(800));
+                    let _ = app.emit("tray-auto-repair", ());
+                })
+                .ok();
+        }
     }
+}
+
+/// 托盘“一键修复”：界面在时原样广播；界面被回收时先重建再补发。
+pub fn request_tray_repair(app: &AppHandle) {
+    if app.get_webview_window(MAIN_LABEL).is_some() {
+        let _ = app.emit("tray-auto-repair", ());
+        return;
+    }
+    log::info!("TRAY: repair requested with UI asleep; rebuilding window first");
+    PENDING_TRAY_REPAIR.store(true, Ordering::SeqCst);
+    restore_main_window(app);
 }
 
 /// 关闭到托盘：minimize + skip_taskbar（不用 hide）
@@ -98,7 +204,7 @@ pub fn attach_main_window_events(app: &AppHandle, window: &WebviewWindow) {
             if minimize {
                 api.prevent_close();
                 log::info!("WINDOW: CloseRequested -> minimize_to_tray");
-                minimize_main_to_tray(&window_, "close_requested");
+                minimize_main_to_tray(&app_handle, &window_, "close_requested");
             } else {
                 // 关窗即退出（托盘仍存活时须主动 exit）
                 api.prevent_close();
@@ -121,21 +227,26 @@ fn cancel_shortcut_capture(app: &AppHandle) {
     }
 }
 
-/// 尝试 reload 主窗口
+/// 尝试 reload 主窗口；界面已被回收时重建等同刷新。
 pub fn try_reload_main(app: &AppHandle) -> Result<(), String> {
     cancel_shortcut_capture(app);
+    let absent = app.get_webview_window(MAIN_LABEL).is_none();
+    restore_main_window(app);
+    if absent {
+        return Ok(());
+    }
     let window = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
-    restore_main_window(app);
     window.reload().map_err(|e| format!("WebView2 error: {e}"))
 }
 
 fn build_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     WebviewWindowBuilder::new(app, MAIN_LABEL, WebviewUrl::App("index.html".into()))
         .title("Voice VibeCoding")
-        .inner_size(900.0, 520.0)
-        .min_inner_size(880.0, 480.0)
+        .inner_size(722.0, 520.0)
+        .min_inner_size(722.0, 480.0)
+        .max_inner_size(960.0, 900.0)
         .resizable(true)
         .maximizable(false)
         .center()
@@ -143,6 +254,17 @@ fn build_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .visible(false)
         .build()
         .map_err(|e| e.to_string())
+}
+
+/// 新建主窗口（启动、托盘恢复、白屏自救共用）。
+fn create_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    let window = build_main_window(app)?;
+    attach_main_window_events(app, &window);
+    reveal_webview(&window);
+    let _ = window.show();
+    sync_ui_visibility(app, &window);
+    webview_guard::on_recreated();
+    Ok(window)
 }
 
 /// 销毁并重建主窗口（reload 无法复活僵尸 WebView2 时的唯一手段）
@@ -153,15 +275,10 @@ pub fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         old.destroy()
             .map_err(|e| format!("destroy main window failed: {e}"))?;
         // 给 WebView2 进程一点时间退出
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(300));
     }
 
-    let window = build_main_window(app)?;
-    attach_main_window_events(app, &window);
-    reveal_webview(&window);
-    let _ = window.show();
-    sync_ui_visibility(app, &window);
-    webview_guard::on_recreated();
+    create_main_window(app)?;
     log::info!("WEBVIEW RECOVERY: main window recreated");
     Ok(())
 }
@@ -194,10 +311,10 @@ pub fn apply_health_action(app: &AppHandle, action: HealthAction) {
     }
 }
 
-/// 托盘「刷新界面」：先 reload，失败则 recreate
+/// 托盘“刷新界面”：先 reload，失败则 recreate。
+/// 界面已被回收时直接重建，等于刷新。
 pub fn manual_refresh_ui(app: &AppHandle) {
     log::info!("TRAY: manual refresh UI requested");
-    restore_main_window(app);
     match try_reload_main(app) {
         Ok(()) => log::info!("TRAY: refresh reload succeeded"),
         Err(e) => {

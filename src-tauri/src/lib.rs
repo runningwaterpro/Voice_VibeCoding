@@ -131,12 +131,17 @@ pub fn run() {
                     // 兜底：若前端未及时调用，延迟后仍进入托盘（不用 hide）
                     log::info!("START: boot_to_tray=true (start_minimized_to_tray or --minimized)");
                     let win = window.clone();
+                    let app_handle = app.handle().clone();
                     std::thread::Builder::new()
                         .name("start-to-tray".into())
                         .spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(800));
                             if webview_recovery::boot_to_tray() {
-                                webview_recovery::minimize_main_to_tray(&win, "startup_fallback");
+                                webview_recovery::minimize_main_to_tray(
+                                    &app_handle,
+                                    &win,
+                                    "startup_fallback",
+                                );
                             }
                         })?;
                 } else {
@@ -220,10 +225,11 @@ pub fn run() {
                     .name("webview-guard".into())
                     .spawn(move || loop {
                         std::thread::sleep(std::time::Duration::from_secs(5));
-                        let visible = guard_app
-                            .get_webview_window("main")
-                            .and_then(|w| w.is_visible().ok())
-                            .unwrap_or(false);
+                        let Some(window) = guard_app.get_webview_window("main") else {
+                            // 界面已被托盘回收：不是故障，等按需重建。
+                            continue;
+                        };
+                        let visible = window.is_visible().unwrap_or(false);
                         let action = webview_guard::check(std::time::Instant::now(), visible);
                         webview_recovery::apply_health_action(&guard_app, action);
                     })?;
@@ -283,9 +289,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                cleanup_on_exit(app_handle);
+            RunEvent::ExitRequested { api, code, .. } => {
+                // 最后一个窗口被回收/关闭不等于退出：托盘和桥接还要继续跑。
+                // AppHandle::exit / restart 会带 code=Some，那种情况放行。
+                if code.is_none() {
+                    api.prevent_exit();
+                }
             }
+            RunEvent::Exit => cleanup_on_exit(app_handle),
             _ => {}
         });
 }
