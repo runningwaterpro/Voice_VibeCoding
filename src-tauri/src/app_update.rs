@@ -75,6 +75,11 @@ pub struct DownloadErrorPayload {
     pub message: String,
 }
 
+/// 更新包是否正在下载；托盘回收界面时用来避免抽掉进度 UI。
+pub fn download_in_progress() -> bool {
+    DOWNLOADING.load(Ordering::SeqCst)
+}
+
 pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }

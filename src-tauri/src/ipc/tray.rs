@@ -6,7 +6,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
+    AppHandle, Manager,
 };
 
 /// 托盘运行态：0=初始化(黄) 1=就绪(绿) 2=异常(红) 255=未应用
@@ -175,9 +175,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         "restore" | "show" => crate::webview_recovery::restore_main_window(app),
         "refresh_ui" => crate::webview_recovery::manual_refresh_ui(app),
         "restart_app" => crate::webview_recovery::restart_application(app),
-        "auto_repair" => {
-            let _ = app.emit("tray-auto-repair", ());
-        }
+        "auto_repair" => crate::webview_recovery::request_tray_repair(app),
         "quit" => quit_app(app),
         _ => {}
     }
