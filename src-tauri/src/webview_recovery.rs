@@ -285,7 +285,9 @@ pub fn try_reload_main(app: &AppHandle) -> Result<RefreshOutcome, String> {
     let window = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
-    window.reload().map_err(|e| format!("WebView2 error: {e}"))?;
+    window
+        .reload()
+        .map_err(|e| format!("WebView2 error: {e}"))?;
     Ok(RefreshOutcome::Reloaded)
 }
 
