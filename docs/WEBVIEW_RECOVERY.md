@@ -1,6 +1,6 @@
 # WebView2 白屏/黑屏恢复方案
 
-> 最后更新：2026-08-27  
+> 最后更新：2026-11-27
 > 关联代码：`webview_guard.rs`、`webview_recovery.rs`、`lib.rs`、`ipc/tray.rs`
 
 ---
@@ -18,6 +18,35 @@ Rust 主进程与音频子进程存活，WebView2 **渲染进程已死亡**进�
 `window.reload()` 只能重载 URL，**无法复活已死的 msedgewebview2 进程**。
 
 长期 `window.hide()` 关闭到托盘时，Windows 可能回收隐藏窗口的 WebView2 渲染资源，加速此问题。
+
+## 托盘回收（L0 的强化，v1.2.3 起）
+
+旧 L0 只是 `minimize()` + `set_skip_taskbar(true)`，WebView2 的 6 个进程（约 150MB）
+仍常驻，托盘待机一整天等于白白占着内存。
+
+现在改为**主动回收**：最小化静置 30 秒后 `destroy()` 主窗口，点托盘再按需重建。
+
+| 项 | 行为 |
+|----|------|
+| 触发 | 关闭到托盘、标题栏最小化、启动到托盘（三条路径统一走 `Resized` 事件 + `schedule_ui_recycle`） |
+| 延迟 | `UI_RECYCLE_DELAY` = 30 秒；延迟内还原是瞬时恢复 |
+| 抑制 | 更新包/驱动包下载中不回收，每 30 秒重试，最多 `UI_RECYCLE_MAX_DEFER` 次 |
+| 恢复 | 托盘左键 / 托盘「显示主界面」/ 二次启动 → `restore_main_window` 重建 |
+| 显示 | 重建后窗口保持隐藏，前端 `reveal_main_on_frontend_ready` 再显示；3 秒未显示则兜底显示 |
+| 一键修复 | 界面已回收时先重建窗口，前端挂好监听后调 `take_pending_tray_repair` 取待办 |
+| 与 `hide()` 的区别 | 不是让 Windows 决定何时回收，而是主动销毁后重建，状态可控 |
+
+回收后进程只剩 `remote-bridge-hub.exe`（约 10MB）+ 音频路由子进程（约 1.5MB），
+`msedgewebview2.exe` 全部退出；这是**预期状态**，不是白屏故障。
+
+关键日志：
+
+| 关键词 | 含义 |
+|--------|------|
+| `UI RECYCLE: releasing WebView2 while in tray` | 开始回收 |
+| `UI RECYCLE: main window destroyed` | 回收完成 |
+| `WINDOW: frontend did not reveal in time` | 前端 3 秒未显示，兜底 show |
+| `TRAY: refresh rebuilt the recycled window` | 刷新时窗口本就不在，走了重建 |
 
 ---
 
@@ -47,7 +76,7 @@ Rust 主进程与音频子进程存活，WebView2 **渲染进程已死亡**进�
 
 | 级别 | 手段 | 触发条件 |
 |------|------|----------|
-| L0 预防 | 关闭 / 启动进托盘 → `minimize()` + `set_skip_taskbar(true)`，**禁止 `hide()`** | 用户点关闭且「最小化到托盘」开启；或「启动后最小化到托盘」/`--minimized` |
+| L0 预防 | 关闭 / 启动进托盘 → `minimize()` + `set_skip_taskbar(true)`；静置 30 秒后 `destroy()` 回收（**禁止 `hide()`**） | 用户点关闭且「最小化到托盘」开启；或「启动后最小化到托盘」/`--minimized`；或标题栏最小化 |
 | L1 轻量 | `window.reload()` | 心跳超时 / 启动宽限期无 pong |
 | L2 重建 | destroy + `WebviewWindowBuilder` 重建 | reload 连续失败 ≥2 次 |
 | L3 重启 | `app.restart()` 整进程 relaunch | 托盘「重启软件」；L2 仍失败时用户手动 |

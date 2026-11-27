@@ -1872,6 +1872,15 @@ onMounted(async () => {
   unlistenTrayRepair = await listen("tray-auto-repair", () => {
     void autoRepairAll();
   });
+  // 托盘“一键修复”在界面被回收时只重建窗口、不广播事件；监听挂好后再取待办。
+  // 用“前端主动取”代替后端 sleep 猜测挂载时机。
+  try {
+    if (await invoke<boolean>("take_pending_tray_repair")) {
+      void autoRepairAll();
+    }
+  } catch (e) {
+    console.warn("take_pending_tray_repair failed", e);
+  }
   // 启动宽限：桥接起来或超时后结束 booting 展示
   bootGraceTimer = setTimeout(() => {
     inBootGrace.value = false;

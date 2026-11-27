@@ -49,6 +49,12 @@ pub fn reveal_main_on_frontend_ready(app: AppHandle) {
     crate::webview_recovery::reveal_main_on_frontend_ready(&app);
 }
 
+/// 前端挂好 `tray-auto-repair` 监听后调用：取走托盘“一键修复”的待办。
+#[tauri::command]
+pub fn take_pending_tray_repair() -> bool {
+    crate::webview_recovery::take_pending_tray_repair()
+}
+
 /// 获取指定设备的连接状态
 #[tauri::command]
 pub async fn get_device_status(

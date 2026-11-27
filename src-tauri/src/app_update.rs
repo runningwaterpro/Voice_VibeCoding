@@ -423,8 +423,8 @@ pub fn spawn_download(
         .name("app-update-download".into())
         .spawn(move || {
             let result = download_setup(&app_bg, &url, &dest);
-            DOWNLOADING.store(false, Ordering::SeqCst);
-
+            // 下载标志保持到安装器启动之后：安装器拉起前若把界面收走，
+            // 用户就看不到“正在启动安装”这一步。
             match result {
                 Ok(()) => match launch_installer(&dest) {
                     Ok(()) => {
@@ -456,6 +456,7 @@ pub fn spawn_download(
                     );
                 }
             }
+            DOWNLOADING.store(false, Ordering::SeqCst);
         })
         .map_err(|e| {
             DOWNLOADING.store(false, Ordering::SeqCst);

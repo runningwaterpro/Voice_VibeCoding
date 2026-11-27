@@ -285,6 +285,7 @@ pub fn run() {
             ipc::commands::get_ui_visible,
             ipc::commands::set_voice_meter_ui,
             ipc::commands::reveal_main_on_frontend_ready,
+            ipc::commands::take_pending_tray_repair,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
