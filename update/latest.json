@@ -1,8 +1,8 @@
 {
-  "version": "1.2.3",
-  "notes": "托盘静置 30 秒后释放 WebView2 界面，常驻内存降到约 10MB；点托盘图标可在约 1 秒内恢复界面。",
+  "version": "1.2.4",
+  "notes": "修复托盘回收后的四处问题：标题栏最小化也会释放界面、恢复时不再闪白屏、界面睡着时「一键修复」和「刷新界面」都能正常工作。",
   "giteePage": "",
-  "githubPage": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/tag/v1.2.3",
+  "githubPage": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/tag/v1.2.4",
   "giteeSetupUrl": "",
-  "githubSetupUrl": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/download/v1.2.3/Voice.VibeCoding_1.2.3_x64-setup.exe"
+  "githubSetupUrl": "https://github.com/runningwaterpro/Voice_VibeCoding/releases/download/v1.2.4/Voice.VibeCoding_1.2.4_x64-setup.exe"
 }
